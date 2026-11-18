@@ -21,6 +21,9 @@ TAG = re.compile(r"<(/?)([a-z]{2,3}(?:-[a-z]{2,4})?)>")
 #: languages written without spaces between words (segments join without a space; scored per character)
 CHAR_LANGS = frozenset({"zh", "ja", "yue"})
 
+#: Chatterbox Multilingual's language ids (upstream SUPPORTED_LANGUAGES)
+LANG_IDS = frozenset("ar da de el en es fi fr he hi it ja ko ms nl no pl pt ru sv sw tr zh".split())
+
 #: Parakeet TDT 0.6B v3's languages (its model card)
 PARAKEET_V3_LANGS = frozenset("bg hr cs da nl en et fi fr de el hu it lv lt mt pl pt ro sk sl es sv ru uk".split())
 #: Qwen3-ForcedAligner-0.6B's languages (its model card); Qwen3-ASR transcribes these and more
@@ -44,6 +47,40 @@ DEFAULT_MAX_ERR = {"*": 0.1}
 #: A segment with fewer reference tokens is scored but never regenerated: one or two words are too coarse to judge
 #: (a perfect German "Hallo" inside a Chinese turn is transcribed "Hello", error 1.0; seen 2026-11-17, 3 attempts).
 DEFAULT_MIN_CHECK_TOKENS = 3
+
+#: Speaking-rate bands per speaker role and language, in units per second of speech (words; characters for
+#: ``CHAR_LANGS``), measured over the segment's sounding span (:func:`edge_trim`). A segment outside its band is
+#: regenerated like one above ``max_err`` (a voice prompt sometimes makes the decoder rush, or babble for seconds
+#: before the text: seen 2026-11-17, 17.8 s before the first word, CER 0). ``{}`` = no pace check.
+DEFAULT_PACE: dict = {}
+#: a segment with fewer units is never paced (one or two words have no stable rate)
+DEFAULT_MIN_PACE_UNITS = 6
+
+
+def speech_units(text: str, lang: str) -> int:
+    """Words, or characters for ``CHAR_LANGS`` (letters and digits only): what a speaking rate counts."""
+    if lang in CHAR_LANGS:
+        return sum(1 for c in text if unicodedata.category(c)[0] in "LN")
+    return sum(1 for w in text.split() if _has_content(w))
+
+
+#: A segment too short to pace (one word, one character) must still not run long: Chatterbox repeats or babbles on
+#: very short inputs ("Wasser?" came out as "Wasser, Wasser", single Chinese characters as several syllables;
+#: 2026-11-17), which a transcript check exempted as too short to score. Longest sounding span: base + per unit.
+SHORT_MAX_S = {"*": (0.8, 0.7), "zh": (0.6, 0.45), "ja": (0.6, 0.45), "yue": (0.6, 0.45)}
+
+
+def short_cap(units: int, lang: str) -> float:
+    base, per = per_lang(SHORT_MAX_S, lang)
+    return base + per * max(units, 1)
+
+
+def pace_check(units: int, speech_s: float, band, cap: float | None = None) -> dict:
+    """``{"rate", "pace_ok"}``: ``units`` over ``speech_s`` seconds against ``band`` = ``(lo, hi)``, and ``speech_s``
+    against ``cap`` (None: unchecked)."""
+    rate = units / max(speech_s, 1e-3)
+    ok = (band is None or band[0] <= rate <= band[1]) and (cap is None or speech_s <= cap)
+    return {"rate": rate, "pace_ok": ok}
 
 
 def per_lang(cfg: dict, lang: str):
@@ -132,22 +169,39 @@ def parse_segments(text: str, lang: str) -> list[dict]:
     return out
 
 
+#: An interruption: ``<cut/>`` in a turn's text marks where the next speaker cuts in. The whole text is synthesized
+#: (so the voice does not wind down before the cut), the audio is cut right after the last word before the marker, the
+#: next turn starts overlapping it, and ``turns.text`` holds only what was said before the cut.
+CUT = "<cut/>"
+
+
+def _turn_text(turn: dict) -> str:
+    text = turn["text"]
+    return " ".join(str(t) for t in text) if isinstance(text, list) else text  # some writers emit a one-element list
+
+
 def turn_segments(turn: dict, lang: str) -> list[dict]:
-    """A dialogue turn's segments: its ``segments`` if given, else its ``text`` parsed in ``turn["lang"]`` or ``lang``."""
+    """A dialogue turn's segments: its ``segments`` if given, else its ``text`` (without a ``CUT`` marker: the whole
+    turn is synthesized) parsed in ``turn["lang"]`` or ``lang``."""
     if turn.get("segments"):
         return [{"lang": s["lang"], "text": s["text"].strip()} for s in turn["segments"] if _has_content(s["text"])]
-    text = turn["text"]
-    if isinstance(text, list):  # some writers emit a one-element list
-        text = " ".join(str(t) for t in text)
-    return parse_segments(text, turn.get("lang") or lang)
+    return parse_segments(re.sub(r"\s*" + re.escape(CUT) + r"\s*", " ", _turn_text(turn)), turn.get("lang") or lang)
+
+
+def turn_cut_units(turn: dict, lang: str) -> int | None:
+    """Speech units (:func:`speech_units`, per language segment) said before the turn's ``CUT``; None = no cut."""
+    if turn.get("segments") or CUT not in _turn_text(turn):
+        return None
+    pre = _turn_text(turn).split(CUT)[0]
+    return sum(speech_units(s["text"], s["lang"]) for s in parse_segments(pre, turn.get("lang") or lang))
 
 
 def turn_plain_text(turn: dict) -> str:
-    """A turn's text as a model's text stream sees it: no language tags."""
+    """A turn's text as a model's text stream sees it: no language tags, and of an interrupted turn only what was said
+    before the cut."""
     if turn.get("segments"):
         return join_segments([s["text"] for s in turn["segments"]])
-    text = turn["text"]
-    return plain_text(" ".join(str(t) for t in text) if isinstance(text, list) else text)
+    return plain_text(_turn_text(turn).split(CUT)[0])
 
 
 #: longest text one TTS item gets (characters; CHAR_LANGS count each character). Longer segments are split at
@@ -223,11 +277,17 @@ def attempt_seed(seed: int, attempt: int) -> int:
     return seed if attempt == 0 else stable_seed(seed, "retry", attempt)
 
 
+def _rank(r: dict) -> tuple:
+    return (r.get("pace_ok") is False, r["err"])
+
+
 def synthesize_checked(items: list[dict], synth, check, max_err, max_attempts: int) -> list[dict]:
-    """The regeneration loop. ``synth(items) -> wavs``; ``check(wavs, items) -> [{"err", ...}]``; ``max_err(item)`` the
-    item's threshold. Every item is synthesized; the ones above their threshold again with a new seed, up to
-    ``max_attempts`` in all (not one whose check says ``"exempt"``: too short to score reliably). Per item: the attempt with the lowest error (the earliest on a tie) as ``{"wav", "err", ...
-    check's keys, "seed", "attempts"}`` (``attempts``: how many were made)."""
+    """The regeneration loop. ``synth(items) -> wavs``; ``check(wavs, items) -> [{"err", "pace_ok"?, ...}]``;
+    ``max_err(item)`` the item's threshold. Every item is synthesized; the ones above their threshold or with
+    ``pace_ok`` False again with a new seed, up to ``max_attempts`` in all (not one whose check says ``"exempt"``: too
+    short to score reliably; its pace still counts). Per item: the best attempt (in pace first, then the lowest error,
+    the earliest on a tie) as ``{"wav", "err", ... check's keys, "seed", "attempts"}`` (``attempts``: how many were
+    made)."""
     assert max_attempts >= 1
     best: list[dict | None] = [None] * len(items)
     todo = list(range(len(items)))
@@ -240,18 +300,18 @@ def synthesize_checked(items: list[dict], synth, check, max_err, max_attempts: i
         assert len(wavs) == len(res) == len(batch)
         nxt = []
         for i, it, w, r in zip(todo, batch, wavs, res):
-            if best[i] is None or r["err"] < best[i]["err"]:
+            if best[i] is None or _rank(r) < _rank(best[i]):
                 best[i] = {**r, "wav": w, "seed": it["seed"]}
             best[i]["attempts"] = attempt + 1
-            if r["err"] > max_err(items[i]) and not r.get("exempt"):
+            if (r["err"] > max_err(items[i]) and not r.get("exempt")) or r.get("pace_ok") is False:
                 nxt.append(i)
         todo = nxt
     return best
 
 
 def edge_trim(wav, sr: int, *, lead: bool, trail: bool, db: float = -40.0, margin: float = 0.05) -> tuple[int, int]:
-    """``(a, b)``: the sample range of ``wav`` kept when its leading / trailing silence is cut (a turn's INNER segment
-    boundaries; quieter than ``db`` below the peak), ``margin`` seconds kept on each cut side."""
+    """``(a, b)``: the sample range of ``wav`` kept when its leading / trailing silence is cut (quieter than ``db``
+    below the peak), ``margin`` seconds kept on each cut side."""
     import numpy as np
 
     n = len(wav)
@@ -267,11 +327,14 @@ def edge_trim(wav, sr: int, *, lead: bool, trail: bool, db: float = -40.0, margi
     return (a, b) if b > a else (0, n)
 
 
-def stats_add(raw: dict, lang: str, err: float, attempts: int, audio_s: float, thr: float) -> None:
+def stats_add(raw: dict, lang: str, err: float, attempts: int, audio_s: float, thr: float,
+              pace_ok: bool | None = None) -> None:  # fmt: skip
     """Count one final segment into ``raw`` (``{"dialogues", "time": {...}, "lang": {lang: sums}}``)."""
     d = raw.setdefault("lang", {}).setdefault(
-        lang, {"segments": 0, "audio_s": 0.0, "err_sum": 0.0, "regenerated": 0, "above_max_err": 0, "attempts": 0}
+        lang, {"segments": 0, "audio_s": 0.0, "err_sum": 0.0, "regenerated": 0, "above_max_err": 0, "attempts": 0,
+               "off_pace": 0}  # fmt: skip
     )
+    d["off_pace"] = d.get("off_pace", 0) + (pace_ok is False)
     d["segments"] += 1
     d["audio_s"] += audio_s
     d["err_sum"] += err
@@ -308,15 +371,134 @@ def stats_summary(raw: dict) -> dict:
             "share_regenerated": round(d["regenerated"] / n, 4),
             "share_above_max_err": round(d["above_max_err"] / n, 4),
             "syntheses_per_segment": round(d["attempts"] / n, 3),
+            "share_off_pace": round(d.get("off_pace", 0) / n, 4),
         }
     return out
 
 
-def render(plan: dict, results: list[dict], sr: int, segment_gap: float) -> tuple[dict, list, list, list]:
+#: The pause before a turn, by who speaks next: ``[mean, std, lo, hi]`` seconds of a normal truncated to [lo, hi]
+#: (negative = overlap with the turn before). Users take their time or jump in (high variance); the assistant answers
+#: with a steady short latency. ``*`` = any other speaker.
+DEFAULT_GAPS = {"user": [0.4, 0.6, -0.3, 2.0], "assistant": [0.35, 0.08, 0.2, 0.55], "*": [0.2, 0.4, -0.3, 0.6]}
+
+
+def draw_gap(rng, spec) -> float:
+    """One pause from ``spec`` = ``[mean, std, lo, hi]`` (resampled until inside [lo, hi])."""
+    mean, std, lo, hi = spec
+    assert lo <= hi
+    for _ in range(1000):
+        v = rng.gauss(mean, std)
+        if lo <= v <= hi:
+            return v
+    return min(max(mean, lo), hi)
+
+
+#: silence kept on each side of a boundary between segments of one turn (seconds)
+INNER_MARGIN = 0.02
+#: the pause between two segments of one turn, by how the first one ends (seconds; ``segment_gap`` is the floor). A
+#: language switch inside a phrase ("Das heißt <en>to commute</en>") gets almost none; one after a sentence or a clause
+#: a speaker's pause (trimming every boundary to INNER_MARGIN made sentence ends run into the next sentence, round 3).
+BOUNDARY_PAUSE = {"sentence": 0.3, "clause": 0.12}
+_END_SENTENCE = re.compile(r"[.!?…。！？]['\"’”»）)]*\s*$")
+_END_CLAUSE = re.compile(r"[,;:—–，、；：]['\"’”»）)]*\s*$")
+
+
+#: silences inside one TTS clip longer than MAX_INNER_PAUSE are shortened to CAPPED_PAUSE (seconds): Chatterbox
+#: sometimes pauses 1-2.5 s at a sentence end inside a clip (round 4, designed German voices: p99 1.3 s, max 2.5 s)
+MAX_INNER_PAUSE = 0.45
+CAPPED_PAUSE = 0.35
+
+
+def cap_pauses(wav, sr: int, max_s: float = MAX_INNER_PAUSE, to_s: float = CAPPED_PAUSE, db: float = -40.0):
+    """``(wav, cuts)``: every inner silence of ``wav`` (10 ms frames quieter than ``db`` below the peak, not touching
+    either edge) longer than ``max_s`` shortened to ``to_s`` by removing its middle; ``cuts`` = the removed spans as
+    ``(start, length)`` seconds on the input's timeline (:func:`shift_time` maps times through them)."""
+    import numpy as np
+
+    hop = max(1, int(0.01 * sr))
+    n = len(wav) // hop
+    peak = float(np.max(np.abs(wav))) if len(wav) else 0.0
+    if n < 3 or peak <= 0:
+        return wav, []
+    sil = np.abs(wav[: n * hop]).reshape(n, hop).max(1) < peak * 10 ** (db / 20)
+    keep, cuts, last, k = [], [], 0, 0
+    half = int(to_s * sr / 2)
+    while k < n:
+        if not sil[k]:
+            k += 1
+            continue
+        j = k
+        while j < n and sil[j]:
+            j += 1
+        if k > 0 and j < n and (j - k) * hop > max_s * sr:
+            a, b = k * hop + half, j * hop - half
+            keep.append(wav[last:a])
+            cuts.append((a / sr, (b - a) / sr))
+            last = b
+        k = j
+    if not cuts:
+        return wav, []
+    keep.append(wav[last:])
+    return np.concatenate(keep), cuts
+
+
+def shift_time(t: float, cuts: list) -> float:
+    """Time ``t`` of a clip after :func:`cap_pauses` removed ``cuts`` (a time inside a removed span lands on its
+    start)."""
+    out = t
+    for a, n in cuts:
+        if t >= a + n:
+            out -= n
+        elif t > a:
+            out -= t - a
+    return out
+
+
+def boundary_pause(text: str, segment_gap: float) -> float:
+    """The pause after a segment whose text is ``text`` when another segment of the same turn follows."""
+    if _END_SENTENCE.search(text):
+        return max(segment_gap, BOUNDARY_PAUSE["sentence"])
+    if _END_CLAUSE.search(text):
+        return max(segment_gap, BOUNDARY_PAUSE["clause"])
+    return segment_gap
+
+#: an interrupted turn's audio ends this long after the end of its last word before the cut (then a 40 ms fade)
+CUT_TAIL = 0.12
+#: how long the interrupting turn overlaps the interrupted one: uniform in this range (seconds); the speaker stops
+#: this long after the other started
+DEFAULT_CUT_OVERLAP = [0.25, 0.6]
+
+#: every turn's speech level, dB of full scale (RMS over its sounding samples); peaks kept under -1 dBFS
+DEFAULT_LOUDNESS_DBFS = -23.0  # Turbo's level (it normalises the voice prompt): median -23 in the pilot
+
+
+def level_to(wav, target_dbfs: float | None, *, db: float = -40.0, peak_dbfs: float = -1.0):
+    """``wav`` scaled so the RMS of its sounding samples (louder than ``db`` below its peak) is ``target_dbfs``, the
+    gain capped so no sample passes ``peak_dbfs``. ``None``: unchanged. Chatterbox's output level follows the voice
+    prompt's (Multilingual V3 does not normalise it): pilot 2026-11-17, Multilingual turns -49 to -19 dBFS (p5-p95),
+    turns of one dialogue 15.5 dB apart at p90 (Turbo -25 to -21)."""
+    import numpy as np
+
+    if target_dbfs is None or len(wav) == 0:
+        return wav
+    a = np.abs(wav)
+    peak = float(a.max())
+    if peak <= 0:
+        return wav
+    loud = wav[a > peak * 10 ** (db / 20)]
+    rms = float(np.sqrt(np.mean(loud.astype(np.float64) ** 2)))
+    gain = min(10 ** (target_dbfs / 20) / max(rms, 1e-9), 10 ** (peak_dbfs / 20) / peak)
+    return (wav * gain).astype(np.float32)
+
+
+def render(plan: dict, results: list[dict], sr: int, segment_gap: float,
+           loudness_dbfs: float | None = DEFAULT_LOUDNESS_DBFS) -> tuple[dict, list, list, list]:  # fmt: skip
     """Speaker tracks, turn rows, segment rows and word rows of one planned dialogue (``chatterbox_v2_inference.
     plan_dialogue``: ``turns``, ``segs``, ``items``, ``gaps``) from its segment results (``synthesize_checked``'s, with
-    ``words`` in seconds from each segment's start). A turn's segments are joined with their inner silence trimmed and
-    ``segment_gap`` between; turns follow ``chatterbox_inference``'s timeline (``pre_silence``, then the turn, then its
+    ``words`` in seconds from each segment's start). Every segment's leading and trailing silence is trimmed (so a
+    turn starts with speech and the pause before it is exactly the planned gap: Chatterbox Multilingual leads with up to
+    1 s of silence, measured 2026-11-17), long silences inside a clip shortened (:func:`cap_pauses`), a turn's segments joined with :func:`boundary_pause` between, each turn brought to
+    ``loudness_dbfs`` (:func:`level_to`); turns follow ``chatterbox_inference``'s timeline (``pre_silence``, then the turn, then its
     gap; a negative gap overlaps the next turn, never before this turn's start). Times in the rows are seconds on the
     dialogue timeline; ``turns.text`` is the plain text (:func:`turn_plain_text`)."""
     import numpy as np
@@ -326,7 +508,6 @@ def render(plan: dict, results: list[dict], sr: int, segment_gap: float) -> tupl
         by_turn.setdefault(it["turn"], []).append((it, r))
     pieces, turn_rows, seg_rows, word_rows = [], [], [], []
     t_samples = 0
-    gap_n = int(segment_gap * sr)
     for ti, turn in enumerate(plan["turns"]):
         if turn.get("pre_silence"):
             assert turn["pre_silence"] >= 0, "pre_silence must be non-negative"
@@ -334,27 +515,48 @@ def render(plan: dict, results: list[dict], sr: int, segment_gap: float) -> tupl
         segs = by_turn[ti]
         start, pos, chunks = t_samples, t_samples, []
         for k, (it, r) in enumerate(segs):
-            a, b = edge_trim(r["wav"], sr, lead=k > 0, trail=k < len(segs) - 1)
+            # turn edges keep 50 ms; a language switch inside the turn only INNER_MARGIN (the pilot's 50 ms + 80 ms gap +
+            # 50 ms sounded like a pause between the languages)
+            a, _ = edge_trim(r["wav"], sr, lead=True, trail=False, margin=0.05 if k == 0 else INNER_MARGIN)
+            _, b = edge_trim(r["wav"], sr, lead=False, trail=True, margin=0.05 if k == len(segs) - 1 else INNER_MARGIN)
             if k > 0:
-                chunks.append(np.zeros(gap_n, np.float32))
-                pos += gap_n
-            chunks.append(r["wav"][a:b])
+                g = int(boundary_pause(segs[k - 1][0]["text"], segment_gap) * sr)
+                chunks.append(np.zeros(g, np.float32))
+                pos += g
+            clip, cuts = cap_pauses(r["wav"][a:b], sr)
+            chunks.append(clip)
             s0 = pos / sr
-            seg_rows.append({"turn": ti, "lang": it["lang"], "text": it["text"], "start": s0, "end": s0 + (b - a) / sr,
+            seg_rows.append({"turn": ti, "lang": it["lang"], "text": it["text"], "start": s0, "end": s0 + len(clip) / sr,
                              "err": r["err"], "wer": r.get("wer", r["err"]), "cer": r.get("cer", r["err"]),
-                             "attempts": r["attempts"], "asr_text": r["asr_text"]})  # fmt: skip
+                             "attempts": r["attempts"], "asr_text": r["asr_text"],
+                             "rate": float(r.get("rate", 0.0))})  # fmt: skip
             for w in r["words"]:
-                ws, we = w["start"] - a / sr, w["end"] - a / sr
-                if we <= 0 or ws >= (b - a) / sr:
+                ws, we = shift_time(w["start"] - a / sr, cuts), shift_time(w["end"] - a / sr, cuts)
+                if we <= 0 or ws >= len(clip) / sr:
                     continue  # inside a trimmed edge (should not happen: trimmed parts are silent)
                 word_rows.append({"turn": ti, "segment": it["segment"], "speaker": turn["speaker"], "lang": it["lang"],
                                   "text": w["text"], "start": s0 + max(ws, 0.0),
-                                  "end": s0 + min(we, (b - a) / sr)})  # fmt: skip
-            pos += b - a
-        wav = np.concatenate(chunks)
+                                  "end": s0 + min(we, len(clip) / sr)})  # fmt: skip
+            pos += len(clip)
+        wav = level_to(np.concatenate(chunks), loudness_dbfs)
+        n_keep = turn_cut_units(turn, plan.get("lang") or "en")
+        tw = [w for w in word_rows if w["turn"] == ti]
+        if n_keep is not None and 0 < n_keep < len(tw):
+            t_cut = tw[n_keep - 1]["end"] + CUT_TAIL  # dialogue time
+            n = min(len(wav), max(1, int(round(t_cut * sr)) - start))
+            wav = wav[:n].copy()
+            f = min(n, int(0.04 * sr))
+            wav[n - f :] *= np.linspace(1.0, 0.0, f, dtype=np.float32)
+            drop = {id(w) for w in tw[n_keep:]}
+            word_rows = [w for w in word_rows if id(w) not in drop]
+            seg_rows = [x for x in seg_rows if x["turn"] != ti or x["start"] < t_cut]
+            for x in seg_rows:
+                if x["turn"] == ti:
+                    x["end"] = min(x["end"], t_cut)
         pieces.append((turn["speaker"], start, wav))
         turn_rows.append({"speaker": turn["speaker"], "start_time": start / sr, "end_time": (start + len(wav)) / sr,
-                          "text": turn_plain_text(turn), "lang": main_lang(plan["segs"][ti])})  # fmt: skip
+                          "text": turn_plain_text(turn), "lang": main_lang(plan["segs"][ti]),
+                          "interrupted": n_keep is not None})  # fmt: skip
         t_samples = start + len(wav)
         gap = plan["gaps"][ti]
         delta = int(sr * gap)

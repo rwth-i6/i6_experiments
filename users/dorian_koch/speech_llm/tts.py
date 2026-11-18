@@ -360,7 +360,17 @@ class ChatterboxInferenceV2(Job):
     16 GB for the annotators and halves its decoder batches on CUDA out of memory instead of failing. A segment above ``max_err`` (per language, ``*`` default) is
     synthesized again with a new seed, up to ``max_attempts`` in all, and the best attempt kept (attempt 0 = the seed a
     run without regeneration uses); a segment shorter than ``min_check_tokens`` reference tokens is scored but never
-    regenerated (default ``chatterbox_v2_core.DEFAULT_MIN_CHECK_TOKENS``). Output columns: ``chatterbox_v2_inference``'s docstring; ``out_stats``: per
+    regenerated (default ``chatterbox_v2_core.DEFAULT_MIN_CHECK_TOKENS``). ``pace``: ``{speaker: {lang | "*": [lo,
+    hi]}}`` speaking-rate bands (words / s, characters / s for zh / ja / yue, over the sounding span); a segment of at
+    least ``min_pace_units`` outside its band is regenerated like an error. ``exaggeration``: ``{speaker | "*": value or
+    [lo, hi]}``, a range drawn once per speaker and dialogue (a turn's own ``exaggeration`` wins); ``mtl_decode``:
+    Multilingual V3's sampling (``cfg_weight``, ``temperature``, ``min_p``, ``top_p``, ``repetition_penalty``; upstream
+    defaults 0.5, 0.8, 0.05, 1.0, 1.2). Every segment's edge silence is trimmed, so the pause before a turn is the
+    sampled gap only; ``stress_python_path`` (``venvs.ru_stress_venv``): Russian TTS input gets stress marks as
+    upstream's tokenizer would add them (``ru_stress_worker.py``); ``cross_lang_cfg``: guidance weight for a segment
+    whose language differs from its voice prompt's (upstream's advice against accent transfer: 0) (``gaps``: ``{next speaker | "*": [mean, std, lo, hi]}``, default
+    ``chatterbox_v2_core.DEFAULT_GAPS``: the user's pause varies widely, the assistant's little; a turn with ``<cut/>`` is interrupted there: cut after
+    its last word before the marker, the next turn overlapping it by ``cut_overlap`` seconds); every turn is levelled to ``loudness_dbfs`` (speech RMS; None: as synthesized). Output columns: ``chatterbox_v2_inference``'s docstring; ``out_stats``: per
     language error rates, regeneration shares, audio hours, wall times.
 
     ``parakeet_python_path``: the NeMo venv (``fdb.fdb_asr_venv()``), needed when a backend is ``parakeet``;
@@ -391,9 +401,18 @@ class ChatterboxInferenceV2(Job):
         metric: str = "cer",
         max_attempts: int = 3,
         min_check_tokens: int | None = None,
-        segment_gap: float = 0.08,
+        segment_gap: float = 0.02,
         qwen3_asr_model: str = "Qwen/Qwen3-ASR-0.6B",
         qwen3_aligner_model: str = "Qwen/Qwen3-ForcedAligner-0.6B",
+        exaggeration: dict | None = None,
+        mtl_decode: dict | None = None,
+        pace: dict | None = None,
+        min_pace_units: int | None = None,
+        loudness_dbfs: float | None = -23.0,
+        gaps: dict | None = None,
+        cut_overlap: list | None = None,
+        stress_python_path: tk.AbstractPath | None = None,
+        cross_lang_cfg: float | None = None,
         chunk: int = 192,
         rqmt: dict | None = None,
     ):
@@ -410,6 +429,7 @@ class ChatterboxInferenceV2(Job):
         self.venv_python_path = venv_python_path
         self.annotate_python_path = annotate_python_path
         self.parakeet_python_path = parakeet_python_path
+        self.stress_python_path = stress_python_path
         self.in_hf = in_hf
         self.speaker_dir = speaker_dir
         self.speaker_alias = speaker_alias or {}
@@ -429,6 +449,15 @@ class ChatterboxInferenceV2(Job):
             "segment_gap": float(segment_gap),
             "qwen3_asr_model": qwen3_asr_model,
             "qwen3_aligner_model": qwen3_aligner_model,
+            "exaggeration": dict(sorted((exaggeration or {"*": 0.5}).items())),
+            "mtl_decode": dict(sorted((mtl_decode or {}).items())),
+            "pace": {r: dict(sorted(b.items())) for r, b in sorted((pace or core.DEFAULT_PACE).items())},
+            "min_pace_units": int(core.DEFAULT_MIN_PACE_UNITS if min_pace_units is None else min_pace_units),
+            "loudness_dbfs": None if loudness_dbfs is None else float(loudness_dbfs),
+            "gaps": {k: [float(x) for x in v] for k, v in sorted((gaps or core.DEFAULT_GAPS).items())},
+            "cut_overlap": [float(x) for x in (cut_overlap or core.DEFAULT_CUT_OVERLAP)],
+            "ru_stress": stress_python_path is not None,
+            "cross_lang_cfg": None if cross_lang_cfg is None else float(cross_lang_cfg),
         }
         self.chunk = chunk
         self.out_hf = self.output_path("out_hf", directory=True)
@@ -486,6 +515,8 @@ class ChatterboxInferenceV2(Job):
             worker = os.path.join(root, "full_duplex", "moshi_family", "rl", "parakeet_worker.py")
             assert os.path.exists(worker), worker
             args += ["--parakeet_python", self.parakeet_python_path.get(), "--parakeet_worker", worker]
+        if self.stress_python_path is not None:
+            args += ["--stress_python", self.stress_python_path.get(), "--stress_worker", str(here / "ru_stress_worker.py")]
         if self.shard is not None:
             args += ["--in_hf_shard", self.shard, "--in_hf_num_shards", self.num_shards]
         if self.keep_columns:

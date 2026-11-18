@@ -18,19 +18,30 @@ class CreateVenv(Job):
 
     Tasks are not hashed: finished venvs are untouched by this, and were converted in place with
     ``python sqsh_venv.py pack`` (2026-09-14).
+
+    ``base_python``: the interpreter the venv is created from (default: the one running the job, the setup's
+    Python 3.12), e.g. ``/usr/bin/python3.11`` for a package that cannot run on 3.12. ``post_install``: argument
+    lists run with the venv's python after the installs and before packing (the image is read-only afterwards), e.g.
+    to download a package's data. Both enter the hash only when set (existing venvs keep theirs).
     """
 
-    def __init__(self, *, packages: list[list[str]] | None = None, hash_overwrite: str | None = None):
+    def __init__(self, *, packages: list[list[str]] | None = None, hash_overwrite: str | None = None,
+                 base_python: str | None = None, post_install: list[list[str]] | None = None):  # fmt: skip
         self.out_env_path = self.output_path("venv", directory=True)
         self.out_python_path = self.output_var("venv_python_path")
         self.packages = packages if packages is not None else []
         self.hash_overwrite = hash_overwrite
+        self.base_python = base_python
+        self.post_install = post_install or []
 
     @classmethod
     def hash(cls, parsed_args):
         if parsed_args.get("hash_overwrite") is not None:
             return parsed_args["hash_overwrite"]
         d = dict(**parsed_args)
+        for k in ("base_python", "post_install"):
+            if not d.get(k):
+                d.pop(k, None)
         # d["__version"] = 5
         return super().hash(d)
 
@@ -62,9 +73,11 @@ class CreateVenv(Job):
             staging_root = getattr(gs, "VENV_STAGING_DIR", None)
             staging = os.path.join(staging_root, os.path.basename(self.job_id())) if staging_root else None
         try:
-            venv_python = sqsh_venv.create_venv(env, staging)
+            venv_python = sqsh_venv.create_venv(env, staging, base_python=self.base_python)
             for pkgs in self.packages:
                 subprocess.check_call([venv_python, "-m", "pip", "install"] + pkgs)
+            for cmd in self.post_install:
+                subprocess.check_call([venv_python] + cmd)
             if base is not None:
                 self.pack()  # the tree exists on THIS node only: image it before the task ends
             self.out_python_path.set(venv_python)

@@ -17,8 +17,14 @@ and the reply policy are drawn per dialogue (an English prompt with a Chinese-sp
 Turns name their language; a stretch in another language is tagged inline (``<en>...</en>``), which the TTS turns
 into language segments and strips from the text (``chatterbox_v2_core``).
 
-The system prompt carries every specific fact the assistant uses; the writer is told so and invents those facts INTO
-the prompt (business details, the learner's level, the passage), never only into the assistant's lines.
+The system prompt carries every fact the assistant has IN ADVANCE (business details, the learner's level, the
+passage); everything about the user's own situation (name, account, problem, plans, constraints, preferences) comes
+from the user in the conversation, and the assistant's replies depend on it (``user_facts``: the writer quotes the
+details from user turns that later replies rely on; validated to be in a user turn and absent from the prompt), so a
+model trained on it has to listen to the user, not only read the prompt.
+
+People's names and genders are drawn per seed (``sft_names.draw_cast``: an LLM left to invent names picks the same
+few), and the voices are drawn from the voice pool of the same gender.
 """
 
 from __future__ import annotations
@@ -31,8 +37,30 @@ import time
 
 from sisyphus import Job, Task, tk
 
+from .chatterbox_v2_core import CUT
+
 #: our languages: id -> the name the writer gets
 LANGS = {"en": "English", "de": "German", "zh": "Mandarin Chinese (simplified characters)", "ru": "Russian"}
+#: The assistant's identity (the model being post-trained) in every scenario, learned rather than prompted: system
+#: prompts need not state it, the assistant says its name only when the user asks for it (``_name_problem``) and never
+#: claims to have none, and it
+#: names no other maker or model (the writer otherwise has assistants call themselves Yandex's or Alibaba's:
+#: ``FOREIGN_AI``). Another model gets its own identity by changing it.
+PRODUCT = {"name": "Haru-i6-Instruct", "maker": "the i6 group at RWTH Aachen University in Aachen, Germany",
+           # how turns say it (the TTS must read it: "i6" spelled as spoken, no digits, Latin only inside an
+           # <en> tag in Russian / Chinese text)
+           "spoken": {"en": "Haru i six Instruct, from the I six group at RWTH Aachen University",
+                      "de": "Haru i sechs Instruct, vom Lehrstuhl i sechs an der RWTH Aachen",
+                      "ru": "Хару И-шесть Инстракт из группы И-шесть Ахенского технического университета",
+                      "zh": "<en>Haru i six Instruct</en>，来自亚琛工业大学的<en>i six</en>团队"}}
+#: makers / assistants the writer must not name as the assistant's (any mention rejects the dialogue: a user talking
+#: about them is rare in our scenarios, and a wrong identity is worse than a lost dialogue)
+FOREIGN_AI = re.compile(
+    r"(?i)yandex|яндекс|alibaba|阿里|通义|qwen|千问|openai|chatgpt|\bgpt|anthropic|claude|gemini|\bbard\b|deepseek|"
+    r"深度求索|baidu|百度|文心|ernie|zhipu|智谱|kimi|moonshot|月之暗面|mistral|llama|copilot|cortana|siri|alexa|"
+    r"gigachat|гигачат|сбер|小爱|小度|豆包|doubao|bytedance|字节跳动|腾讯|tencent|混元"
+)
+
 #: native locales a dialogue is set in
 LOCALES = {
     "en": ["the United States", "the United Kingdom", "Canada", "Australia", "Ireland"],
@@ -41,9 +69,10 @@ LOCALES = {
     "ru": ["Russia"],
 }
 #: bump a scenario's entry when its seeds or writer brief change: only that scenario's jobs re-hash
-SCENARIO_VERSIONS = {"service": 1, "grounded": 1, "help": 1, "chitchat": 1, "skills": 1, "tutor": 1, "longtask": 1}
+SCENARIO_VERSIONS = {"service": 3, "grounded": 3, "help": 3, "chitchat": 3, "skills": 3, "tutor": 3, "longtask": 3,
+                     "assistant": 2}  # fmt: skip
 #: the writer prompt / validation (every scenario): hashed into SftWriteDialogues
-WRITER_VERSION = 2
+WRITER_VERSION = 9
 #: system-prompt detail levels (PersonaPlex: prompts "at varying detail levels") and their draw weights
 LEVELS = {
     "short": "one or two sentences: who the assistant is and only the facts it needs",
@@ -104,8 +133,13 @@ def _service(lang, rng, rows):
     loc = rng.choice(LOCALES[lang])
     brief = (f"The assistant answers the phone for {role} in {loc}. Invent the business realistically for {loc} (a "
              f"local-sounding name, address area, opening hours, prices in the local currency, 3-6 concrete facts and "
-             f"policies relevant to the call, and the caller's booking / account details if the call needs them) and "
-             f"put ALL of it in the system prompt. The caller's matter: {kind}. During the call the caller {p['ask']}. "
+             f"policies relevant to the call) and put ALL of it in the system prompt. The caller's own details (name, "
+             f"booking or account number, dates, what exactly happened, what they want) are NOT in the system prompt: "
+             f"the caller gives them, the assistant asks for what is missing and uses them (repeats a number back, "
+             f"applies a policy to the caller's dates, works out the caller's price). The caller's matter: {kind}. "
+             f"During the call the caller {p['ask']}. At least once the caller asks for something specific that is "
+             f"not in the system prompt; the assistant says it does not have that information and offers what it "
+             f"can. "
              f"Expected: {p['expected'].replace('({noun})', '(from the system prompt)')}")  # fmt: skip
     return {"domain": dom, "matter": kind, "probe": probe, "locale": loc, "brief": brief, "turns": rng.randint(8, 12)}
 
@@ -121,10 +155,12 @@ def _grounded(lang, rng, rows):
 
 def _help(lang, rng, rows):
     row = rows["wildchat"][rng.randrange(len(rows["wildchat"]))]
-    brief = (f"A general voice assistant. The user's first request is based on this real typed request to a chatbot "
+    brief = (f"A general voice assistant (its system prompt is the general one: nothing about this conversation's "
+             f"topic). The user's first request is based on this real typed request to a chatbot "
              f"(rewrite it as something a person would SAY to a voice assistant; if it cannot be done by voice, e.g. "
              f"code, a long document, an image, turn it into a related spoken request; if it is spam, a test message "
-             f"or makes no sense, ignore it and invent a typical everyday spoken request instead): {row['text']!r}. "
+             f"or makes no sense, or is sexual, hateful or meant to cause harm, ignore it and invent a typical everyday spoken "
+             f"request instead): {row['text']!r}. "
              f"The assistant "
              f"answers concisely from general knowledge, says when it is not sure, and the user follows up once or "
              f"twice.")  # fmt: skip
@@ -136,6 +172,14 @@ CHITCHAT_TOPICS = ["plans for the weekend", "a film or series they just watched"
                    "a new neighbour", "studying for exams", "a hobby they started", "music they like", "a family visit",
                    "moving to a new flat", "a new phone", "getting fit", "something funny that happened today",
                    "an upcoming holiday or festival", "missing an old friend"]  # fmt: skip
+#: the user's interests in chit-chat without a persona row (round 6 judge: Russian users were all into fishing and
+#: chess when the writer picked)
+INTERESTS = ["hiking", "baking", "board games", "photography", "gardening", "jazz", "running", "knitting", "chess",
+             "cycling", "old films", "astronomy", "pottery", "football", "birdwatching", "cooking spicy food", "yoga",
+             "learning languages", "history podcasts", "fishing", "dancing", "volunteering at an animal shelter",
+             "fixing old bikes", "sci-fi novels", "swimming", "painting", "playing guitar", "travel vlogs", "camping",
+             "video games", "crosswords", "tea", "climbing", "sewing", "classical music", "woodworking",
+             "local politics", "mushroom picking", "theatre", "skiing"]  # fmt: skip
 ASSISTANT_TRAITS = ["warm and curious", "calm and thoughtful", "cheerful and a bit playful", "dry humour, kind",
                     "enthusiastic", "gentle and encouraging"]  # fmt: skip
 
@@ -145,15 +189,18 @@ def _chitchat(lang, rng, rows):
     loc = rng.choice(LOCALES[lang])
     if lang == "en" and rows.get("personas"):
         per = rows["personas"][rng.randrange(len(rows["personas"]))]
-        user = f"The user: {per['text']}"
+        user = f"The user (their name is the one under PEOPLE, not any name in this description): {per['text']}"
         src = per["id"]
     else:
-        age, sex = rng.randint(18, 75), rng.choice(["woman", "man"])
-        user = (f"The user is a {age}-year-old {sex} living in {loc}; invent a fitting occupation, situation and two "
-                f"interests typical for someone like that there.")  # fmt: skip
+        # the gender is the cast's (round 6 judge: a drawn "woman" here against a male cast user); the draw stays so
+        # the later draws keep their values
+        age, _ = rng.randint(18, 75), rng.choice(["woman", "man"])
+        hobbies = rng.sample(INTERESTS, 2)
+        user = (f"The user is {age} years old, living in {loc}, into {hobbies[0]} and {hobbies[1]}; invent a "
+                f"fitting occupation and situation.")  # fmt: skip
         src = None
-    brief = (f"Casual conversation with a companion assistant whose personality is {traits}; give it a name and that "
-             f"personality in the system prompt. {user} They talk about {topic}. The assistant listens, asks natural "
+    brief = (f"Casual conversation with a companion assistant whose personality is {traits}; put that personality in "
+             f"the system prompt. {user} They talk about {topic}. The assistant listens, asks natural "
              f"follow-up questions, shares light opinions, remembers what the user said earlier in the conversation, "
              f"and never claims human experiences it cannot have.")  # fmt: skip
     return {
@@ -177,7 +224,7 @@ SKILLS = {
     "someone else's account, dosing medication without a doctor, cheating on an exam); the assistant declines "
     "briefly without lecturing and offers a legitimate alternative.",
     "identity": "The user asks who or what the assistant is, who made it, what it can do, or personal questions; the "
-    "assistant answers only from its system prompt (name, maker, abilities) and is honest that it is an AI.",
+    "assistant answers only from its system prompt (its role and abilities) and is honest that it is an AI.",
     "self_correction": "The user corrects themselves mid-request ('no wait, I meant Thursday'); the assistant uses the "
     "corrected information without fuss.",
     "unknown": "The user asks for specific facts the assistant cannot know (today's opening hours of a small local "
@@ -188,8 +235,8 @@ SKILLS = {
 
 def _skills(lang, rng, rows):
     skill = rng.choice(sorted(SKILLS))
-    brief = (f"A general voice assistant (give it a name and a maker in the system prompt). Everyday topic of your "
-             f"choice. {SKILLS[skill]}")  # fmt: skip
+    brief = (f"A general voice assistant (its system prompt is the general one: nothing about this conversation's "
+             f"topic). Everyday topic of your choice. {SKILLS[skill]}")  # fmt: skip
     return {"skill": skill, "brief": brief, "turns": rng.randint(4, 8)}
 
 
@@ -205,27 +252,26 @@ TUTOR_ACTIVITIES = {
     "aspect, measure words, word choice); the tutor corrects gently, explains the rule briefly in {l1}, and lets "
     "them try again.",
     "question": "The learner asks a vocabulary or grammar question about {l2} (two similar words, when to use a tense, "
-    "a measure word, a particle); the tutor explains with short spoken examples in {l2}.",
+    "a measure word, a particle); the tutor explains in {l1} with short spoken examples in {l2}.",
 }
 CEFR = ["A1", "A2", "B1", "B2", "C1"]
 
 
-def _tutor(lang, rng, rows):
-    l2 = rng.choice([x for x in LANGS if x != lang])
+def _tutor(lang, rng, rows, l2=None):
+    l2 = l2 or rng.choice([x for x in LANGS if x != lang])
     act, lvl = rng.choice(sorted(TUTOR_ACTIVITIES)), rng.choice(CEFR)
     l1n, l2n = LANGS[lang].split(" (")[0], LANGS[l2].split(" (")[0]
-    mix = (
-        ("mostly in " + l1n + ", with " + l2n + " words and phrases mixed in")
-        if lvl in ("A1", "A2")
-        else ("in a mix of both, more " + l2n + " than " + l1n)
-        if lvl == "B1"
-        else ("mostly in " + l2n + ", switching to " + l1n + " for explanations when needed")
-    )
+    more = ("longer phrases and whole sentences" if lvl in ("B2", "C1") else "short phrases" if lvl == "B1"
+            else "single words and very short phrases")  # fmt: skip
+    role = (f" In the role-play the tutor's in-role lines are in {l2n}; it steps out of the role in {l1n}."
+            if act == "roleplay" else "")  # fmt: skip
     brief = (f"A language tutor. The learner's native language is {l1n}; they are learning {l2n} at level {lvl}. "
-             f"Put the learner's languages, level and the session's activity (and any material, e.g. the text to "
-             f"translate or the role-play situation) in the system prompt. {TUTOR_ACTIVITIES[act].format(l1=l1n, l2=l2n)} "
-             f"The tutor speaks {mix}, adapting to the learner's level; the learner speaks {l1n} and tries {l2n}. Each "
-             f"turn's \"lang\" is its main language; every stretch in the other language is tagged inline.")  # fmt: skip
+             f"The tutor talks to the learner in {l1n} (explanations, questions, feedback): asked in {l1n} how to say "
+             f"something, it answers in {l1n} and says only the asked words in {l2n}. {l2n} is used for exactly what "
+             f"is practised, at this level {more}.{role} Put the learner's languages, level and the session's "
+             f"activity (and any material, e.g. the role-play situation) in the system prompt; the level code ({lvl}) is "
+             f"never said aloud. "
+             f"{TUTOR_ACTIVITIES[act].format(l1=l1n, l2=l2n)} The learner speaks {l1n} and tries {l2n}.")  # fmt: skip
     return {"l2": l2, "activity": act, "cefr": lvl, "brief": brief, "turns": rng.randint(8, 14),
             "prompt_lang": lang if rng.random() < 0.7 else "en" if lang != "en" else l2, "policy": "tutor"}  # fmt: skip
 
@@ -239,29 +285,103 @@ LONG_TASKS = ["planning a three-day city trip", "cooking a dish step by step whi
 
 def _longtask(lang, rng, rows):
     task = rng.choice(LONG_TASKS)
-    brief = (f"A practical voice assistant helps with {task}. Put the user's situation and constraints the assistant "
-             f"knows in advance (name, dates, budget, preferences, equipment) in the system prompt; more come up in "
-             f"the conversation. They work through it step by step; the assistant keeps track of earlier decisions, "
-             f"refers back to them, and summarises briefly at the end.")  # fmt: skip
+    brief = (f"A practical voice assistant helps with {task}. The system prompt only describes the assistant; the "
+             f"user's situation and constraints (dates, budget, people, preferences, equipment, what they already "
+             f"have) come up during the conversation, some only when the assistant asks, some changed later by the "
+             f"user. They work through it step by step; the assistant keeps track of what the user said and decided, "
+             f"refers back to it, and summarises briefly at the end (only what was said and decided).")  # fmt: skip
     return {"task": task, "brief": brief, "turns": rng.randint(14, 20)}
 
 
+#: what a production assistant conversation is about underneath: the other scenarios' briefs
+#: (service and grounded are left out: they need business facts / a passage in the prompt, which a general production
+#: prompt does not have)
+ASSISTANT_TOPICS = {"help": 0.35, "chitchat": 0.2, "skills": 0.2, "longtask": 0.1, "tutor": 0.15}
+
+
+#: share of production conversations the assistant opens with its greeting (the rest: the user speaks first)
+ASSISTANT_OPENS = 0.9
+
+
+def _assistant(lang, rng, rows):
+    sub = _pick(rng, ASSISTANT_TOPICS)
+    inner = SCENARIOS[sub](lang, rng, rows)
+    opens = "assistant" if rng.random() < ASSISTANT_OPENS else "user"
+    start = ("The conversation opens with the assistant's short greeting asking how it can help (without its name); "
+             "then the user says what they want." if opens == "assistant" else "The user speaks first.")
+    brief = (f"A production voice assistant: {PRODUCT['name']}, made by {PRODUCT['maker']}. The system prompt is the "
+             f"GENERAL one it runs with for every user, as in a real product (it need not name the assistant or its maker): that it talks "
+             f"with people by voice, how it speaks (friendly, concise, natural spoken language), that it is honest "
+             f"about being an AI and about what it does not know or cannot do; nothing about this conversation's "
+             f"topic or user. {start} What follows (ignore anything below about the system prompt's content: it stays "
+             f"general): {inner['brief']}")  # fmt: skip
+    # the inner scenario's fields at top level (a tutoring topic brings its policy, l2 and level for validation)
+    return {**{k: v for k, v in inner.items() if k != "brief"}, "topic": sub, "brief": brief,
+            "turns": inner["turns"] + (opens == "assistant"), "opens": opens, "product": dict(PRODUCT)}  # fmt: skip
+
+
 SCENARIOS = {"service": _service, "grounded": _grounded, "help": _help, "chitchat": _chitchat, "skills": _skills,
-             "tutor": _tutor, "longtask": _longtask}  # fmt: skip
+             "tutor": _tutor, "longtask": _longtask, "assistant": _assistant}  # fmt: skip
 #: source rows each scenario reads (SftSeeds' ``sources`` keys)
-SCENARIO_SOURCES = {"grounded": ["wikipedia"], "help": ["wildchat"], "chitchat": ["personas"]}
+SCENARIO_SOURCES = {"grounded": ["wikipedia"], "help": ["wildchat"], "chitchat": ["personas"],
+                    "assistant": ["wildchat", "personas"]}  # fmt: skip
+
+#: Interruptions: the user cuts the assistant off mid-sentence (``chatterbox_v2_core.CUT`` marks the spot; the TTS
+#: stops the assistant there and overlaps the user's turn). Per dialogue: how many (weights), and what the user does.
+INTERRUPTIONS = {0: 0.55, 1: 0.3, 2: 0.15}
+INTERRUPT_KINDS = {
+    "new_topic": "jumps to a different subject or request; the assistant drops its unfinished point and follows",
+    "correction": "corrects something the assistant got wrong or misunderstood; the assistant takes the correction",
+    "hurry": "has heard enough or is in a hurry ('okay, okay, got it' / 'just tell me the price'); the assistant gets "
+    "to the point at once",
+    "question": "asks about something the assistant just said before it finishes; the assistant answers that",
+    "stop": "tells the assistant to stop or wait (someone at the door, it is going off track); the assistant stops and "
+    "picks up only what the user asks for next",
+}
 
 
 def make_seeds(scenario: str, lang: str, n: int, seed: int, rows: dict) -> list[dict]:
-    """``n`` seeds of ``scenario`` for users speaking ``lang`` (deterministic in ``seed``)."""
+    """``n`` seeds of ``scenario`` for users speaking ``lang`` (deterministic in ``seed``); ``cast``: the people's
+    names and genders (own random stream)."""
+    from .sft_names import draw_cast
+
     out = []
     for k in range(n):
         rng = random.Random(f"{scenario}/{lang}/{seed}/{k}")
         s = {"id": f"{scenario}_{lang}_{k}", "scenario": scenario, "lang": lang, **draw_language_setup(lang, rng),
              "level": _pick(rng, LEVEL_WEIGHTS)}  # fmt: skip
-        s.update(SCENARIOS[scenario](lang, rng, rows))
+        # tutoring: the target languages in rotation (a random draw left some unseen in a small pilot)
+        kw = {"l2": [x for x in LANGS if x != lang][(k + seed) % (len(LANGS) - 1)]} if scenario == "tutor" else {}
+        s.update(SCENARIOS[scenario](lang, rng, rows, **kw))
+        s["cast"] = draw_cast(lang, random.Random(f"{scenario}/{lang}/{seed}/{k}/cast"))
+        ex = random.Random(f"{scenario}/{lang}/{seed}/{k}/extra")
+        if s["policy"] == "switch":  # in which of their turns the user switches (counting from 1)
+            s["switch_at"] = ex.randint(2, max(2, (s["turns"] + 1) // 2))  # any user turn but the first
+        s["interruptions"] = [_pick(ex, {k_: 1 for k_ in INTERRUPT_KINDS}) for _ in range(_pick(ex, INTERRUPTIONS))]
         out.append(s)
     return out
+
+
+def _spoken_lang(seed: dict) -> str:
+    return seed["lang"]
+
+
+def _cast_text(seed: dict) -> str:
+    c = seed["cast"]
+    g = {"female": "a woman", "male": "a man"}
+    others = "; ".join(f"{c[k]['full']} ({g[c[k]['gender']]})" for k in sorted(c) if k.startswith("other"))
+    voice = g[c["assistant"]["gender"]]
+    me = (f"{PRODUCT['name']}, an AI voice assistant made by {PRODUCT['maker']} (its voice is {voice}'s). It knows "
+          f"this itself: the system prompt need not mention its name or maker and usually does not (in a business's role it is that "
+          f"business's assistant). In the turns it says its name ONLY when the user asks for it (what "
+          f"it is called, who or what it is), as \"{PRODUCT['spoken'][_spoken_lang(seed)]}\" (later just Haru), and "
+          f"its maker only when asked who made it; otherwise neither comes up, not even in a greeting. It never "
+          f"claims to have no name.")  # fmt: skip
+    return (f"- The user: {c['user']['full']}, {g[c['user']['gender']]} (says their name only if the situation calls "
+            f"for it; in a language that marks gender, everything the user says about themselves and every form "
+            f"addressing them is {'feminine' if c['user']['gender'] == 'female' else 'masculine'}).\n- The assistant: {me}\n- Anyone else who comes up: {others}.\n- Use exactly these names, in "
+            f"the turn's script and grammatical form; invent no other personal names (businesses, places and works "
+            f"are yours to invent).")  # fmt: skip
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -282,43 +402,106 @@ def _policy_text(seed: dict) -> str:
         return (f"The user speaks {ln}. The system prompt is in {LANGS[seed['prompt_lang']]} and does NOT tell the "
                 f"assistant which language to use; the assistant answers in the user's language, {ln}.")  # fmt: skip
     if seed["policy"] == "switch":
-        return (f"The user starts in {ln}; after two or three exchanges the user switches to "
-                f"{LANGS[seed['switch_to']]} (e.g. for a family member, practice, or because it is easier) and stays "
-                f"in it; the assistant follows the switch from its next turn on.")  # fmt: skip
+        return (f"The user starts in {ln}; in the user's turn number {seed.get('switch_at', 2)} (counting the user's "
+                f"turns from one) the user switches to {LANGS[seed['switch_to']]} (e.g. for a family member, practice, "
+                f"or because it is easier; the user's words make the reason clear) and stays in it; the assistant follows the switch from its next turn "
+                f"on.")  # fmt: skip
     return "as described in the scenario."  # tutor
 
 
+_WATER = {"en": "water", "de": "Wasser", "ru": "вода", "zh": "水"}
+
+
+def _mixing_rule(seed: dict) -> str:
+    if seed["policy"] == "tutor":
+        l1, l2 = LANGS[seed["lang"]].split(" (")[0], LANGS[seed["l2"]].split(" (")[0]
+        role = (f" A role-play line spoken in role is a whole {l2} turn (\"lang\": the {l2} id, no tags)."
+                if seed.get("activity") == "roleplay" else "")  # fmt: skip
+        return (f"The tutor's explanations, questions and feedback are {l1} turns; only the practised {l2} words and "
+                f"sentences are {l2}, each tagged inline, e.g. \"Water is <{seed['l2']}>{_WATER[seed['l2']]}</{seed['l2']}>.\"{role} Say a taught word inside a short phrase, never as a "
+                f"bare character. No pinyin, transliteration or spelled-out pronunciation: the audio already says the "
+                f"word. The learner's tries in {l2} are written in {l2}'s own script and tagged too.")  # fmt: skip
+    return ("Stay in the turn's language. Only where a native speaker would really say something in another language "
+            "(a title, a name, a fixed phrase), tag exactly that stretch, e.g. \"Hast du <en>Breaking Bad</en> "
+            "gesehen?\". Everyday loanwords are not tagged. One- or two-letter abbreviations inside Russian or "
+            "Chinese text are written out in that script.")
+
+
+def _interrupt_text(seed: dict) -> str:
+    ks = seed.get("interruptions") or []
+    if not ks:
+        return ""
+    kinds = "; ".join(f"({i + 1}) the user {INTERRUPT_KINDS[k]}" for i, k in enumerate(ks))
+    return f"""
+INTERRUPTIONS
+- {len(ks)} time(s) the user cuts the assistant off mid-sentence: {kinds}.
+- Mark the spot in that assistant turn with {CUT}, at least three words in, and write a few more words after it as
+  the turn would have gone on (they are not heard). The user's next turn reacts at once, only to the words before
+  {CUT} (the rest was never heard); the assistant then follows
+  the user and does not finish its old sentence. {CUT} only in assistant turns, never in the last turn.
+"""
+
+
+def n_turns(seed: dict) -> int:
+    """The seed's turn count with the parity its order needs (it ends with the assistant): traces of the thinking
+    writer spent long on "about 13 turns, starting with the user, ending with the assistant"."""
+    return seed["turns"] + ((seed["turns"] % 2 == 0) != (seed.get("opens", "user") == "user"))
+
+
 def writer_messages(seed: dict) -> list[dict]:
-    codes = ", ".join(LANGS)
-    user = f"""Write one conversation as JSON: {{"system_prompt": "...", "turns": [{{"speaker": "user" | "assistant", "lang": "<language id>", "text": "..."}}]}}.
+    opens, n = seed.get("opens", "user"), n_turns(seed)
+    user = f"""Write one spoken conversation as JSON: {{"system_prompt": "...", "turns": [{{"speaker": "user" | "assistant", "lang": "<language id>", "text": "..."}}], "user_facts": ["..."]}}.
 
 SCENARIO
 {seed["brief"]}
 
-SYSTEM PROMPT (the assistant's instructions)
-- Written in {LANGS[seed["prompt_lang"]]}, addressed to the assistant in the second person.
+SYSTEM PROMPT (the assistant's instructions, in {LANGS[seed["prompt_lang"]]}, addressed to it as "you")
 - Detail: {LEVELS[seed["level"]]}.
-- It must contain every specific fact the assistant uses in the conversation (names, numbers, prices, times, policies,
-  document content, the learner's level, ...). Beyond it, the assistant uses only widely known general knowledge.
-- It says nothing about what the user will say.
+- Write it before the turns and put in it every specific fact the assistant will state that the user does not
+  tell it (names, numbers, prices, times, policies, menu items, ingredients, availability, passage content, the
+  learner's level). Beyond these and what the user says, the assistant uses only general knowledge; asked for
+  anything else specific, it says it does not have that information.
+- It holds nothing about this user's situation or what they will say (a business's records on file, e.g. a booking,
+  only when the scenario needs them).
+- It reads like a real deployment's instructions: no mention of a simulation, training, tags or text-to-speech.
+
+PEOPLE
+{_cast_text(seed)}
+
+USER DETAILS
+- The user gives details the assistant cannot know (names, numbers, dates, their situation, preferences); now and
+  then the user changes one later (optional). At least two later assistant turns depend on them.
+- "user_facts": three to five of these details, each a few words copied from a user turn (same language, as said);
+  none of them is in the system prompt.
 
 CONVERSATION
-- About {seed["turns"]} turns, alternating, starting with the user and ending with the assistant.
+- About {n} turns, alternating, starting with the {opens}, ending with the assistant.
 - Language: {_policy_text(seed)}
-- Every turn's "lang" is its main language, one of: {codes}. EVERY word or phrase in another of these languages (a
-  word being taught, a quoted example, a phrase the learner tries) is tagged inline with that language's id, e.g.
-  "Das heißt <en>to commute</en>." or "You say <ru>Мне нужен</ru>." Never tag a turn's own language.
-- Proper names and brands: write them as a native speaker of the turn's language would, in its own script (Russian
-  and Chinese turns: in Cyrillic / Chinese characters where that is usual); avoid strings of foreign names.
-- Spoken style: no markdown, lists, emojis, URLs or abbreviations a speaker would not say. Write EVERY number in
-  words, the way it is spoken in the turn's language with the right grammatical form (years, times, prices, phone
-  numbers included): never digits.
-- The assistant's turns are short: one to three sentences, unless the user asked for more. The user sounds like a
-  real person: sometimes informal, occasionally a filler word or a short incomplete sentence.
-"""
+- Each turn's "lang" is its main language ({", ".join(LANGS)}). {_mixing_rule(seed)} The text-to-speech speaks every
+  stretch in its tag's (or turn's) language, so an untagged foreign word or a wrong tag is spoken wrong.
+- Spoken style: no markdown, lists, emojis, URLs, brackets, slashes or symbols (a gloss or "and" is said as
+  words). Whole numbers (amounts, prices, counts, years) as digits in English, German and Chinese turns (they
+  are converted to words in the right form; 1250, not 1,250; a year after "in" / "im" / "seit"); in Russian turns as words in the right case. Times, dates, ordinals,
+  decimals and fractions as words everywhere. Names in the turn's own script: a Chinese name in Chinese text is in
+  characters, never pinyin.
+- The assistant knows only its system prompt, general knowledge and what the user has said so far: it never uses
+  the user's name or any of their details before the user says them (a caller is not greeted by name), and not
+  today's date, day or time unless the system prompt or the user gives it.
+- Assistant turns: one to three sentences unless the user asked for more. English turns use contractions as
+  people speak; a person is called by their first name (or as the user does) after the first mention. The user sounds like a real person
+  (informal, sometimes a filler or an unfinished sentence).
+- The assistant is voice-only: no tools, no screen, nothing in the background. It cannot send, save, look up, remind
+  or get back later; whatever it produces it says aloud now, and what it cannot do it says briefly, offering what it
+  can do by voice. In a business's role, the system prompt says what the line can do (e.g. take a booking request
+  that staff confirm later) and the assistant claims nothing beyond it.
+- Everything the assistant says is correct: facts, arithmetic, and in tutoring the target-language forms and
+  grammar rules. Every word is spelled correctly.
+{_interrupt_text(seed)}"""
     return [{"role": "system", "content": WRITER_SYSTEM}, {"role": "user", "content": user}]
 
 
+#: property order is generation order under guided decoding: the facts come after the turns, picked from what the
+#: user said (before the turns, round 5: the writer planned facts and then wrote turns that did not say them)
 WRITER_SCHEMA = {
     "type": "object",
     "properties": {
@@ -336,9 +519,51 @@ WRITER_SCHEMA = {
                 "required": ["speaker", "lang", "text"],
             },
         },
+        "user_facts": {"type": "array", "minItems": 2, "maxItems": 5, "items": {"type": "string"}},
     },
-    "required": ["system_prompt", "turns"],
+    "required": ["system_prompt", "turns", "user_facts"],
 }
+
+#: the review pass: the problems are generated first (a short written check before the corrected dialogue, cheaper
+#: than thinking: rounds 1 / medium thinking cost 3-5x without a judged gain)
+REVIEW_SCHEMA = {"type": "object",
+                 "properties": {"claims": {"type": "array", "items": {
+                                    "type": "object",
+                                    "properties": {"turn": {"type": "integer"}, "claim": {"type": "string"},
+                                                   "source": {"type": "string", "enum": ["system_prompt", "user",
+                                                                                         "general_knowledge", "none"]}},
+                                    "required": ["turn", "claim", "source"]}},
+                                "problems": {"type": "array", "maxItems": 12, "items": {"type": "string"}},
+                                **WRITER_SCHEMA["properties"]},
+                 "required": ["claims", "problems", *WRITER_SCHEMA["required"]]}  # fmt: skip
+
+#: what an independent judge found most in rounds 0-6 (Opus over 48 dialogues per round: invented facts, invented
+#: abilities, knowing what was not said, arithmetic, wrong tutoring content, grammar, reactions to unheard words,
+#: system prompts no product would ship)
+REVIEW_TEXT = """Now review this conversation as a strict editor before it is used as training data. First list in \
+"claims" every specific thing the assistant states (a price, time, date, schedule, name, place, policy, ingredient, \
+availability, a record, a plot, a count, a sum) with its turn number and where it comes from: "system_prompt", \
+"user" (said earlier by the user), "general_knowledge" (safe, widely known) or "none". Then list in "problems" each \
+concrete defect of these kinds (quote it, one short sentence each; every claim with source "none" is one), then give \
+the corrected conversation, changing only what is needed:
+1. The assistant states a specific fact (price, time, schedule, menu, ingredient, policy, availability, a record, \
+a date, a plot, a person's details) that is neither in the system prompt, nor said by the user, nor safe common \
+knowledge: it must say it does not have that information instead (or add the fact to the system prompt if it \
+belongs to the business or passage).
+2. The assistant claims to do anything besides speaking now (booking, noting, passing on, checking a system, \
+sending, reminding, calling back, remembering earlier calls, seeing something), unless the system prompt says \
+this line can do it.
+3. The assistant uses something the user has not said yet (their name, a detail), or assumes today's date, day \
+or time without being told.
+4. Arithmetic, counts, dates and units: recompute every number.
+5. Tutoring: every target-language form, translation and grammar explanation must be correct and natural.
+6. Grammar, spelling, gender agreement and idiom of every turn as a native speaker would say it.
+7. After an interruption mark, the next user turn reacts only to the words before it.
+8. The system prompt reads like a real deployment: no user details or answers in advance, no writer \
+instructions, no simulation talk.
+9. Every other rule of the original task still holds (languages, tags, how numbers are written, turn order, \
+interruption marks, user_facts copied from user turns).
+If there is nothing to fix, "problems" is empty and the conversation is returned unchanged."""
 
 _SCRIPT = {"zh": re.compile(r"[㐀-鿿]"), "ru": re.compile(r"[Ѐ-ӿ]"), "en": re.compile(r"[A-Za-z]"),
            "de": re.compile(r"[A-Za-zÄÖÜäöüß]")}  # fmt: skip
@@ -357,6 +582,24 @@ def _foreign_ok(text: str, lang: str) -> bool:
     return not other.search(text) and len(_LAT.findall(text)) <= 3
 
 
+#: English and German share a script, so a forgotten tag between them is found by word frequency (wordfreq Zipf
+#: scale): a word of three or more letters common in the other language (>= 3.5) and rare in this one (< 2.0). Pilot
+#: p10: 5 of 1,263 en / de turns, all real misses ("'read' is 'lesen'", an English sentence in a German turn).
+_LATIN_OTHER = {"en": "de", "de": "en"}
+LATIN_COMMON, LATIN_RARE = 3.5, 2.0
+
+
+def _untagged_latin(text: str, lang: str) -> list[str]:
+    """Words of ``text`` (an en / de segment) that belong to the other of the two."""
+    if lang not in _LATIN_OTHER:
+        return []
+    from wordfreq import zipf_frequency
+
+    o = _LATIN_OTHER[lang]
+    return [w for w in re.findall(r"[A-Za-zÄÖÜäöüß]{3,}", text)
+            if zipf_frequency(w.lower(), o) >= LATIN_COMMON and zipf_frequency(w.lower(), lang) < LATIN_RARE]  # fmt: skip
+
+
 def _script_ok(text: str, lang: str) -> bool:
     """Most letters of ``text`` are in ``lang``'s script (zh: CJK, ru: Cyrillic, en/de: Latin)."""
     letters = [c for c in text if c.isalpha()]
@@ -368,24 +611,28 @@ def _script_ok(text: str, lang: str) -> bool:
 
 def validate(obj: dict, seed: dict) -> str | None:
     """Why the writer's ``obj`` is unusable for ``seed`` (None = fine)."""
-    from .chatterbox_v2_core import parse_segments
+    from .chatterbox_v2_core import parse_segments, plain_text, speech_units
 
     turns, sp = obj.get("turns") or [], (obj.get("system_prompt") or "").strip()
     if not sp:
         return "empty system prompt"
     if not _script_ok(sp, seed["prompt_lang"]):
         return "system prompt not in prompt_lang"
-    if len(turns) < max(2, seed["turns"] - 3) or len(turns) > seed["turns"] + 4:
+    if len(turns) < max(2, n_turns(seed) - 3) or len(turns) > n_turns(seed) + 6:  # the writer runs long: p4 0..+4
         return "length"
+    first = seed.get("opens", "user")
+    second = "assistant" if first == "user" else "user"
+    if seed.get("cefr") and any(_LEVEL_SAID.search(t["text"]) for t in turns):
+        return "the learner's level code is said aloud"
     for k, t in enumerate(turns):
-        if t["speaker"] != ("user" if k % 2 == 0 else "assistant"):
-            return "speakers do not alternate from the user"
+        if t["speaker"] != (first if k % 2 == 0 else second):
+            return f"speakers do not alternate from the {first}"
         if not t["text"].strip():
             return "empty turn"
         if _MARKDOWN.search(t["text"]):
             return "markdown"
         try:
-            segs = parse_segments(t["text"], t["lang"])
+            segs = parse_segments(t["text"].replace(CUT, " "), t["lang"])
         except ValueError:
             return "bad language tag"
         if not segs:
@@ -397,8 +644,14 @@ def validate(obj: dict, seed: dict) -> str | None:
                 return f"segment not in its language's script ({s['lang']})"
             if not _foreign_ok(s["text"], s["lang"]):
                 return f"untagged foreign-script words ({s['lang']})"
+            if _untagged_latin(s["text"], s["lang"]):
+                return f"untagged {LANGS[_LATIN_OTHER[s['lang']]]} words in {LANGS[s["lang"]]} text"
             if re.search(r"\d", s["text"]):
                 return "digits (numbers must be words)"
+            if _WRITTEN_ONLY.search(s["text"]):
+                return "written-only symbols (brackets, +, /, *, %...)"
+            if s["lang"] in ("ru", "zh") and _LAT.search(s["text"]):
+                return f"untagged Latin-script words in a {s['lang']} stretch"
     if turns[-1]["speaker"] != "assistant":
         return "does not end with the assistant"
     main = [t["lang"] for t in turns]
@@ -409,19 +662,461 @@ def validate(obj: dict, seed: dict) -> str | None:
         k = next((i for i, t in enumerate(turns) if t["speaker"] == "user" and t["lang"] == to), None)
         if k is None or k < 2:
             return "no user switch (or too early)"
+        nth = sum(1 for t in turns[: k + 1] if t["speaker"] == "user")
+        if abs(nth - seed.get("switch_at", nth)) > 1:
+            return "the user switches in the wrong turn"
         if any(t["lang"] != to for t in turns[k:]):
             return "the dialogue does not stay in the switched language"
-    if seed["policy"] == "tutor" and not any("<" in t["text"] or t["lang"] != seed["lang"] for t in turns):
-        return "tutoring without the target language"
+    if _garbled(sp + " " + " ".join(t["text"] for t in turns)):
+        return "garbled characters"
+    if _SP_MARKUP.search(sp):
+        return "markup (language tags / cut marks) in the system prompt"
+    if seed["lang"] == "zh" and _pinyin_name(turns):
+        return "a Chinese name in pinyin inside Chinese text"
+    if "cast" in seed and _early_user_name(sp, turns, seed["cast"]["user"], seed["lang"]) is not None:
+        return "the assistant uses the user's name before hearing it"
+    if FOREIGN_AI.search(sp + " " + " ".join(t["text"] for t in turns)):
+        return "names another AI company or model"
+    if _NO_NAME.search(" ".join(t["text"] for t in turns if t["speaker"] == "assistant")):
+        return "the assistant says it has no name"
+    why = _name_problem(sp, turns)
+    if why:
+        return why
+    if seed["policy"] == "tutor":
+        why = _tutor_problem(turns, seed)
+        if why:
+            return why
+    want = len(seed.get("interruptions") or [])
+    cuts = [(k, t) for k, t in enumerate(turns) if CUT in t["text"]]
+    ok_n = {0} if want == 0 else set(range(max(1, want - 1), want + 2))  # the count is a draw; off by one is fine
+    if len(cuts) not in ok_n or any(t["text"].count(CUT) != 1 for _, t in cuts):
+        return f"{len(cuts)} interruptions, want {want}"
+    for k, t in cuts:
+        if t["speaker"] != "assistant" or k == len(turns) - 1:
+            return "an interruption outside an assistant turn (or in the last turn)"
+        pre, post = (plain_text(x) for x in t["text"].split(CUT))
+        if speech_units(pre, t["lang"]) < (4 if t["lang"] == "zh" else 3) or not speech_units(post, t["lang"]):
+            return "an interruption without words before / after the cut"
+    if _cut_leak(sp, turns, seed["lang"]) is not None:
+        return "the user reacts to words after the cut (never heard)"
+    why = _user_facts_problem(obj, seed)
+    if why:
+        return why
+    if "cast" in seed:
+        names = [seed["cast"][k]["given"] for k in seed["cast"]]
+        said = sp + " ".join(t["text"] for t in turns)
+        for bad in FREQUENT_INVENTED.get(seed["lang"], ()):
+            if bad not in names and re.search(rf"(?<!\w){re.escape(bad)}(?!\w)", said):
+                return "a personal name outside the cast"
     return None
 
 
+#: characters a TTS cannot speak or reads oddly (p12: "хотел(а)", "R+V", "list(data.keys())[one]", "*Titel*")
+_WRITTEN_ONLY = re.compile(r"[()（）\[\]{}+=*/\\|_~^$€£@#%&]")
+#: a CEFR level code in a turn, written or spelled out (the tutor brief: never said aloud)
+_LEVEL_SAID = re.compile(r"(?<![\w-])[ABC] ?[12](?!\w)|(?<![\w-])[ABC] (one|two|eins|zwei)\b")
+#: rarer than this (wordfreq Zipf) counts as a content word for the cut-leak check (common words like "после" / 因为
+#: recur by chance)
+CUT_LEAK_ZIPF = 5.0
+_ZH_COMMON_BIGRAMS = set("因为 所以 可以 我们 你们 他们 这个 那个 什么 没有 一下 时候 现在 已经 如果 但是 还是 就是 不是 一个 知道 "
+                         "觉得 需要 一些 这样 那样 怎么 为什么 真的 其实 然后 的话 一点 比较 应该".split())
+
+
+def _cut_units(text: str, zh: bool) -> set[str]:
+    """Content units: 5-letter word stems (en / de / ru), character bigrams (zh)."""
+    x = re.sub(r"</?[a-z]{2}>", " ", text).lower()
+    if zh:
+        return {r[i : i + 2] for r in re.findall(r"[\u4e00-\u9fff]+", x) for i in range(len(r) - 1)}
+    return {w[:5] for w in re.findall(r"\w+", x) if len(w) >= 5}
+
+
+def _cut_leak(sp: str, turns: list[dict], lang: str) -> int | None:
+    """The first interrupted turn whose unheard rest (after the cut) the next user turn picks up: a rare content unit
+    in the rest and in the user's reply but nowhere before (judge, gemma round 7: 8 of 64 dialogues; this found 6 of
+    those 8)."""
+    from wordfreq import zipf_frequency
+
+    def rare(u: str, lg: str) -> bool:  # wordfreq's Chinese needs jieba (not installed): a short stop list instead
+        return lg != "zh" or u not in _ZH_COMMON_BIGRAMS
+
+    for k, t in enumerate(turns):
+        if t["speaker"] != "assistant" or CUT not in t["text"] or k + 1 >= len(turns):
+            continue
+        pre, post = t["text"].split(CUT, 1)
+        lg = t.get("lang", lang)
+        zh = lg == "zh"
+        heard = " ".join([sp, *(x["text"].split(CUT)[0] for x in turns[:k]), pre])
+        new = (_cut_units(post, zh) & _cut_units(turns[k + 1]["text"], zh)) - _cut_units(heard, zh)
+        if not zh:  # a stem of a common word recurs by chance
+            words = {w.lower() for w in re.findall(r"\w+", post) if len(w) >= 5}
+            new = {u for u in new if any(w.startswith(u) and zipf_frequency(w, lg) < CUT_LEAK_ZIPF for w in words)}
+        if any(rare(u, lg) for u in new):
+            return k
+    return None
+
+
+#: mis-decoded text: the replacement character or UTF-8 read as Latin-1
+_MOJIBAKE = re.compile(r"\ufffd|Ã[\x80-\xbf¡-ÿ]|â€|Ð[\x80-\xbf]|Ñ[\x80-\xbf]|ä¸|å[\x80-\xbf]")
+
+
+def _garbled(text: str) -> bool:
+    """Broken text (judge round 9: gemma fp8 wrote a Chinese system prompt with 佋渁層問吪 and an Ethiopic ሴ):
+    mojibake, a character from a script we do not speak, or three or more distinct Chinese characters outside GB2312
+    (simplified text needs almost none; one rare term like 夾纈 from a passage is allowed)."""
+    if _MOJIBAKE.search(text):
+        return True
+    rare = set()
+    for c in text:
+        o = ord(c)
+        if 0x3400 <= o <= 0x9FFF:
+            try:
+                c.encode("gb2312")
+            except UnicodeEncodeError:
+                rare.add(c)
+        elif o >= 0x0530 and not (0x2000 <= o <= 0x206F or 0x3000 <= o <= 0x303F or 0xFF00 <= o <= 0xFFEF
+                                  or 0x20A0 <= o <= 0x20CF):  # fmt: skip
+            return True
+    return len(rare) >= 3
+#: tags or the cut mark inside the system prompt (p12: the writer told the assistant to "tag Russian with <ru>")
+_SP_MARKUP = re.compile(r"</?[a-z]{2}>|<cut/>")
+_PY_SYL = (r"(?:zh|ch|sh|[bpmfdtnlgkhjqxrzcsyw])?(?:iang|iong|uang|uan|uai|ang|eng|ing|ong|ian|iao|ai|ei|ao|ou|an|en|er|"
+           r"in|un|ia|ie|iu|ua|uo|ui|ue|a|o|e|i|u|v)")  # fmt: skip
+_PY_WORD = re.compile(rf"[A-Z](?:{_PY_SYL})+", re.I)
+
+
+def _pinyin_name(turns: list[dict]) -> str | None:
+    """An ``<en>`` span of two or more capitalised pinyin words in a Chinese turn: a Chinese person's name romanised
+    (p12: "<en>Huang Bo</en>" from an English system prompt), which the English voice reads as English."""
+    for t in turns:
+        for m in re.finditer(r"<en>(.*?)</en>", t["text"]):
+            w = m.group(1).split()
+            if len(w) >= 2 and all(x[0].isupper() and _PY_WORD.fullmatch(x) for x in w):
+                return m.group(1)
+    return None
+
+
+def _early_user_name(sp: str, turns: list[dict], user: dict, lang: str) -> int | None:
+    """The first assistant turn that calls the user by a name neither the system prompt nor an earlier turn gave
+    (p12 no-thinking: 21 of 189 kept, mostly a caller greeted by name)."""
+    if lang == "zh":
+        ps = [re.escape(user["full"]), re.escape(user["family"]) + "(?:女士|先生|小姐|老师)"]
+        ps += [re.escape(user["given"])] if len(user["given"]) >= 2 else []
+    elif lang == "ru":  # inflected: Роман / Романа
+        ps = [rf"(?<!\w){re.escape(n[: max(3, len(n) - 2)])}\w*" for n in (user["given"], user["family"])]
+    else:
+        ps = [rf"(?<!\w){re.escape(n)}(?!\w)" for n in (user["given"], user["family"])]
+    rx, heard = [re.compile(p) for p in ps], sp
+    for k, t in enumerate(turns):
+        if t["speaker"] == "assistant" and any(r.search(t["text"]) and not r.search(heard) for r in rx):
+            return k
+        heard += " " + t["text"]
+    return None
+
+
+#: names the writer invented most often in the pilot (2026-11-17); one in a dialogue whose cast lacks it = the writer
+#: ignored the cast
+FREQUENT_INVENTED = {"en": ["Sarah", "Alex"], "de": ["Lena", "Lukas"], "ru": ["Анна", "Алексей", "Алиса"],
+                     "zh": ["王强", "张伟", "李华"]}  # fmt: skip
+
+
+#: pinyin with tone marks (macron / caron vowels): the TTS already speaks the characters, a romanisation after them is
+#: read out a second time
+_PINYIN_STRICT = re.compile(r"[āēīōūǖǎěǐǒǔǚǘǜ]|\b[a-z]+[1-5]\b")
+#: the most share of a (non-role-play) tutor's speech in the target language (characters, Chinese x3): it talks in
+#: the learner's language and says only the practised words in the target language
+TUTOR_MAX_L2 = 0.5
+
+
+def _tutor_problem(turns: list[dict], seed: dict) -> str | None:
+    from .chatterbox_v2_core import parse_segments
+
+    l1, l2, n_l2, n_all, with_l2, n_asst = seed["lang"], seed["l2"], 0, 0, 0, 0
+    roleplay = seed.get("activity") == "roleplay"
+    for t in turns:
+        if t["speaker"] != "assistant":
+            continue
+        n_asst += 1
+        if not roleplay and t["lang"] != l1:
+            return "a tutor turn not in the learner's language"
+        segs = parse_segments(t["text"].replace(CUT, " "), t["lang"])
+        has = False
+        for s in segs:
+            w = len(s["text"]) * (3 if s["lang"] == "zh" else 1)
+            n_all += w
+            if s["lang"] == l2:
+                n_l2, has = n_l2 + w, True
+            if s["lang"] != "zh" and _PINYIN_STRICT.search(s["text"]):
+                return "romanisation / pronunciation spelled out (the TTS speaks the word already)"
+        with_l2 += has
+    if not roleplay and n_all and n_l2 / n_all > TUTOR_MAX_L2:
+        return "the tutor speaks the target language beyond the practised words"
+    if with_l2 < n_asst / 2:
+        return "most tutor turns have no target language"
+    return None
+
+
+#: the assistant's name in any form (``PRODUCT['spoken']``)
+_PRODUCT_NAME = re.compile(r"(?i)haru|хару|\bi ?6\b|\bi six\b|\bi sechs\b|и-шесть")
+#: the user asking the assistant's name or who / what it is (en, de, ru, zh)
+_ASKS_NAME = re.compile(
+    r"(?i)\bnames?\b|who are you|who am i (talking|speaking)|what are you|who('s| is) (this|speaking)|what should i call|"
+    r"Namen?\b|wer bist du|wer sind sie|mit wem (spreche|rede)|wie heißt|wie heissen|was bist du|"
+    r"зовут|имя|имени|кто ты|кто вы|ты кто|вы кто|кто такая|кто такой|с кем я|как к вам обращаться|как тебя назвать|"
+    r"名字|你是谁|您是谁|叫什么|怎么称呼|在跟谁|和谁说话|你是什么"
+)
+
+
+def _name_problem(sp: str, turns: list[dict]) -> str | None:
+    """An assistant turn may say the name only right after a user turn asking who / what it is or its name (the system
+    prompt need not state it: the model learns its identity)."""
+    for k, t in enumerate(turns):
+        if t["speaker"] == "assistant" and _PRODUCT_NAME.search(t["text"]):
+            prev = next((u["text"] for u in reversed(turns[:k]) if u["speaker"] == "user"), "")
+            if not _ASKS_NAME.search(prev):
+                return "the assistant says its name unasked"
+    return None
+
+
+#: the assistant claiming to have no name (pilot p10: "I don't have a specific name", "我没有具体的产品名字"); every
+#: assistant has one (the cast's, or the production name)
+_NO_NAME = re.compile(
+    r"(?i)(\bno (specific |particular |real |actual |product |own )?name\b|(do not|don't|doesn't|haven't) (really )?"
+    r"(have|got) a (specific |particular |real |proper )?name|without a name|\bnameless\b|keinen (eigenen |richtigen |"
+    r"bestimmten )?Namen|\bnamenlos|нет (собственного |своего |конкретного )?имени|без имени|没有(具体的|自己的)?(产品)?"
+    r"(名字|名称)|不需要名字)"
+)
+
+
+def _norm_fact(x: str) -> str:
+    return re.sub(r"[\W_]+", " ", x.lower()).strip()
+
+
+def _fact_units(x: str) -> list[str]:
+    """A fact's matching units: its words, or its characters where there are no spaces (Chinese)."""
+    n = _norm_fact(x)
+    return [c for c in n if c != " "] if _CJK.search(n) else n.split()
+
+
+def _covered(fact: str, text: str, share: float = 0.7) -> bool:
+    """At least ``share`` of the fact's units occur in ``text`` (the writer quotes loosely: "ich studiere in Aachen"
+    for "Ich studiere ja in Aachen")."""
+    u = _fact_units(fact)
+    t = set(_fact_units(text))
+    stems = {w[:5] for w in t if len(w) >= 5}  # inflection: "meine Abschlussarbeit" / "meiner Abschlussarbeit"
+    return bool(u) and sum(1 for x in u if x in t or (len(x) >= 5 and x[:5] in stems)) / len(u) >= share
+
+
+def _user_facts_problem(obj: dict, seed: dict) -> str | None:
+    # tutoring: the learner's own tries are what the tutor works with; one personal detail is enough (round 5: the
+    # writer described the session as "facts" instead of quoting, 14 of 32 tutor seeds lost)
+    need = 1 if seed.get("policy") == "tutor" else 2
+    facts = [f for f in (obj.get("user_facts") or []) if _norm_fact(f)]
+    if len(facts) < need:
+        return "fewer than two user facts"
+    users = [_norm_fact(t["text"]) for t in obj["turns"] if t["speaker"] == "user"]
+    sp = _norm_fact(obj.get("system_prompt") or "")
+    said = " ".join(users)
+    ok = [f for f in facts if _covered(f, said) and not _covered(f, sp, 0.9)]
+    if len(ok) < need:
+        return "fewer than two user facts said by the user and absent from the system prompt"
+    return None
+
+
+_TAGGED = re.compile(r"(<([a-z]{2,3}(?:-[a-z]{2,4})?)>.*?</\2>|<cut/>)", re.S)
+_LAT_RUN = re.compile(r"[A-Za-z][A-Za-z0-9'’.\-]*(?:\s+[A-Za-z0-9][A-Za-z0-9'’.\-]*)*")
+_NUM = re.compile(r"(?<![\w.,])(\d+)(?![\w.,]\d|\w)")
+#: German: a number with a dot before a lower-case word or a month is an ordinal ("am 3. Mai"): left as digits (then
+#: rejected) instead of read as a cardinal
+_NUM_DE = re.compile(r"(?<![\w.,])(\d+)(?![\w.,]\d|\w|\.\s*(?:[a-zäöü]|Januar|Februar|März|April|Mai|Juni|Juli|"
+                     r"August|September|Oktober|November|Dezember))")
+
+
+def _tag_en(m, lang: str = "en") -> str:
+    w = m.group(0)
+    core = w.rstrip(".-'’")
+    if len(re.sub(r"[^A-Za-z]", "", core)) < 3:  # "C", "HN", "AI" alone: the TTS mangles 1-2 letter segments
+        return w  # (pilot round 3: "C" -> "See, say the pocket") -> left untagged, so the check rejects it
+    return f"<{lang}>{core}</{lang}>{w[len(core):]}"
+
+
+_ZH_DIGITS = "零一二三四五六七八九"
+
+
+def _zh_section(n: int) -> str:
+    out, zero = "", False
+    for unit, name in ((1000, "千"), (100, "百"), (10, "十"), (1, "")):
+        d = n // unit % 10
+        if d:
+            # spoken: 两千 / 两百, not 二千 (judge: "二千" unnatural); 十 and units keep 二
+            out += ("零" if zero else "") + ("两" if d == 2 and name in ("千", "百") else _ZH_DIGITS[d]) + name
+            zero = False
+        elif out:
+            zero = True
+    return out
+
+
+def zh_number(n: int) -> str:
+    """Mandarin reading of a non-negative integer below 10^8 (1980 -> 一千九百八十, 12 -> 十二)."""
+    if n == 0:
+        return "零"
+    hi, lo = divmod(n, 10000)
+    out = ("两" if hi == 2 else _zh_section(hi)) + "万" if hi else ""
+    if lo:
+        out += ("零" if hi and lo < 1000 else "") + _zh_section(lo)
+    return out[1:] if out.startswith("一十") else out
+
+
+_ZH_NUM = re.compile(r"(\d+(?:\.\d+)?)(%|年)?")
+
+
+def _zh_num_sub(m) -> str:
+    x, suf = m.group(1), m.group(2) or ""
+    if suf == "年" and len(x) == 4 and x.isdigit():  # years digit by digit: 一九八〇年
+        return "".join("〇一二三四五六七八九"[int(c)] for c in x) + "年"
+    whole, _, frac = x.partition(".")
+    if len(whole) > 8:
+        return m.group(0)
+    w = zh_number(int(whole)) + ("点" + "".join(_ZH_DIGITS[int(c)] for c in frac) if frac else "")
+    return ("百分之" + w) if suf == "%" else w + suf
+
+
+_CEFR = re.compile(r"\b([ABC])([12])\b")
+_CEFR_WORD = {"en": ("one", "two"), "de": ("eins", "zwei")}
+#: an untagged stretch in another script is in the one language of ours that uses that script
+_SCRIPT_RUN = {"ru": re.compile(r"[\u0400-\u04ff][\u0400-\u04ff\s'’-]*[\u0400-\u04ff]|[\u0400-\u04ff]"),
+               "zh": re.compile(r"[\u3400-\u9fff][\u3400-\u9fff，、]*[\u3400-\u9fff]|[\u3400-\u9fff]")}  # fmt: skip
+
+
+_PERCENT = {"en": " percent", "de": " Prozent"}
+#: a four-digit number followed by one of these is an amount, not a year ("1250 euros"); judge round 9: "released
+#: 1984" was read "one thousand nine hundred and eighty-four" when only a preceding year word made a year
+_AMOUNT_AFTER = {"euro", "euros", "dollar", "dollars", "pound", "pounds", "franken", "francs", "rubel", "rubles",
+                 "yuan", "people", "personen", "leute", "km", "kilometers", "kilometres", "kilometer", "meter", "meters",
+                 "metres", "steps", "schritte", "calories", "kalorien", "kcal", "words", "wörter", "pieces", "stück",
+                 "grams", "gramm", "g", "ml", "items", "teile", "times", "mal", "minutes", "minuten", "seconds",
+                 "sekunden", "hours", "stunden", "days", "tage", "points", "punkte", "copies", "units", "einheiten",
+                 "square", "quadratmeter", "kilo", "kilos", "kg", "liter", "liters", "litres", "chf", "usd", "eur"}
+_YEAR_BEFORE = {"in", "im", "seit", "since", "until", "till", "bis", "von", "from", "um", "around", "circa", "ca.",
+                "year", "jahr", "jahre", "anno", "ab", "before", "after", "vor", "nach", "by", "of", "des", "early",
+                "late", "mid", "summer", "winter", "spring", "autumn", "sommer", "frühjahr", "herbst"}
+_AND = {"en": "and", "de": "und", "ru": "и", "zh": "和"}
+
+
+def _spoken_punct(x: str, lg: str) -> str:
+    """Written-only marks a speaker would say as pauses or words (p13: 31 rejections): a bracketed gloss becomes a
+    comma-set phrase ("'ein' (<zh>一个</zh>) richtig" -> "'ein', <zh>一个</zh>, richtig"), emphasis asterisks go,
+    "&" between words becomes the turn language's "and"."""
+    comma = "，" if lg == "zh" else ","
+    x = re.sub(r"\*([^*\n]+)\*", r"\1", x)
+    sp = "" if lg == "zh" else " "
+    x = re.sub(r"\s*[(（]([^()（）\[\]]+)[)）]\s*([,.;:!?，。；：！？]?)",
+               lambda m: f"{comma}{sp}{m.group(1).strip()}{m.group(2) or comma}{sp}", x)
+    x = re.sub(r"(?<=\w) & (?=\w)", f" {_AND.get(lg, 'and')} ", x)
+    x = re.sub(r"\s+([,，。.])", r"\1", x)
+    return re.sub(r"([,，])\s*([,，.。!?！？])", r"\2", re.sub(r" {2,}", " ", x)).strip()
+_SPOKEN_NAME = re.compile(r"(?i)haru[ -]i[ -]?(?:six|sechs|6)[ -]instruct|хару и-шесть инстракт")
+
+
+def repair(obj: dict, seed: dict | None = None) -> dict:
+    """Mechanical fixes before validation (the writer misses them often enough to drop many dialogues, 2026-11-17:
+    64 of 160 kept): untagged Latin-script runs in Russian / Chinese turns get tagged ``<en>`` (product and brand
+    names, acronyms); in English / German turns, plain integers become words (``num2words``; four-digit numbers
+    1100-2099 as years; CEFR level codes "B2" -> "B two"), in Chinese turns Chinese numerals (:func:`zh_number`; years before 年 digit by digit);
+    traditional Chinese characters become simplified. Russian numbers stay a rejection: their inflection needs the
+    sentence. Structure (round 5, 256 seeds: alternation and interruption placement were the main losses after the
+    user facts): consecutive turns of one speaker in one language are merged, a ``<cut/>`` in a user turn or in the
+    last turn is dropped. Untagged stretches in another of our scripts get that script's language tag (Cyrillic ru,
+    Chinese zh; Latin in Russian / Chinese turns: the tutor's target language if it is en / de, else en)."""
+    from num2words import num2words
+
+    def outside_tags(text: str, fn) -> str:
+        parts = _TAGGED.split(text)
+        out, k = [], 0
+        while k < len(parts):
+            out.append(fn(parts[k]))
+            if k + 1 < len(parts):
+                out.append(parts[k + 1])
+            k += 3
+        return "".join(out)
+
+    def num(m, lg):
+        # a year only after a year word ("in 1999", "seit 1850"): amounts are digits since writer v8 ("1250 Euro")
+        v, before, after = int(m.group(1)), m.string[: m.start()].split(), m.string[m.end() :].split()
+        nxt = re.sub(r"\W", "", after[0]).lower() if after else ""
+        year = len(m.group(1)) == 4 and 1100 <= v <= 2099 and (
+            (before and before[-1].lower() in _YEAR_BEFORE) or nxt not in _AMOUNT_AFTER)
+        return (num2words(v, lang=lg, to="year") if year else num2words(v, lang=lg)).replace(",", "")
+
+    from opencc import OpenCC
+
+    t2s = OpenCC("t2s").convert
+    if isinstance(obj.get("system_prompt"), str):  # the TTS spelling of the name leaks into the (text) prompt
+        obj["system_prompt"] = _SPOKEN_NAME.sub(PRODUCT["name"], obj["system_prompt"])
+        if _CJK.search(obj["system_prompt"]):  # traditional characters in a Chinese prompt too (turns: below)
+            obj["system_prompt"] = t2s(obj["system_prompt"])  # the writer slips into traditional characters, which Chatterbox's zh misreads
+    for t in obj.get("turns") or []:
+        lg, x = t.get("lang"), t.get("text") or ""
+        if _CJK.search(x):
+            x = t2s(x)
+        if lg == "zh":
+            x = outside_tags(x, lambda s: _ZH_NUM.sub(_zh_num_sub, s))
+            # "共 3 个" (spaces the writer puts around digits) -> "共三个": no space between Chinese characters
+            x = outside_tags(x, lambda s: re.sub(r"(?<=[\u3400-\u9fff，。、])[ \t]+(?=[\u3400-\u9fff])", "", s))
+        for other, rx in _SCRIPT_RUN.items():
+            if lg != other and lg in LANGS:
+                x = outside_tags(x, lambda s, o=other, r=rx: r.sub(lambda m: f"<{o}>{m.group(0)}</{o}>", s))
+        if lg in ("ru", "zh"):
+            lat = (seed or {}).get("l2") if (seed or {}).get("l2") in ("en", "de") else "en"
+            x = outside_tags(x, lambda s, lat=lat: _LAT_RUN.sub(lambda m: _tag_en(m, lat), s))
+        elif lg in ("en", "de"):
+            if not (seed or {}).get("cefr"):  # tutoring: a level code said aloud is rejected instead (spec: never said)
+                x = outside_tags(x, lambda s, lg=lg: _CEFR.sub(lambda m: f"{m.group(1)} {_CEFR_WORD[lg][int(m.group(2)) - 1]}", s))
+            x = outside_tags(x, lambda s, lg=lg: (_NUM_DE if lg == "de" else _NUM).sub(lambda m: num(m, lg), s))
+            x = outside_tags(x, lambda s, lg=lg: re.sub(r"\s?%", _PERCENT[lg], s))
+        t["text"] = _spoken_punct(x, lg)
+    turns = obj.get("turns") or []
+    for k, t in enumerate(turns):  # an interruption only cuts an assistant turn that is followed by a user turn
+        if CUT in (t.get("text") or "") and (t.get("speaker") != "assistant" or k == len(turns) - 1):
+            t["text"] = re.sub(r"\s*<cut/>\s*", " ", t["text"]).strip()
+    merged = []
+    for t in turns:
+        p = merged[-1] if merged else None
+        if p and p.get("speaker") == t.get("speaker") and p.get("lang") == t.get("lang") and CUT not in p["text"]:
+            p["text"] = p["text"] + ("" if t.get("lang") == "zh" else " ") + t["text"]
+        else:
+            merged.append(t)
+    if turns:
+        obj["turns"] = merged
+    langs = [t.get("lang") for t in obj.get("turns") or [] if t.get("speaker") == "user"]
+    lg = max(set(langs), key=langs.count) if langs else None
+    if lg in ("en", "de") and isinstance(obj.get("user_facts"), list):  # quoted from the turns: same numbers as words
+        obj["user_facts"] = [_NUM.sub(lambda m: num(m, lg), f) if isinstance(f, str) else f for f in obj["user_facts"]]
+    return obj
+
+
+def assistant_voice_lang(obj: dict, seed: dict) -> str:
+    """The language the assistant speaks most in the dialogue (characters; Chinese ones count three): its voice
+    prompt comes from that language's pool, since Chatterbox carries the prompt's accent into every language (a
+    German-pool voice speaking Russian after a switch sounded German, 2026-11-17)."""
+    from .chatterbox_v2_core import parse_segments
+
+    n: dict = {}
+    for t in obj["turns"]:
+        if t["speaker"] == "assistant":
+            for s in parse_segments(t["text"].replace(CUT, " "), t["lang"]):
+                n[s["lang"]] = n.get(s["lang"], 0) + len(s["text"]) * (3 if s["lang"] == "zh" else 1)
+    return max(n, key=n.get) if n else seed["lang"]
+
+
 def to_tts_dialogue(obj: dict, seed: dict) -> dict:
-    """ChatterboxInferenceV2's input for a written dialogue: turns with languages; voices drawn per dialogue from the
-    user-language pools (``<lang>/<role>/rng_*`` in the voice directory, ``SftVoiceDir``)."""
-    vl = seed["lang"]
+    """ChatterboxInferenceV2's input for a written dialogue: turns with languages (``<cut/>`` kept: the TTS stops the
+    turn there); voices of each person's gender (``<lang>/<role>/<gender>/rng_*``, ``SftVoiceDir``): the user's from
+    the user's language (an accent in a switched language is the user's own), the assistant's from the language it
+    speaks most."""
+    c = seed["cast"]
+    vl = {"user": seed["lang"], "assistant": assistant_voice_lang(obj, seed)}
     return {"lang": seed["lang"], "turns": [{"speaker": t["speaker"], "lang": t["lang"], "text": t["text"]} for t in obj["turns"]],
-            "voices": {"assistant": f"{vl}/assistant/rng_v", "user": f"{vl}/user/rng_v"}}  # fmt: skip
+            "voices": {r: f"{vl[r]}/{r}/{c[r]['gender']}/rng_v" for r in ("assistant", "user")}}  # fmt: skip
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -495,34 +1190,119 @@ def source_rows(source: str, lang: str, files: list[str], n: int, seed: int = 0)
     return rows[:n]
 
 
+def _writer_body(thinking: bool, reasoning_effort: str | None) -> dict:
+    """The vLLM request extras: thinking on / off and, with thinking, Qwen3.8's ``reasoning_effort`` (its chat template
+    says the level to the model in the system message; unset = "xhigh": "validate key assumptions, consider plausible
+    alternatives"). Sampling not given in the request comes from the model's generation_config (vLLM
+    ``--generation-config auto``: top_p 0.95, top_k 20)."""
+    body = {"chat_template_kwargs": {"enable_thinking": thinking}}
+    if thinking and reasoning_effort:
+        assert reasoning_effort in ("low", "medium", "xhigh"), reasoning_effort
+        body["reasoning_effort"] = reasoning_effort
+    return body
+
+
 def write_dialogues(seeds: list[dict], url: str, model: str, temperature: float, max_tries: int,
-                    workers: int = 64) -> tuple[list[dict], dict]:  # fmt: skip
+                    workers: int = 64, thinking: bool = False, max_tokens: int = 12288,
+                    reasoning_effort: str | None = None, review: int = 0,
+                    review_until_clean: bool = False) -> tuple[list[dict], dict]:  # fmt: skip
     """The writer over ``seeds`` against an OpenAI-compatible server at ``url``: rows (``SftWriteDialogues``' columns)
-    and stats (kept, dropped, failures per reason with examples)."""
+    and stats (kept, dropped, failures per reason with examples, reasoning length). ``thinking``: the model reasons
+    before the JSON (``enable_thinking`` per request: our Qwen3.8 server defaults to off; the JSON schema constrains
+    only the answer after the reasoning, ``--reasoning-parser qwen3``); the briefs carry many constraints at once
+    (cast, user facts, interruptions, language shares) that a non-thinking pass missed often enough to need retries.
+    ``review``: up to that many review passes (:data:`REVIEW_TEXT`) over a kept dialogue; a reviewed version replaces
+    it when it passes the checks too (else the previous stays); a pass that lists no problem and no unsourced claim
+    ends the loop; ``review_until_clean``: a dialogue without such a clean pass is dropped (round 7: one pass took the
+    judge from 13 to 19 of 48, the rest still had defects the review had named)."""
     from concurrent.futures import ThreadPoolExecutor
 
     from openai import OpenAI
 
     from .common import json_schema_format
 
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url, timeout=600)
-    stats = {"seeds": len(seeds), "kept": 0, "dropped_after_tries": 0, "reasons": {}, "examples": {}}
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url, timeout=1800)
+    stats = {"seeds": len(seeds), "kept": 0, "dropped_after_tries": 0, "reasons": {}, "examples": {},
+             "thinking": thinking, "reasoning_effort": reasoning_effort, "reasoning_chars": [], "traces": [], "reasons_by_scenario": {},
+             "review": {"rounds": review, "until_clean": review_until_clean, "changed": 0, "unchanged": 0,
+                        "rejected": {}, "clean_after": {}, "never_clean": 0, "examples": []}}  # fmt: skip
+
+    def reviewed(seed, obj):
+        msgs = writer_messages(seed) + [{"role": "assistant", "content": json.dumps(obj, ensure_ascii=False)},
+                                        {"role": "user", "content": REVIEW_TEXT}]  # fmt: skip
+        rv = stats["review"]
+        try:
+            r = client.chat.completions.create(model=model, messages=msgs, temperature=0.3,
+                                               max_tokens=max(max_tokens, 10000),
+                                               extra_body=_writer_body(False, None),
+                                               **json_schema_format(REVIEW_SCHEMA, "review"))  # fmt: skip
+            new = json.loads(r.choices[0].message.content)
+            problems = new.pop("problems", [])
+            claims = new.pop("claims", [])
+            new = repair(new, seed)
+            why = validate(new, seed)
+        except Exception as e:
+            new, problems, why = None, [], f"error: {type(e).__name__}"
+        if why is not None:
+            rv["rejected"][why] = rv["rejected"].get(why, 0) + 1
+            return obj, False
+        same = json.dumps(new, sort_keys=True) == json.dumps(obj, sort_keys=True)
+        rv["unchanged" if same else "changed"] += 1
+        if not same and len(rv["examples"]) < 40:
+            rv["examples"].append({"id": seed["id"], "claims": claims, "problems": problems, "before": obj,
+                                   "after": new})
+        return new, not problems and not any(c.get("source") == "none" for c in claims)
+
+    def review_loop(seed, obj):
+        """Review rounds until one finds nothing (kept) or ``review`` rounds pass without a clean one (dropped,
+        ``review_until_clean``) / the last version (kept otherwise). (Named apart from the flag: as
+        ``review_until_clean`` it shadowed the flag, so every unclean dialogue was dropped; p16_gemma8 kept 126/256.)"""
+        rv = stats["review"]
+        for k in range(review):
+            obj, clean = reviewed(seed, obj)
+            if clean:
+                rv["clean_after"][k + 1] = rv["clean_after"].get(k + 1, 0) + 1
+                return obj
+        rv["never_clean"] += 1
+        return None if review_until_clean else obj
 
     def one(seed):
-        last = None
+        last, msgs = None, writer_messages(seed)
         for k in range(max_tries):
+            rc = ""
             try:
-                r = client.chat.completions.create(model=model, messages=writer_messages(seed), temperature=temperature,
-                                                   max_tokens=4096, seed=k, **json_schema_format(WRITER_SCHEMA, "dialogue"))  # fmt: skip
-                obj = json.loads(r.choices[0].message.content)
+                r = client.chat.completions.create(model=model, messages=msgs, temperature=temperature,
+                                                   max_tokens=max_tokens, seed=k,
+                                                   extra_body=_writer_body(thinking, reasoning_effort),
+                                                   **json_schema_format(WRITER_SCHEMA, "dialogue"))  # fmt: skip
+                msg = r.choices[0].message
+                rc = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None) or ""
+                stats["reasoning_chars"].append(len(rc))
+                obj = repair(json.loads(msg.content), seed)
                 why = validate(obj, seed)
             except Exception as e:  # malformed output or a request error: retried like a failed check
                 obj, why = None, f"error: {type(e).__name__}"
             if why is None:
+                if thinking and len(stats["traces"]) < 40:
+                    stats["traces"].append({"id": seed["id"], "try": k + 1, "why": None, "reasoning": rc})
+                if review:
+                    obj = review_loop(seed, obj)
+                    if obj is None:
+                        return None, "review: never clean"
                 return obj, k + 1
+            if obj is not None and k + 1 < max_tries:  # the next try sees what was wrong (one round of feedback)
+                msgs = writer_messages(seed) + [
+                    {"role": "assistant", "content": json.dumps(obj, ensure_ascii=False)},
+                    {"role": "user", "content": f"This was rejected by the checks: {why}. Write the whole "
+                                                f"conversation again, fixing that and keeping every other rule."},
+                ]  # fmt: skip
+            if thinking and len(stats["traces"]) < 40:  # the reasoning of rejected attempts, to see where it trips
+                stats["traces"].append({"id": seed["id"], "try": k + 1, "why": why, "reasoning": rc})
             stats["reasons"][why] = stats["reasons"].get(why, 0) + 1
+            by = stats["reasons_by_scenario"].setdefault(seed["scenario"], {})
+            by[why] = by.get(why, 0) + 1
             ex = stats["examples"].setdefault(why, [])
-            if len(ex) < 3 and obj is not None:
+            if sum(e["id"].startswith(seed["scenario"] + "_") for e in ex) < 3 and obj is not None:  # 3 per scenario
                 ex.append({"id": seed["id"], "obj": obj})
             last = why
         return None, last
@@ -538,69 +1318,244 @@ def write_dialogues(seeds: list[dict], url: str, model: str, temperature: float,
         rows.append({"id": seed["id"], "scenario": seed["scenario"], "lang": seed["lang"],
                      "prompt_lang": seed["prompt_lang"], "policy": seed["policy"], "level": seed["level"],
                      "system_prompt": obj["system_prompt"].strip(),
+                     "user_facts": json.dumps(obj["user_facts"], ensure_ascii=False),
                      "dialogue": json.dumps(to_tts_dialogue(obj, seed), ensure_ascii=False),
                      "seed": json.dumps(seed, ensure_ascii=False), "tries": tries})  # fmt: skip
     stats["kept"] = len(rows)
+    stats["kept_by_scenario"] = {}
+    for r in rows:
+        stats["kept_by_scenario"][r["scenario"]] = stats["kept_by_scenario"].get(r["scenario"], 0) + 1
     stats["wall_s"] = round(time.time() - t0, 1)
+    rcs = sorted(stats.pop("reasoning_chars"))
+    stats["reasoning_chars_p50_p90"] = [rcs[len(rcs) // 2], rcs[int(len(rcs) * 0.9)]] if rcs else None
     return rows, stats
 
 
-FLEURS = {"de": "de_de", "zh": "cmn_hans_cn", "ru": "ru_ru"}
+FLEURS = {"en": "en_us", "de": "de_de", "zh": "cmn_hans_cn", "ru": "ru_ru"}
 
 
-def build_voice_dir(out: str, en_voices: str, langs: list[str], n_per_lang: int = 12, seed: int = 0) -> dict:
-    """``<out>/<lang>/<assistant|user>/*.wav``: English linked from our library (``en_voices``' ``assistant_voices`` /
-    ``user_voices``); other languages from FLEURS ``dev`` (then ``test``, ``train`` while a gender is short; ``google/fleurs``, CC BY
-    4.0): ``n_per_lang`` recordings of 6-12 s, half per gender, each gender split between assistant and user
-    (network)."""
+def clip_measures(wav, sr: int, text: str, lang: str) -> dict:
+    """A voice-prompt candidate's measures: ``expr`` (spread of its pitch, semitones: the median absolute deviation
+    of log F0 over voiced frames, scaled to a standard deviation; read speech at a flat pitch makes Chatterbox speak flat), ``rate`` (words, zh characters, per
+    second of its sounding span: a fast prompt makes a fast voice), ``snr_db`` (loud frames over quiet frames)."""
+    import librosa
+    import numpy as np
+
+    from .chatterbox_v2_core import edge_trim, speech_units
+
+    y = librosa.resample(wav, orig_sr=sr, target_sr=16000) if sr != 16000 else wav
+    f0, voiced, _ = librosa.pyin(y, fmin=60, fmax=450, sr=16000, frame_length=1024)
+    f = f0[voiced & np.isfinite(f0)]
+    st = 12 * np.log2(f / np.median(f)) if len(f) > 20 else np.zeros(1)
+    expr = float(1.4826 * np.median(np.abs(st - np.median(st))))  # robust: pitch-tracker octave errors are outliers
+    a, b = edge_trim(y, 16000, lead=True, trail=True, margin=0.0)
+    rms = librosa.feature.rms(y=y, frame_length=1024, hop_length=256)[0] + 1e-9
+    snr = float(20 * np.log10(np.percentile(rms, 90) / np.percentile(rms, 10)))
+    return {"expr": round(expr, 3), "rate": round(speech_units(text, lang) / max((b - a) / 16000, 0.5), 3),
+            "snr_db": round(snr, 1), "f0_median": round(float(np.median(f)), 1) if len(f) else None}
+
+
+#: Designed voices (no real person cloned): attribute pools for ``voice_descriptions``. Descriptions are English;
+#: the language of the speech is set separately (Qwen3-TTS VoiceDesign's ``language``).
+VD_TIMBRE = ["warm", "bright", "slightly husky", "smooth", "clear", "resonant", "soft", "crisp", "slightly breathy",
+             "rich", "light", "slightly raspy"]  # fmt: skip
+VD_ENERGY = ["lively and expressive", "friendly and animated", "calm but expressive", "cheerful", "thoughtful",
+             "relaxed and conversational", "energetic", "gentle and warm", "confident", "playful"]  # fmt: skip
+VD_PACE = {"assistant": ["at a moderate, steady pace"],
+           "user": ["slowly", "at a moderate pace", "at a relaxed pace", "fairly quickly", "quickly"]}  # fmt: skip
+VD_PITCH = ["low", "medium-low", "medium", "medium-high", "high"]
+
+
+def voice_descriptions(lang: str, role: str, gender: str, n: int, seed: int = 0) -> list[str]:
+    """``n`` distinct voice descriptions for designed ``gender`` voices of ``role`` speaking ``lang`` natively: age,
+    pitch, timbre, energy, pace (the assistant's always moderate and steady), always conversational intonation and a
+    clean close-microphone recording (the voice prompt's recording conditions carry into every clone)."""
+    rng = random.Random(f"vd/{lang}/{role}/{gender}/{seed}")
+    ln = LANGS[lang].split(" (")[0]
+    out, seen = [], set()
+    while len(out) < n:
+        age = rng.randint(20, 68) if role == "user" else rng.randint(24, 55)
+        d = (f"A {age}-year-old {'woman' if gender == 'female' else 'man'}, a native {ln} speaker, with a "
+             f"{rng.choice(VD_PITCH)} pitched, {rng.choice(VD_TIMBRE)} voice. Speaks {rng.choice(VD_PACE[role])} in "
+             f"a {rng.choice(VD_ENERGY)} way, with natural, varied conversational intonation. Clear close-microphone "
+             f"recording, no background noise, no music.")  # fmt: skip
+        if d not in seen:
+            seen.add(d)
+            out.append(d)
+    return out
+
+
+#: Chatterbox Multilingual's own speaker embedding (the voice encoder whose output conditions T3), run in the TTS venv:
+#: reads a JSON list of 16 kHz wav paths (argv[1]), writes their embeddings as .npy (argv[2])
+_VE_EMBED = """
+import json, sys, numpy as np, soundfile as sf, torch, glob
+from chatterbox.models.voice_encoder import VoiceEncoder
+ck = sorted(glob.glob(sys.argv[3] + "/models--ResembleAI--chatterbox/snapshots/*/ve.pt"))[0]
+ve = VoiceEncoder(); ve.load_state_dict(torch.load(ck, map_location="cpu", weights_only=True)); ve.eval()
+wavs = [sf.read(p, dtype="float32")[0] for p in json.load(open(sys.argv[1]))]
+np.save(sys.argv[2], np.asarray(ve.embeds_from_wavs(wavs, sample_rate=16000), np.float32))
+"""
+#: the speaker-gender classifier (wav2vec2 XLS-R fine-tuned on LibriSpeech; agreed with FLEURS's labels on 36 / 36
+#: clips, 2026-11-17)
+GENDER_MODEL = "alefiury/wav2vec2-large-xlsr-53-gender-recognition-librispeech"
+
+
+def select_podcast_voices(pool_dir: str, out: str, tts_python: str, hf_home: str, n_per_role: int = 25,
+                          max_sim: float = 0.75, min_snr_db: float = 25.0) -> dict:  # fmt: skip
+    """English voice prompts from podcast speakers (``persona_knowledge.KnowledgeVoicePool``: 10 s cloning
+    references of (episode, diarized speaker), conversational speech, 16 kHz) into ``<out>/en/<role>/<gender>/``.
+    The pool repeats speakers (the host is in nearly every episode), so diversity is enforced in Chatterbox's own
+    speaker space: per gender (``GENDER_MODEL``), clean clips (``snr_db >= min_snr_db``) are taken greedily, the most
+    expressive first, skipping any clip whose voice-encoder embedding has cosine similarity above ``max_sim`` to one
+    already taken (the same speaker), then filling up by farthest-point order; taken voices alternate between
+    assistant and user. Levelled to ``PROMPT_DBFS``. Returns the report (also ``<out>/en/podcast_voices.json``)."""
+    import io
+    import subprocess
+    import tempfile
+
+    import numpy as np
+    import soundfile as sf
+    import torch
+    from datasets import load_from_disk
+    from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
+
+    from .chatterbox_v2_core import level_to
+
+    ds = load_from_disk(pool_dir).select_columns(["voice_id", "ref_flac"])
+    fe = AutoFeatureExtractor.from_pretrained(GENDER_MODEL)
+    gm = AutoModelForAudioClassification.from_pretrained(GENDER_MODEL).eval()
+    cands = []
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = []
+        for k, r in enumerate(ds):
+            wav, sr = sf.read(io.BytesIO(r["ref_flac"]), dtype="float32")
+            wav = wav if wav.ndim == 1 else wav.mean(1)
+            assert sr == 16000, sr
+            mz = clip_measures(wav, sr, "", "en")
+            with torch.no_grad():
+                pr = gm(**fe(wav, sampling_rate=16000, return_tensors="pt")).logits.softmax(-1)[0]
+            lab = {gm.config.id2label[i].lower(): float(pr[i]) for i in range(len(pr))}
+            g = max(lab, key=lab.get)
+            p = f"{tmp}/{k}.wav"
+            sf.write(p, wav, sr)
+            paths.append(p)
+            cands.append({"voice_id": r["voice_id"], "wav": wav, "gender": g, "p_gender": round(lab[g], 3), **mz})
+        json.dump(paths, open(f"{tmp}/paths.json", "w"))
+        subprocess.run([tts_python, "-c", _VE_EMBED, f"{tmp}/paths.json", f"{tmp}/emb.npy", f"{hf_home}/hub"],
+                       check=True)  # fmt: skip
+        emb = np.load(f"{tmp}/emb.npy")
+    emb = emb / np.linalg.norm(emb, axis=1, keepdims=True)
+    report = {"candidates": len(cands), "max_sim": max_sim, "voices": []}
+    for g in ("female", "male"):
+        idx = [i for i, c in enumerate(cands) if c["gender"] == g and c["p_gender"] >= 0.9 and c["snr_db"] >= min_snr_db]
+        idx.sort(key=lambda i: -cands[i]["expr"])
+        taken: list[int] = []
+        for i in idx:  # distinct speakers, most expressive first
+            if len(taken) >= 2 * n_per_role:
+                break
+            if not taken or float(np.max(emb[taken] @ emb[i])) <= max_sim:
+                taken.append(i)
+        dup = len(idx) - len(taken)
+        for role_k, i in enumerate(taken):
+            role = "assistant" if role_k % 2 == 0 else "user"
+            d = f"{out}/en/{role}/{g}"
+            os.makedirs(d, exist_ok=True)
+            fn = "podcast_" + re.sub(r"[^\w.-]+", "_", cands[i]["voice_id"]) + ".wav"
+            sf.write(f"{d}/{fn}", level_to(cands[i]["wav"], PROMPT_DBFS), 16000)
+            report["voices"].append({"role": role, "gender": g, "file": fn, "voice_id": cands[i]["voice_id"],
+                                     **{k: v for k, v in cands[i].items() if k not in ("wav", "voice_id", "gender")}})  # fmt: skip
+        sims = emb[taken] @ emb[taken].T if taken else np.zeros((0, 0))
+        report[g] = {"clean": len(idx), "taken": len(taken), "skipped_as_same_speaker_or_full": dup,
+                     "max_pairwise_sim": round(float(np.max(sims - np.eye(len(taken)) * 2)) if len(taken) > 1 else 0, 3),
+                     "mean_pairwise_sim": round(float((sims.sum() - len(taken)) / max(1, len(taken) * (len(taken) - 1))), 3)}  # fmt: skip
+    os.makedirs(f"{out}/en", exist_ok=True)
+    with open(f"{out}/en/podcast_voices.json", "w") as f:
+        json.dump(report, f, indent=1)
+    return {k: v for k, v in report.items() if k != "voices"}
+
+
+#: Voice prompts are levelled to this (speech RMS, dBFS): Chatterbox Multilingual copies the prompt's level into its
+#: output (pilot 2026-11-17, 42 voices: prompts -52 to -19 dBFS, per-voice output level correlated 0.98 with the
+#: prompt's, slope 0.95; 7.2 dB spread between voices against 2.4 dB within one).
+PROMPT_DBFS = -23.0
+
+
+def build_voice_dir(out: str, langs: list[str], n_per_role: int = 10, pool: int = 80, min_snr_db: float = 25.0,
+                    seed: int = 0, en_voices: str | None = None) -> dict:  # fmt: skip
+    """``<out>/<lang>/<assistant|user>/<female|male>/*.wav`` from FLEURS (``google/fleurs``, CC BY 4.0, real read
+    speech with speaker gender; ``dev``, then ``test``, ``train`` while a gender is short): per language and gender up
+    to ``pool`` random recordings of 6-12 s are measured (``clip_measures``); those with ``snr_db >= min_snr_db``
+    are ranked by pitch spread (the most expressive first) and written levelled to ``PROMPT_DBFS``; the assistant gets ``n_per_role`` from the middle of the
+    language's speaking rates (rate between its 30th and 70th percentile, so the assistant's pace is consistent), the
+    user ``n_per_role`` of the rest within the 10th-90th percentile. ``<out>/voices.json``: every candidate's measures
+    and where it went (network). ``en_voices``: take English from there instead (``select_podcast_voices``' output;
+    copied)."""
     import csv
     import io
+    import shutil
     import tarfile
 
+    import numpy as np
     import soundfile as sf
     from huggingface_hub import hf_hub_download
 
-    os.makedirs(f"{out}/en", exist_ok=True)
-    for role, sub in (("assistant", "assistant_voices"), ("user", "user_voices")):
-        if not os.path.lexists(f"{out}/en/{role}"):
-            os.symlink(os.path.join(en_voices, sub), f"{out}/en/{role}")
-    made = {}
+    from .chatterbox_v2_core import level_to
+
+    report = {}
+    if en_voices:
+        shutil.copytree(f"{en_voices}/en", f"{out}/en", dirs_exist_ok=True)
+        report["en"] = {"source": "podcast", **json.load(open(f"{en_voices}/en/podcast_voices.json"))}
     for lang in langs:
-        if lang == "en":
+        if lang == "en" and en_voices:
             continue
-        fl, want, k = FLEURS[lang], {}, 0
+        fl = FLEURS[lang]
         rng = random.Random(f"{seed}/{lang}")
+        cand = {"FEMALE": [], "MALE": []}  # (split, file, wav, sr, measures)
         for split in ("dev", "test", "train"):  # German dev + test hold male speakers only
+            short = {g for g in cand if len(cand[g]) < pool}
+            if not short:
+                break
             meta = {}
             tsv = hf_hub_download("google/fleurs", f"data/{fl}/{split}.tsv", repo_type="dataset")
             for r in csv.reader(open(tsv, encoding="utf-8"), delimiter="\t", quoting=csv.QUOTE_NONE):
-                meta.setdefault(r[1], (int(r[5]), r[6].strip().upper()))  # file -> (samples at 16 kHz, gender)
-            cands = sorted(f for f, (n, _) in meta.items() if 6 * 16000 <= n <= 12 * 16000)
-            rng.shuffle(cands)
-            by_g = {g: [f for f in cands if meta[f][1] == g] for g in ("FEMALE", "MALE")}
-            pick = {}
-            for g in ("FEMALE", "MALE"):
-                have = sum(1 for _, gg, _ in want.values() if gg == g)
-                for f in by_g[g][: n_per_lang // 2 - have]:
-                    pick[f] = g
-            if not pick:
+                meta.setdefault(r[1], (int(r[5]), r[6].strip().upper(), r[2]))  # file -> (samples, gender, text)
+            names = sorted(f for f, (n, g, _) in meta.items() if 6 * 16000 <= n <= 12 * 16000 and g in short)
+            rng.shuffle(names)
+            want, cnt = set(), {g: len(cand[g]) for g in cand}
+            for f in names:
+                g = meta[f][1]
+                if cnt[g] < pool:
+                    want.add(f)
+                    cnt[g] += 1
+            if not want:
                 continue
             tar = hf_hub_download("google/fleurs", f"data/{fl}/audio/{split}.tar.gz", repo_type="dataset")
             with tarfile.open(tar) as tf:
                 for m in tf:
                     name = os.path.basename(m.name)
-                    if name in pick:
-                        g = pick[name]
-                        role = "assistant" if sum(1 for _, gg, _ in want.values() if gg == g) % 2 == 0 else "user"
-                        os.makedirs(f"{out}/{lang}/{role}", exist_ok=True)
+                    if name in want:
                         wav, sr = sf.read(io.BytesIO(tf.extractfile(m).read()), dtype="float32")
-                        sf.write(f"{out}/{lang}/{role}/fleurs_{split}_{g.lower()}_{k}.wav", wav, sr)
-                        want[name] = (k, g, role)
-                        k += 1
-            if all(sum(1 for _, gg, _ in want.values() if gg == g) >= n_per_lang // 2 for g in ("FEMALE", "MALE")):
-                break
-        made[lang] = {g: sum(1 for _, gg, _ in want.values() if gg == g) for g in ("FEMALE", "MALE")}
-    return made
+                        wav = wav if wav.ndim == 1 else wav.mean(1)
+                        cand[meta[name][1]].append((split, name, wav, sr, clip_measures(wav, sr, meta[name][2], lang)))
+        rates = np.array([c[4]["rate"] for g in cand for c in cand[g]])
+        p10, p30, p70, p90 = np.percentile(rates, [10, 30, 70, 90])
+        report[lang] = {"rate_band_assistant": [round(p30, 3), round(p70, 3)], "voices": []}
+        for g, cs in cand.items():
+            ok = sorted((c for c in cs if c[4]["snr_db"] >= min_snr_db), key=lambda c: -c[4]["expr"])
+            asst = [c for c in ok if p30 <= c[4]["rate"] <= p70][:n_per_role]
+            user = [c for c in ok if c not in asst and p10 <= c[4]["rate"] <= p90][:n_per_role]
+            for role, picked in (("assistant", asst), ("user", user)):
+                d = f"{out}/{lang}/{role}/{g.lower()}"
+                os.makedirs(d, exist_ok=True)
+                for split, name, wav, sr, mz in picked:
+                    fn = f"fleurs_{split}_{os.path.splitext(name)[0]}.wav"
+                    sf.write(f"{d}/{fn}", level_to(wav, PROMPT_DBFS), sr)
+                    report[lang]["voices"].append({"role": role, "gender": g.lower(), "file": fn, **mz})
+            report[lang][g.lower()] = {"candidates": len(cs), "clean": len(ok), "assistant": len(asst),
+                                       "user": len(user)}  # fmt: skip
+    with open(f"{out}/voices.json", "w") as f:
+        json.dump(report, f, indent=1)
+    return {lg: {k: v for k, v in r.items() if k != "voices"} for lg, r in report.items()}
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -655,8 +1610,11 @@ class SftWriteDialogues(Job):
     level, system_prompt, seed, tries``; ``out_stats``: kept / dropped per reason, with examples."""
 
     def __init__(self, *, seeds: list[tk.Path], model: str = "Qwen/Qwen3.8-27B", temperature: float = 0.8,
-                 max_tries: int = 3, rqmt: dict | None = None):  # fmt: skip
+                 max_tries: int = 3, thinking: bool = False, reasoning_effort: str | None = None,
+                 max_tokens: int = 12288, max_model_len: int | None = None, rqmt: dict | None = None):  # fmt: skip
         self.seeds, self.model, self.temperature, self.max_tries = seeds, model, temperature, max_tries
+        self.thinking, self.reasoning_effort, self.max_tokens = thinking, reasoning_effort, max_tokens
+        self.max_model_len = max_model_len
         self.writer_version = WRITER_VERSION
         self.out_hf = self.output_path("out_hf", directory=True)
         self.out_stats = self.output_path("stats.json")
@@ -677,8 +1635,10 @@ class SftWriteDialogues(Job):
         from .common import vllm_server
 
         seeds = [json.loads(x) for p in self.seeds for x in open(p.get(), encoding="utf-8")]
-        with vllm_server(self.model) as url:
-            rows, stats = write_dialogues(seeds, url, self.model, self.temperature, self.max_tries)
+        with vllm_server(self.model, max_model_len=self.max_model_len) as url:
+            rows, stats = write_dialogues(seeds, url, self.model, self.temperature, self.max_tries,
+                                          thinking=self.thinking, max_tokens=self.max_tokens,
+                                          reasoning_effort=self.reasoning_effort)  # fmt: skip
         Dataset.from_list(rows).save_to_disk(self.out_hf.get())
         with open(self.out_stats.get(), "w", encoding="utf-8") as f:
             json.dump(stats, f, ensure_ascii=False, indent=1)
@@ -686,11 +1646,14 @@ class SftWriteDialogues(Job):
 
 
 class SftVoiceDir(Job):
-    """``build_voice_dir``: the voice directory ``ChatterboxInferenceV2`` draws ``<lang>/<role>/rng_*`` voices from.
-    ``en_voices``: our English library (``pipelines.make_speakers().out_dir``)."""
+    """``build_voice_dir``: the voice directory ``ChatterboxInferenceV2`` draws ``<lang>/<role>/<gender>/rng_*``
+    voices from (every language from FLEURS: the earlier English library had all five assistant clips from one
+    "male, British" Parler description)."""
 
-    def __init__(self, *, en_voices: tk.Path, langs: list[str], n_per_lang: int = 12, seed: int = 0):
-        self.en_voices, self.langs, self.n_per_lang, self.seed = en_voices, langs, n_per_lang, seed
+    def __init__(self, *, langs: list[str], n_per_role: int = 10, pool: int = 80, min_snr_db: float = 25.0,
+                 seed: int = 0, en_voices: tk.Path | None = None):  # fmt: skip
+        self.langs, self.n_per_role, self.pool, self.min_snr_db, self.seed = langs, n_per_role, pool, min_snr_db, seed
+        self.en_voices = en_voices
         self.out_dir = self.output_path("voices", directory=True)
 
     def tasks(self):
@@ -698,5 +1661,25 @@ class SftVoiceDir(Job):
 
     def run(self):
         print(
-            f"[SftVoiceDir] {build_voice_dir(self.out_dir.get(), self.en_voices.get(), self.langs, self.n_per_lang, self.seed)}"
+            f"[SftVoiceDir] {build_voice_dir(self.out_dir.get(), self.langs, self.n_per_role, self.pool, self.min_snr_db, self.seed, self.en_voices.get() if self.en_voices else None)}"
         )
+
+
+class SftPodcastVoices(Job):
+    """``select_podcast_voices``: distinct English podcast speakers (``pool``: a ``KnowledgeVoicePool`` dataset) by
+    gender, expressiveness and Chatterbox's speaker embedding (``tts_python``: the Chatterbox venv). CPU."""
+
+    def __init__(self, *, pool: tk.Path, tts_python: tk.AbstractPath, n_per_role: int = 25, max_sim: float = 0.75,
+                 min_snr_db: float = 25.0):  # fmt: skip
+        self.pool, self.tts_python, self.n_per_role, self.max_sim, self.min_snr_db = (
+            pool, tts_python, n_per_role, max_sim, min_snr_db)  # fmt: skip
+        self.out_dir = self.output_path("voices", directory=True)
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 8, "mem": 16, "time": 2})
+
+    def run(self):
+        hf = os.environ.get("HF_HOME") or os.path.expanduser("~/.cache/huggingface")
+        rep = select_podcast_voices(self.pool.get(), self.out_dir.get(), self.tts_python.get(), hf, self.n_per_role,
+                                    self.max_sim, self.min_snr_db)  # fmt: skip
+        print(f"[SftPodcastVoices] {rep}", flush=True)

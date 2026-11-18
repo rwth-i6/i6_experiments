@@ -10,8 +10,14 @@ Asserted against the real module and the real job:
     score (``exempt``) is never retried;
   * long segments are cut into TTS pieces at sentence ends under the length cap (an LLM-written 600-token turn ran an
     80 GB card out of memory), closing quotes staying with their sentence;
-  * ``render``: segments of a turn are joined with ``segment_gap``, words land on the dialogue timeline inside their
-    segment;
+  * ``render``: every segment's edge silence is trimmed (a turn starts with speech; Multilingual V3 led with up to
+    1 s of silence), segments of a turn are joined with a pause by punctuation (``boundary_pause``: a speaker's pause after a
+    sentence or clause end, ``segment_gap`` inside a phrase), every turn is levelled to the same speech
+    RMS (Multilingual V3 turns spanned 30 dB), words land on the dialogue timeline inside their segment;
+  * pace: a segment off its speaking-rate band is regenerated and an in-pace attempt is preferred;
+  * pauses: before a user turn they vary widely, before an assistant turn little;
+  * interruptions (``<cut/>``): the whole turn is synthesized, cut after the last word before the marker, the next
+    turn overlaps it, ``turns.text`` is what was said;
   * the job: its config is resolved at construction (hash pins it; ``rqmt`` / ``chunk`` are not hashed), it refuses
     an annotator for a language the backend does not have, and its argv carries both worker paths, which exist.
 
@@ -112,6 +118,82 @@ def check_split(c) -> list[str]:
     return bad
 
 
+def check_pace(c) -> list[str]:
+    """A segment whose check says ``pace_ok`` False is regenerated even at error 0, and an in-pace attempt beats an
+    off-pace one with a lower error; ``speech_units`` counts words, Chinese characters."""
+    bad = []
+    pace = {"fast": [False, True], "slow": [False, False, False], "ok": [True]}
+    errs = {"fast": [0.0, 0.05], "slow": [0.0, 0.0, 0.0], "ok": [0.0]}
+
+    def synth(b):
+        return [np.zeros(1, np.float32) for _ in b]
+
+    def check(wavs, b):
+        out = []
+        for it in b:
+            k = 0 if it["seed"] == it["base"] else 1 if it["seed"] == c.attempt_seed(it["base"], 1) else 2
+            out.append({"err": errs[it["text"]][k], "pace_ok": pace[it["text"]][k], "k": k})
+        return out
+
+    items = [{"text": t, "seed": 7 + i, "base": 7 + i} for i, t in enumerate(("fast", "slow", "ok"))]
+    res = c.synthesize_checked(items, synth, check, lambda it: 0.1, 3)
+    if [r["attempts"] for r in res] != [2, 3, 1]:
+        bad.append(f"pace: attempts {[r['attempts'] for r in res]}, want [2, 3, 1] (off-pace is regenerated)")
+    if res[0]["k"] != 1:
+        bad.append("pace: kept the off-pace attempt over the in-pace one with a higher error")
+    if c.pace_check(1, 2.5, None, c.short_cap(1, "de"))["pace_ok"] or not c.pace_check(1, 0.6, None, c.short_cap(1, "de"))["pace_ok"]:
+        bad.append("short cap: a one-word segment of 2.5 s (a repeat) passes, or one of 0.6 s fails")
+    if (c.speech_units("Das ist gut, oder?", "de"), c.speech_units("你好，世界！", "zh")) != (4, 4):
+        bad.append("speech_units: words / Chinese characters miscounted")
+    return bad
+
+
+def check_gaps(c) -> list[str]:
+    """The default pauses: before a user turn they vary widely (some overlap, some > 1 s), before an assistant turn
+    they stay in a narrow band; every draw inside its [lo, hi]."""
+    import random
+
+    bad, rng = [], random.Random(0)
+    d = {sp: [c.draw_gap(rng, c.per_lang(c.DEFAULT_GAPS, sp)) for _ in range(2000)] for sp in ("user", "assistant")}
+    u, a = np.array(d["user"]), np.array(d["assistant"])
+    if not (u.std() > 3 * a.std() and (u < 0).any() and (u > 1.0).any()):
+        bad.append(f"gaps: user std {u.std():.2f} (min {u.min():.2f}, max {u.max():.2f}) vs assistant {a.std():.2f}")
+    for sp, x in d.items():
+        lo, hi = c.per_lang(c.DEFAULT_GAPS, sp)[2:]
+        if x and (min(x) < lo or max(x) > hi):
+            bad.append(f"gaps: a {sp} draw outside [{lo}, {hi}]")
+    return bad
+
+
+def check_cut(c) -> list[str]:
+    """An interrupted turn (``<cut/>``): the whole text is synthesized, the audio ends ``CUT_TAIL`` after the last word
+    before the marker, later words are dropped, ``turns.text`` is what was said, and the next turn overlaps it."""
+    bad = []
+    t0 = {"speaker": "assistant", "lang": "de", "text": "Eins zwei drei <cut/> vier fünf."}
+    if [x["text"] for x in c.turn_segments(t0, "de")] != ["Eins zwei drei vier fünf."]:
+        bad.append(f"cut: segments {c.turn_segments(t0, 'de')} (the whole text is synthesized)")
+    plan = {"lang": "de", "turns": [t0, {"speaker": "user", "text": "Moment!"}],
+            "segs": [[{"lang": "de", "text": "Eins zwei drei vier fünf."}], [{"lang": "de", "text": "Moment!"}]],
+            "items": [{"turn": 0, "segment": 0, "lang": "de", "text": "Eins zwei drei vier fünf."},
+                      {"turn": 1, "segment": 0, "lang": "de", "text": "Moment!"}],
+            "gaps": [-0.3, 0.0]}  # fmt: skip
+    wav = np.full(3000, 0.3, np.float32)  # 3 s of sound, five words of 0.4 s every 0.5 s from 0.2 s
+    ws = [{"text": w, "start": 0.2 + 0.5 * k, "end": 0.6 + 0.5 * k} for k, w in enumerate("eins zwei drei vier fünf".split())]
+    res = [{"wav": wav, "err": 0.0, "attempts": 1, "asr_text": "", "words": ws},
+           {"wav": np.full(500, 0.3, np.float32), "err": 0.0, "attempts": 1, "asr_text": "", "words": []}]  # fmt: skip
+    tracks, turns, segs, words = c.render(plan, res, SR, 0.1, None)
+    if turns[0]["text"] != "Eins zwei drei" or not turns[0]["interrupted"] or turns[1]["interrupted"]:
+        bad.append(f"cut: turn rows {turns}")
+    if [w["text"] for w in words if w["turn"] == 0] != ["eins", "zwei", "drei"]:
+        bad.append(f"cut: words kept {[w['text'] for w in words if w['turn'] == 0]}")
+    want_end = ws[2]["end"] + c.CUT_TAIL  # this wav has no silence to trim
+    if abs(turns[0]["end_time"] - want_end) > 3e-3:
+        bad.append(f"cut: turn 0 ends at {turns[0]['end_time']:.3f}, want {want_end:.3f}")
+    if abs(turns[1]["start_time"] - (turns[0]["end_time"] - 0.3)) > 3e-3:
+        bad.append("cut: the interrupting turn does not overlap the cut turn by its gap")
+    return bad
+
+
 def check_render(c) -> list[str]:
     plan = {
         "turns": [{"speaker": "user", "text": "Wie sagt man <en>bike</en>?"}, {"speaker": "assistant", "text": "Gut."}],
@@ -121,16 +203,18 @@ def check_render(c) -> list[str]:
                   {"turn": 1, "segment": 0, "lang": "de", "text": "Gut."}],
         "gaps": [0.5, 0.0],
     }  # fmt: skip
-    loud = np.ones(1000, np.float32) * 0.5
-    seg = np.concatenate([np.zeros(200, np.float32), loud, np.zeros(300, np.float32)])  # 0.2 s silence, 1 s, 0.3 s
-    res = [{"wav": seg, "err": 0.0, "attempts": 1, "asr_text": "x",
-            "words": [{"text": "w", "start": 0.3, "end": 1.1}]} for _ in range(3)]  # fmt: skip
-    tracks, turns, segs, words = c.render(plan, res, SR, 0.1)
+    def seg(amp):  # 0.2 s silence, 1 s at ``amp``, 0.3 s silence
+        return np.concatenate([np.zeros(200, np.float32), np.full(1000, amp, np.float32), np.zeros(300, np.float32)])
+
+    res = [{"wav": seg(a), "err": 0.0, "attempts": 1, "asr_text": "x",
+            "words": [{"text": "w", "start": 0.3, "end": 1.1}]} for a in (0.5, 0.5, 0.02)]  # fmt: skip
+    tracks, turns, segs, words = c.render(plan, res, SR, 0.1, -23.0)
     bad = []
     if [t["text"] for t in turns] != ["Wie sagt man bike?", "Gut."]:
         bad.append(f"turns.text {[t['text'] for t in turns]} (tags must be gone)")
-    # turn 0: seg 0 keeps its lead (0.2 s), trail cut to 50 ms; gap 0.1; seg 1 lead cut to 50 ms, keeps its trail
-    want0 = 0.2 + 1.0 + 0.05 + 0.1 + 0.05 + 1.0 + 0.3
+    # every segment's lead and trail cut to 50 ms (a turn starts with speech: the pause before it is the gap alone)
+    # and a language switch inside the turn keeps only INNER_MARGIN on each side (+ segment_gap)
+    want0 = 0.05 + 1.0 + 0.02 + 0.1 + 0.02 + 1.0 + 0.05
     if abs(turns[0]["end_time"] - want0) > 2e-3:
         bad.append(f"turn 0 ends at {turns[0]['end_time']:.3f}, want {want0:.3f}")
     if abs(turns[1]["start_time"] - (want0 + 0.5)) > 2e-3:
@@ -139,10 +223,39 @@ def check_render(c) -> list[str]:
         s = segs[[k for k, x in enumerate(segs) if x["turn"] == w["turn"]][w["segment"]]]
         if not (s["start"] - 1e-6 <= w["start"] <= w["end"] <= s["end"] + 1e-6):
             bad.append(f"word {w} outside its segment {s}")
-    if abs(words[1]["start"] - (segs[1]["start"] + 0.3 - 0.15)) > 2e-3:  # seg 1's lead was cut by 0.15 s
-        bad.append(f"word in segment 1 not shifted by the trimmed lead: {words[1]} / {segs[1]}")
+    for k, cut in ((0, 0.15), (1, 0.18)):  # each segment's lead was cut
+        if abs(words[k]["start"] - (segs[k]["start"] + 0.3 - cut)) > 2e-3:
+            bad.append(f"word in segment {k} not shifted by the trimmed lead: {words[k]} / {segs[k]}")
+    # every turn levelled to -23 dBFS speech RMS: a 0.5 turn and a 0.02 turn (28 dB apart) end up equal
+    for sp, t in (("user", turns[0]), ("assistant", turns[1])):
+        x = tracks[sp][int(t["start_time"] * SR) : int(t["end_time"] * SR)]
+        x = x[np.abs(x) > 1e-4]
+        lvl = 20 * np.log10(np.sqrt(np.mean(x**2)))
+        if abs(lvl + 23) > 0.5:
+            bad.append(f"{sp} turn at {lvl:.1f} dBFS, want -23")
     if len(tracks["user"]) < int(want0 * SR) or set(tracks) != {"user", "assistant"}:
         bad.append("tracks")
+    # a long silence inside one clip is shortened to CAPPED_PAUSE and the words after it move with the audio
+    sil_wav = np.concatenate([np.full(500, 0.5, np.float32), np.zeros(2000, np.float32), np.full(500, 0.5, np.float32)])
+    p3 = {"turns": [{"speaker": "user", "text": "x"}], "gaps": [0.0], "segs": [[{"lang": "de", "text": "Ja. Gut."}]],
+          "items": [{"turn": 0, "segment": 0, "lang": "de", "text": "Ja. Gut."}]}  # fmt: skip
+    r3 = [{"wav": sil_wav, "err": 0.0, "attempts": 1, "asr_text": "x",
+           "words": [{"text": "Ja", "start": 0.0, "end": 0.5}, {"text": "Gut", "start": 2.5, "end": 3.0}]}]  # fmt: skip
+    _, t3, _, w3 = c.render(p3, r3, SR, 0.1, None)
+    if abs((t3[0]["end_time"] - t3[0]["start_time"]) - 1.35) > 0.02:
+        bad.append(f"2 s inner silence not capped: turn lasts {t3[0]['end_time'] - t3[0]['start_time']:.2f} s, want 1.35")
+    if abs(w3[1]["start"] - 0.85) > 0.02:
+        bad.append(f"word after a capped pause at {w3[1]['start']:.2f}, want 0.85")
+    # a boundary after a sentence end / a clause gets a speaker's pause, not segment_gap
+    for first, want in (("Ja, genau.", 0.3), ("Ja, genau,", 0.12), ("Das heißt", 0.1)):
+        p2 = {"turns": [{"speaker": "user", "text": "x"}], "gaps": [0.0],
+              "segs": [[{"lang": "de", "text": first}, {"lang": "en", "text": "Okay."}]],
+              "items": [{"turn": 0, "segment": 0, "lang": "de", "text": first},
+                        {"turn": 0, "segment": 1, "lang": "en", "text": "Okay."}]}  # fmt: skip
+        _, _, sg, _ = c.render(p2, res[:2], SR, 0.1, None)
+        got = sg[1]["start"] - sg[0]["end"]  # segment rows include their margins
+        if abs(got - want) > 2e-3:
+            bad.append(f"pause after {first!r}: {got:.3f} s, want {want}")
     return bad
 
 
@@ -194,12 +307,15 @@ def _mutant(**over):
     m = types.ModuleType("core_mutant")
     m.__dict__.update({k: v for k, v in core.__dict__.items() if not k.startswith("__")})
     m.__dict__.update(over)
-    for fn in ("render", "synthesize_checked", "parse_segments", "turn_plain_text", "split_long", "_split_long"):
+    for fn in ("render", "synthesize_checked", "parse_segments", "turn_plain_text", "split_long", "_split_long",
+               "level_to", "_rank", "turn_cut_units", "turn_plain_text", "turn_segments", "pace_check", "short_cap"):
         if fn in over:
             continue
         f = m.__dict__[fn]
         if fn not in over:
-            m.__dict__[fn] = types.FunctionType(f.__code__, m.__dict__, f.__name__, f.__defaults__)
+            g = types.FunctionType(f.__code__, m.__dict__, f.__name__, f.__defaults__)
+            g.__kwdefaults__ = f.__kwdefaults__
+            m.__dict__[fn] = g
     return m
 
 
@@ -210,10 +326,19 @@ MUTANTS = {
     "no inner trim": (check_render, dict(edge_trim=lambda wav, sr, **kw: (0, len(wav)))),
     "quotes cut off their sentence": (check_split, dict(_SENT_END=__import__("re").compile(r"[.!?。！？；;…]+\\s*"))),
     "no length cap": (check_split, dict(_split_long=lambda text, lang, max_chars: [text])),
+    "turn lead kept": (check_render, dict(edge_trim=lambda wav, sr, lead, trail, **kw: (0 if lead else 0, len(wav)))),
+    "no levelling": (check_render, dict(level_to=lambda wav, target, **kw: wav)),
+    "pace ignored": (check_pace, dict(_rank=lambda r: (False, r["err"]))),
+    "one pause distribution": (check_gaps, dict(DEFAULT_GAPS={"*": [0.2, 0.4, -0.3, 0.6]})),
+    "interruption ignored": (check_cut, dict(turn_cut_units=lambda turn, lang: None)),
+    "no short cap": (check_pace, dict(short_cap=lambda units, lang: 1e9)),
+    "wide gap at a language switch": (check_render, dict(INNER_MARGIN=0.05)),
+    "no pause at a sentence end": (check_render, dict(boundary_pause=lambda text, segment_gap: segment_gap)),
+    "inner pauses kept": (check_render, dict(cap_pauses=lambda wav, sr, **kw: (wav, []))),
 }
 
 if __name__ == "__main__":
-    fails = check_segments(core) + check_split(core) + check_regen(core) + check_render(core) + check_job()
+    fails = check_segments(core) + check_split(core) + check_regen(core) + check_pace(core) + check_gaps(core) + check_cut(core) + check_render(core) + check_job()
     for f in fails:
         print("FAIL", f)
     for name, (fn, over) in MUTANTS.items():

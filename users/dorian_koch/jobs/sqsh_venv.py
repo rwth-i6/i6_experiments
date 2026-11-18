@@ -125,8 +125,9 @@ def venv_prefix(python: str) -> str:
     return out.stdout.strip()
 
 
-def create_venv(canonical: str, staging: str | None = None) -> str:
-    """An empty venv (with pip) whose files all name ``canonical``; returns ``canonical/bin/python``.
+def create_venv(canonical: str, staging: str | None = None, base_python: str | None = None) -> str:
+    """An empty venv (with pip) whose files all name ``canonical``; returns ``canonical/bin/python``. ``base_python``:
+    create it from that interpreter (``<base_python> -m venv``) instead of the running one.
 
     With ``staging``, the tree is stored there and ``canonical`` becomes a symlink to it, so the
     transient files land on the staging volume. ``venv`` refuses to create THROUGH a symlink, so the
@@ -137,8 +138,15 @@ def create_venv(canonical: str, staging: str | None = None) -> str:
     import venv
 
     py = os.path.join(canonical, "bin", "python")
+
+    def make(path: str, with_pip: bool) -> None:
+        if base_python:
+            subprocess.run([base_python, "-m", "venv"] + ([] if with_pip else ["--without-pip"]) + [path], check=True)
+        else:
+            venv.create(path, with_pip=with_pip)
+
     if not staging:
-        venv.create(canonical, with_pip=True)
+        make(canonical, True)
         return py
     if os.path.isdir(staging):
         shutil.rmtree(staging)  # an earlier failed attempt
@@ -147,7 +155,7 @@ def create_venv(canonical: str, staging: str | None = None) -> str:
         os.remove(canonical)
     elif os.path.isdir(canonical):
         os.rmdir(canonical)  # must be empty: an output dir the job framework pre-created
-    venv.create(staging, with_pip=False)
+    make(staging, False)
     _repoint(staging, staging, canonical)  # venv wrote the dir it was GIVEN into activate/pyvenv.cfg
     os.symlink(staging, canonical)
     subprocess.run([py, "-m", "ensurepip", "--upgrade", "--default-pip"], check=True)

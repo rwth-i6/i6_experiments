@@ -264,6 +264,7 @@ def vllm_server(
     max_model_len: int | None = None,
     gpu_memory_utilization: float = 0.9,
     enforce_eager: bool = False,
+    extra_args: list[str] | None = None,
 ):
     # `max_model_len` override: a short-context caller (e.g. LLMGrading, whose prompts measure ~2.5k
     # tokens worst case over the real data, median 249) can pass a small value so the judge's KV cache
@@ -331,6 +332,9 @@ def vllm_server(
         else:
             model_args += ["--max-model-len", str(max_model_len)]
     cmd += model_args
+    # `extra_args`: appended last (e.g. ["--quantization", "fp8", "--kv-cache-dtype", "fp8"] for a writer whose
+    # bf16 weights leave too little KV cache on one card: gemma-4-31B ran at 96% KV with ~20 requests in flight)
+    cmd += list(extra_args or [])
 
     # Boot cost is invisible unless it is recorded: this job's wall time reads as "grading was
     # slow" when in fact the model spent most of it loading. One line, so any future caller can see

@@ -91,13 +91,53 @@ def speed_s3gen(model) -> None:
     model.s3gen.flow.decoder.estimator.to(torch.bfloat16)
 
 
-def text_tokens(model, text: str, language_id: str) -> torch.Tensor:
-    """Upstream's text path: ``punc_norm``, the multilingual tokenizer (language tag), start / stop text tokens."""
+def text_tokens(model, text: str, language_id: str, spans: list[dict] | None = None,
+                span_tags: bool = True) -> torch.Tensor:
+    """Upstream's text path: ``punc_norm``, the multilingual tokenizer (language tag), start / stop text tokens.
+
+    ``spans`` ([{"lang", "text"}], one utterance across languages): each span through its own language's
+    preprocessing (lowercase, NFKD; Cangjie codes for Chinese, ...) and the token ids joined, so one T3 pass speaks
+    the whole turn. ``language_id`` leads; ``span_tags`` puts each other span's language token before it (upstream
+    trains one leading tag per utterance, so both are outside its training: an experiment)."""
     from chatterbox.mtl_tts import punc_norm
 
-    t = model.tokenizer.text_to_tokens(punc_norm(text), language_id=language_id.lower())[0]
+    if spans:
+        t = torch.IntTensor(mixed_ids(model.tokenizer, spans, language_id.lower(), span_tags, punc_norm))
+    else:
+        t = model.tokenizer.text_to_tokens(punc_norm(text), language_id=language_id.lower())[0]
     hp = model.t3.hp
     return F.pad(F.pad(t, (1, 0), value=hp.start_text_token), (0, 1), value=hp.stop_text_token)
+
+
+def _cjk(c: str) -> bool:
+    return "\u3400" <= c <= "\u9fff" or "\u3000" <= c <= "\u303f" or "\uff00" <= c <= "\uffef"
+
+
+def mixed_ids(tok, spans: list[dict], lead: str, span_tags: bool, punc_norm) -> list[int]:
+    """Token ids of a turn spoken across languages (``text_tokens``): the ``lead`` language token, then each span's
+    ids from ``tok.encode`` in its own language (its language token kept only with ``span_tags`` and when it differs
+    from the language before), a space token between spans unless both sides are CJK or the span starts with
+    punctuation. ``punc_norm`` runs per span; the full stop it appends is kept only on the last span."""
+    import unicodedata
+
+    vocab = tok.tokenizer
+    space = vocab.token_to_id("[SPACE]")
+    ids, prev, prev_txt = [vocab.token_to_id(f"[{lead}]")], lead, ""
+    spans = [s for s in spans if s["text"].strip()]
+    for k, s in enumerate(spans):
+        raw, lg = s["text"].strip(), s["lang"].lower()
+        x = punc_norm(raw)
+        if k < len(spans) - 1 and x.endswith(".") and not raw.endswith("."):
+            x = x[:-1]
+        e = tok.encode(x, language_id=lg)
+        tag = vocab.token_to_id(f"[{lg}]")
+        if e and e[0] == tag and not (span_tags and lg != prev):
+            e = e[1:]
+        if k and not (_cjk(prev_txt[-1]) and _cjk(raw[0])) and not unicodedata.category(raw[0]).startswith("P"):
+            ids.append(space)
+        ids += e
+        prev, prev_txt = lg, raw
+    return ids
 
 
 def finish_tokens(tokens: torch.Tensor) -> tuple[torch.Tensor, int]:
@@ -322,20 +362,22 @@ class ContinuousMtlT3:
 
 def synthesize(model, items: list[dict], *, slots: int = 64, s3_batch: int = 16, s3_pool: int = 64,
                log_every: float = 60.0, timing: dict | None = None, flow_autocast: torch.dtype | None = None,
-               overlap: bool = True) -> list:  # fmt: skip
+               overlap: bool = True, decode_kw: dict | None = None) -> list:  # fmt: skip
     """Waveforms (float32 numpy at ``model.sr``) for ``items`` = [{"text", "lang", "cond" (a ``model.conds``),
     "seed"}]: ``ContinuousMtlT3``, finished utterances pooled ``s3_pool`` at a time, sorted by length, S3Gen in groups
     of ``s3_batch``, each waveform cut to upstream's length (the final token's audio dropped). ``overlap``: S3Gen runs
     in a second thread on its own CUDA stream while T3 keeps decoding (every decode graph is captured first, so no
-    capture runs concurrently with it)."""
+    capture runs concurrently with it). ``decode_kw``: ``ContinuousMtlT3``'s sampling arguments (``cfg_weight``,
+    ``temperature``, ``min_p``, ``top_p``, ``repetition_penalty``); upstream's defaults when empty."""
     import queue
     import threading
 
     if not items:
         return []
-    toks = [text_tokens(model, it["text"], it["lang"]) for it in items]
+    toks = [text_tokens(model, it["text"], it["lang"], it.get("spans"), it.get("span_tags", True)) for it in items]
     dec = ContinuousMtlT3(model.t3, min(slots, len(items)),
-                          max_prompt=model.t3.hp.speech_cond_prompt_len + max(t.numel() for t in toks) + 8)  # fmt: skip
+                          max_prompt=model.t3.hp.speech_cond_prompt_len + max(t.numel() for t in toks) + 8,
+                          **(decode_kw or {}))  # fmt: skip
     out = [None] * len(items)
     pend = []
     t0, last = time.time(), [time.time()]
