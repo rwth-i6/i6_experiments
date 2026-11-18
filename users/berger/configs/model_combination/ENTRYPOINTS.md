@@ -394,3 +394,12 @@ Reports: `output/reports/asr-lm/transcription-conventions.md` and `noise-pilot.m
 See [PUBLIC_PILOTS.md](experiments/open_asr/PUBLIC_PILOTS.md) for pairing,
 selection, audio preparation, uncertainty and interpretation limits. Neither
 config schedules the historical suite or requires new model/data downloads.
+
+## Contraction variants in rescoring (opt-in)
+
+`./sis m config/contraction_rescoring.py` adds four Speech-Qwen 1.7B scoring jobs
+over existing Granite/Parakeet 50-best pools on dev-other/dev.short. Literal,
+contracted, expanded and best-of-three LM wordings share identical original AM
+texts, first-pass costs and original-AM-word rewards. No new AM searches or
+test-set runs are scheduled. Report: `output/reports/asr-lm/contraction-rescoring.md`.
+See [CONTRACTION_RESCORING.md](experiments/open_asr/CONTRACTION_RESCORING.md).

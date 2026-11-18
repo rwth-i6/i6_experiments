@@ -308,3 +308,12 @@ those features. See [pilot review](PUBLIC_PILOT_REVIEW_20261118.md) for evidence
 paired cross-condition intervals and caveats. Keep the noise result as a limited
 supplement; the next diagnostic checkpoint is the AppTek forced scorer, not a
 larger public noise grid.
+
+The user approved a public contraction-rescoring pilot after the convention
+audit. `config/contraction_rescoring.py` compares frozen literal scores with
+contracted/expanded/best-of-three LM renderings on both dev corpora for Granite
+and Parakeet, using Speech-Qwen 1.7B. AM outputs/costs and original-AM-word rewards
+stay fixed. This adds four auxiliary scoring jobs only; see
+[CONTRACTION_RESCORING.md](CONTRACTION_RESCORING.md). AppTek noise expansion stays
+deferred; the company agent's next checkpoint remains the convention-aware
+fixed-hypothesis diagnostic on its two dev sets.
