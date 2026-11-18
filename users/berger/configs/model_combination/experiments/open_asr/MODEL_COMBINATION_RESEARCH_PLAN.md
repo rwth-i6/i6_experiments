@@ -299,3 +299,12 @@ slices, and `config/noise_pilot.py` schedules a 256-utterance dev-other clean /
 20 / 10 dB white-noise pilot for Parakeet, Speech-Qwen 1.7B and their frozen
 one-pass combination. No full-suite grid or new tuning is enabled. See
 [PUBLIC_PILOTS.md](PUBLIC_PILOTS.md) for controls and the decision checkpoint.
+
+Both follow-ups completed on 2026-11-18. The noise pilot retains a fusion gain
+on clean and 10 dB audio, but does not demonstrate a larger benefit under noise;
+the stronger standalone is Parakeet at every SNR. The surface audit identifies
+Granite contraction-related deficits, while Parakeet failures also occur without
+those features. See [pilot review](PUBLIC_PILOT_REVIEW_20261118.md) for evidence,
+paired cross-condition intervals and caveats. Keep the noise result as a limited
+supplement; the next diagnostic checkpoint is the AppTek forced scorer, not a
+larger public noise grid.

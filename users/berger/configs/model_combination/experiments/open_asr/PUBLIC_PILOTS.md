@@ -1,5 +1,7 @@
 # Independent public follow-ups — 2026-11-17
 
+Completed 2026-11-18: see [results and decision](PUBLIC_PILOT_REVIEW_20261118.md).
+
 These two opt-in configs implement the approved next steps while the AppTek
 forced-scoring diagnostics continue. Neither is imported into the large main
 experiment graph. Both require the existing completed public frozen selection

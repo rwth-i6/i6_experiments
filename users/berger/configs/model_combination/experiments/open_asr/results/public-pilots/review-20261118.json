@@ -1,0 +1,938 @@
+{
+  "date": "2026-11-18",
+  "protocol_sha256": "f4212424889ee5d390df7a87d917b77b65d35c1a15e7c4920c3599c3c1769a56",
+  "sources": {
+    "noise": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/noise_pilot/NoisePilotReportJob.6fy7GELVDLhh/output/summary.json",
+      "sha256": "d4f21a47dd4f5b85845e33fc203de2b6d148805370b890183cf417842b775364"
+    },
+    "conventions": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/convention_audit/ConventionAuditJob.skquFOX9RP5F/output/summary.json",
+      "sha256": "36ce4ee2afeef7aa460e39d8c4290fac942f540775e70e0b5c1730a5d0f42c55"
+    }
+  },
+  "noise_rows": [
+    {
+      "condition": "clean/parakeet",
+      "wer": 2.0946470131885184,
+      "counts": {
+        "ins": 7,
+        "sub": 88,
+        "total": 108,
+        "ref_len": 5156,
+        "del": 13,
+        "wer_percent": 2.0946470131885184,
+        "num_scoring_units": 256,
+        "kaldialign_version": "0.12.0",
+        "normalizer_revision": "48219c6028db0517d704600d92f31edfc96e8c23"
+      },
+      "timing": {
+        "audio_seconds": 1934.464874999999,
+        "elapsed_seconds": 264.7937455167994,
+        "rtf": 0.13688216774512357,
+        "num_segments": 256,
+        "kind": "zero",
+        "dtype": "float32",
+        "batch_size": 8
+      }
+    },
+    {
+      "condition": "clean/speech",
+      "wer": 2.8338509316770186,
+      "counts": {
+        "ins": 10,
+        "sub": 126,
+        "total": 146,
+        "ref_len": 5152,
+        "del": 10,
+        "wer_percent": 2.8338509316770186,
+        "num_scoring_units": 256,
+        "kaldialign_version": "0.12.0",
+        "normalizer_revision": "48219c6028db0517d704600d92f31edfc96e8c23"
+      },
+      "timing": {
+        "audio_seconds": 1934.464874999999,
+        "elapsed_seconds": 182.4966317275539,
+        "rtf": 0.09433959442016439,
+        "num_segments": 256,
+        "dtype": "float32",
+        "audio_conditioned": true
+      }
+    },
+    {
+      "condition": "clean/fusion",
+      "wer": 1.8615474112856312,
+      "counts": {
+        "ins": 5,
+        "sub": 85,
+        "total": 96,
+        "ref_len": 5157,
+        "del": 6,
+        "wer_percent": 1.8615474112856312,
+        "num_scoring_units": 256,
+        "kaldialign_version": "0.12.0",
+        "normalizer_revision": "48219c6028db0517d704600d92f31edfc96e8c23"
+      },
+      "timing": {
+        "audio_seconds": 1934.464874999999,
+        "elapsed_seconds": 2664.5080266129225,
+        "rtf": 1.3773876491879564,
+        "num_segments": 256,
+        "kind": "speech",
+        "dtype": "float32",
+        "batch_size": 8
+      },
+      "delta": -0.23309960190288725,
+      "delta_ci": [
+        -0.4088746950772219,
+        -0.06245167318172078
+      ]
+    },
+    {
+      "condition": "snr20/parakeet",
+      "wer": 2.3666343355965083,
+      "counts": {
+        "ins": 9,
+        "sub": 104,
+        "total": 122,
+        "ref_len": 5155,
+        "del": 9,
+        "wer_percent": 2.3666343355965083,
+        "num_scoring_units": 256,
+        "kaldialign_version": "0.12.0",
+        "normalizer_revision": "48219c6028db0517d704600d92f31edfc96e8c23"
+      },
+      "timing": {
+        "audio_seconds": 1934.464874999999,
+        "elapsed_seconds": 251.7771723549813,
+        "rtf": 0.13015339570587003,
+        "num_segments": 256,
+        "kind": "zero",
+        "dtype": "float32",
+        "batch_size": 8
+      }
+    },
+    {
+      "condition": "snr20/speech",
+      "wer": 3.5312378734963135,
+      "counts": {
+        "ins": 10,
+        "sub": 154,
+        "total": 182,
+        "ref_len": 5154,
+        "del": 18,
+        "wer_percent": 3.5312378734963135,
+        "num_scoring_units": 256,
+        "kaldialign_version": "0.12.0",
+        "normalizer_revision": "48219c6028db0517d704600d92f31edfc96e8c23"
+      },
+      "timing": {
+        "audio_seconds": 1934.464874999999,
+        "elapsed_seconds": 178.46523421816528,
+        "rtf": 0.0922556085274825,
+        "num_segments": 256,
+        "dtype": "float32",
+        "audio_conditioned": true
+      }
+    },
+    {
+      "condition": "snr20/fusion",
+      "wer": 2.2493697886368045,
+      "counts": {
+        "ins": 7,
+        "sub": 103,
+        "total": 116,
+        "ref_len": 5157,
+        "del": 6,
+        "wer_percent": 2.2493697886368045,
+        "num_scoring_units": 256,
+        "kaldialign_version": "0.12.0",
+        "normalizer_revision": "48219c6028db0517d704600d92f31edfc96e8c23"
+      },
+      "timing": {
+        "audio_seconds": 1934.464874999999,
+        "elapsed_seconds": 2679.730243405327,
+        "rtf": 1.3852566040545597,
+        "num_segments": 256,
+        "kind": "speech",
+        "dtype": "float32",
+        "batch_size": 8
+      },
+      "delta": -0.11726454695970379,
+      "delta_ci": [
+        -0.32623411803549385,
+        0.09307558376362614
+      ]
+    },
+    {
+      "condition": "snr10/parakeet",
+      "wer": 4.306498545101843,
+      "counts": {
+        "ins": 18,
+        "sub": 183,
+        "total": 222,
+        "ref_len": 5155,
+        "del": 21,
+        "wer_percent": 4.306498545101843,
+        "num_scoring_units": 256,
+        "kaldialign_version": "0.12.0",
+        "normalizer_revision": "48219c6028db0517d704600d92f31edfc96e8c23"
+      },
+      "timing": {
+        "audio_seconds": 1934.464874999999,
+        "elapsed_seconds": 247.53286943212152,
+        "rtf": 0.1279593507388557,
+        "num_segments": 256,
+        "kind": "zero",
+        "dtype": "float32",
+        "batch_size": 8
+      }
+    },
+    {
+      "condition": "snr10/speech",
+      "wer": 5.064027939464494,
+      "counts": {
+        "ins": 16,
+        "sub": 209,
+        "total": 261,
+        "ref_len": 5154,
+        "del": 36,
+        "wer_percent": 5.064027939464494,
+        "num_scoring_units": 256,
+        "kaldialign_version": "0.12.0",
+        "normalizer_revision": "48219c6028db0517d704600d92f31edfc96e8c23"
+      },
+      "timing": {
+        "audio_seconds": 1934.464874999999,
+        "elapsed_seconds": 221.39061016961932,
+        "rtf": 0.11444540194590995,
+        "num_segments": 256,
+        "dtype": "float32",
+        "audio_conditioned": true
+      }
+    },
+    {
+      "condition": "snr10/fusion",
+      "wer": 3.878975950349108,
+      "counts": {
+        "ins": 19,
+        "sub": 154,
+        "total": 200,
+        "ref_len": 5156,
+        "del": 27,
+        "wer_percent": 3.878975950349108,
+        "num_scoring_units": 256,
+        "kaldialign_version": "0.12.0",
+        "normalizer_revision": "48219c6028db0517d704600d92f31edfc96e8c23"
+      },
+      "timing": {
+        "audio_seconds": 1934.464874999999,
+        "elapsed_seconds": 2643.642533732578,
+        "rtf": 1.3666014658098042,
+        "num_segments": 256,
+        "kind": "speech",
+        "dtype": "float32",
+        "batch_size": 8
+      },
+      "delta": -0.42752259475273524,
+      "delta_ci": [
+        -0.7250187085061248,
+        -0.11788872531788876
+      ]
+    }
+  ],
+  "noise_gain_contrasts": {
+    "definition": "(fusion minus better constituent at noisy SNR) minus (fusion minus better constituent at clean)",
+    "method": "10,000 joint paired chapter bootstrap replicates; multinomial chapter weights, batches of 32; own reference denominators; NumPy default_rng(20261117). Exploratory, unadjusted.",
+    "seed": 20261117,
+    "chapters": 91,
+    "snr20": {
+      "delta_pp": 0.11583505494318347,
+      "ci95": [
+        -0.09185063742425222,
+        0.32231013922035423
+      ]
+    },
+    "snr10": {
+      "delta_pp": -0.194422992849848,
+      "ci95": [
+        -0.5102559848058914,
+        0.14161374846694771
+      ]
+    }
+  },
+  "convention_slices": [
+    {
+      "dataset": "ami-cleaned",
+      "model": "Granite CTC",
+      "slices": [
+        {
+          "slice": "all",
+          "units": 7715,
+          "wer": {
+            "am": 7.363036584328639,
+            "speech": 8.367386651099435,
+            "fusion": 7.062383782404201
+          },
+          "delta_vs_better": -0.30065280192443833
+        },
+        {
+          "slice": "contraction/yes",
+          "units": 2582,
+          "wer": {
+            "am": 6.851123444151086,
+            "speech": 7.565381504448639,
+            "fusion": 6.631635677714901
+          },
+          "delta_vs_better": -0.21948776643618473
+        },
+        {
+          "slice": "contraction/no",
+          "units": 5133,
+          "wer": {
+            "am": 7.783556489985615,
+            "speech": 9.02645455753977,
+            "fusion": 7.416262646388169
+          },
+          "delta_vs_better": -0.3672938435974453
+        },
+        {
+          "slice": "digit/yes",
+          "units": 47,
+          "wer": {
+            "am": 5.037783375314861,
+            "speech": 5.793450881612091,
+            "fusion": 5.163727959697733
+          },
+          "delta_vs_better": 0.12594458438287148
+        },
+        {
+          "slice": "digit/no",
+          "units": 7668,
+          "wer": {
+            "am": 7.385687470095327,
+            "speech": 8.392484342379959,
+            "fusion": 7.080884067397253
+          },
+          "delta_vs_better": -0.3048034026980737
+        }
+      ]
+    },
+    {
+      "dataset": "ami-cleaned",
+      "model": "Parakeet RNN-T",
+      "slices": [
+        {
+          "slice": "all",
+          "units": 7715,
+          "wer": {
+            "am": 13.294917149908214,
+            "speech": 8.367386651099435,
+            "fusion": 10.69882799202451
+          },
+          "delta_vs_better": 2.3314413409250747
+        },
+        {
+          "slice": "contraction/yes",
+          "units": 2582,
+          "wer": {
+            "am": 12.611543957080851,
+            "speech": 7.565381504448639,
+            "fusion": 10.15797703132582
+          },
+          "delta_vs_better": 2.592595526877182
+        },
+        {
+          "slice": "contraction/no",
+          "units": 5133,
+          "wer": {
+            "am": 13.856168629882207,
+            "speech": 9.02645455753977,
+            "fusion": 11.143097568537137
+          },
+          "delta_vs_better": 2.1166430109973664
+        },
+        {
+          "slice": "digit/yes",
+          "units": 47,
+          "wer": {
+            "am": 9.445843828715365,
+            "speech": 5.793450881612091,
+            "fusion": 7.430730478589421
+          },
+          "delta_vs_better": 1.6372795969773302
+        },
+        {
+          "slice": "digit/no",
+          "units": 7668,
+          "wer": {
+            "am": 13.332433129150658,
+            "speech": 8.392484342379959,
+            "fusion": 10.730683296913748
+          },
+          "delta_vs_better": 2.338198954533789
+        }
+      ]
+    },
+    {
+      "dataset": "gigaspeech-cleaned",
+      "model": "Granite CTC",
+      "slices": [
+        {
+          "slice": "all",
+          "units": 18757,
+          "wer": {
+            "am": 8.522929279430342,
+            "speech": 7.289332929659905,
+            "fusion": 7.927937020589423
+          },
+          "delta_vs_better": 0.6386040909295172
+        },
+        {
+          "slice": "contraction/yes",
+          "units": 8720,
+          "wer": {
+            "am": 9.480349748513746,
+            "speech": 8.124565219305584,
+            "fusion": 8.97678637476443
+          },
+          "delta_vs_better": 0.8522211554588459
+        },
+        {
+          "slice": "contraction/no",
+          "units": 10037,
+          "wer": {
+            "am": 7.23810086217078,
+            "speech": 6.1683822399754185,
+            "fusion": 6.520223152022315
+          },
+          "delta_vs_better": 0.3518409120468968
+        },
+        {
+          "slice": "digit/yes",
+          "units": 1147,
+          "wer": {
+            "am": 7.616733206040618,
+            "speech": 6.165073848827107,
+            "fusion": 6.720177907501998
+          },
+          "delta_vs_better": 0.5551040586748908
+        },
+        {
+          "slice": "digit/no",
+          "units": 17610,
+          "wer": {
+            "am": 8.593902943031779,
+            "speech": 7.377341295210631,
+            "fusion": 8.022506332626836
+          },
+          "delta_vs_better": 0.6451650374162048
+        }
+      ]
+    },
+    {
+      "dataset": "gigaspeech-cleaned",
+      "model": "Parakeet RNN-T",
+      "slices": [
+        {
+          "slice": "all",
+          "units": 18757,
+          "wer": {
+            "am": 8.168707771335725,
+            "speech": 7.289332929659905,
+            "fusion": 7.526122208039233
+          },
+          "delta_vs_better": 0.2367892783793275
+        },
+        {
+          "slice": "contraction/yes",
+          "units": 8720,
+          "wer": {
+            "am": 9.024426754957556,
+            "speech": 8.124565219305584,
+            "fusion": 8.362424557248447
+          },
+          "delta_vs_better": 0.2378593379428633
+        },
+        {
+          "slice": "contraction/no",
+          "units": 10037,
+          "wer": {
+            "am": 7.020197841939182,
+            "speech": 6.1683822399754185,
+            "fusion": 6.403658558201918
+          },
+          "delta_vs_better": 0.2352763182264992
+        },
+        {
+          "slice": "digit/yes",
+          "units": 1147,
+          "wer": {
+            "am": 6.974886241272708,
+            "speech": 6.165073848827107,
+            "fusion": 6.357256999930522
+          },
+          "delta_vs_better": 0.1921831511034151
+        },
+        {
+          "slice": "digit/no",
+          "units": 17610,
+          "wer": {
+            "am": 8.262212125746467,
+            "speech": 7.377341295210631,
+            "fusion": 7.617648658941298
+          },
+          "delta_vs_better": 0.24030736373066652
+        }
+      ]
+    },
+    {
+      "dataset": "librispeech-dev-other",
+      "model": "Granite CTC",
+      "slices": [
+        {
+          "slice": "all",
+          "units": 2864,
+          "wer": {
+            "am": 2.630658636098698,
+            "speech": 2.6640738940204183,
+            "fusion": 2.465993004275165
+          },
+          "delta_vs_better": -0.1646656318235329
+        },
+        {
+          "slice": "contraction/yes",
+          "units": 508,
+          "wer": {
+            "am": 4.704052871999222,
+            "speech": 3.083957583422512,
+            "fusion": 4.529989306892194
+          },
+          "delta_vs_better": 1.446031723469682
+        },
+        {
+          "slice": "contraction/no",
+          "units": 2356,
+          "wer": {
+            "am": 2.1126247541341883,
+            "speech": 2.5591795071209837,
+            "fusion": 1.9503072401816726
+          },
+          "delta_vs_better": -0.1623175139525157
+        },
+        {
+          "slice": "digit/yes",
+          "units": 1,
+          "wer": {
+            "am": 0.0,
+            "speech": 4.761904761904762,
+            "fusion": 0.0
+          },
+          "delta_vs_better": 0.0
+        },
+        {
+          "slice": "digit/no",
+          "units": 2863,
+          "wer": {
+            "am": 2.631732395187467,
+            "speech": 2.663216870282468,
+            "fusion": 2.4669997472734697
+          },
+          "delta_vs_better": -0.16473264791399744
+        }
+      ]
+    },
+    {
+      "dataset": "librispeech-dev-other",
+      "model": "Parakeet RNN-T",
+      "slices": [
+        {
+          "slice": "all",
+          "units": 2864,
+          "wer": {
+            "am": 2.0364145113965373,
+            "speech": 2.6640738940204183,
+            "fusion": 1.8965081709189127
+          },
+          "delta_vs_better": -0.13990634047762462
+        },
+        {
+          "slice": "contraction/yes",
+          "units": 508,
+          "wer": {
+            "am": 2.3522550544323484,
+            "speech": 3.083957583422512,
+            "fusion": 2.206668610868086
+          },
+          "delta_vs_better": -0.14558644356426242
+        },
+        {
+          "slice": "contraction/no",
+          "units": 2356,
+          "wer": {
+            "am": 1.957498482088646,
+            "speech": 2.5591795071209837,
+            "fusion": 1.8190207888090149
+          },
+          "delta_vs_better": -0.13847769327963122
+        },
+        {
+          "slice": "digit/yes",
+          "units": 1,
+          "wer": {
+            "am": 0.0,
+            "speech": 4.761904761904762,
+            "fusion": 0.0
+          },
+          "delta_vs_better": 0.0
+        },
+        {
+          "slice": "digit/no",
+          "units": 2863,
+          "wer": {
+            "am": 2.0372458302554333,
+            "speech": 2.663216870282468,
+            "fusion": 1.8972823762684188
+          },
+          "delta_vs_better": -0.13996345398701449
+        }
+      ]
+    },
+    {
+      "dataset": "loquacious-dev.short",
+      "model": "Granite CTC",
+      "slices": [
+        {
+          "slice": "all",
+          "units": 3000,
+          "wer": {
+            "am": 4.705315561265457,
+            "speech": 4.623789820431447,
+            "fusion": 4.239126069320053
+          },
+          "delta_vs_better": -0.3846637511113933
+        },
+        {
+          "slice": "contraction/yes",
+          "units": 416,
+          "wer": {
+            "am": 6.634086744043983,
+            "speech": 4.67106872095867,
+            "fusion": 6.06356968215159
+          },
+          "delta_vs_better": 1.39250096119292
+        },
+        {
+          "slice": "contraction/no",
+          "units": 2584,
+          "wer": {
+            "am": 4.326103144291514,
+            "speech": 4.614497212074601,
+            "fusion": 3.8805324619155175
+          },
+          "delta_vs_better": -0.4455706823759962
+        },
+        {
+          "slice": "digit/yes",
+          "units": 57,
+          "wer": {
+            "am": 7.042253521126761,
+            "speech": 7.746478873239437,
+            "fusion": 6.572769953051643
+          },
+          "delta_vs_better": -0.46948356807511793
+        },
+        {
+          "slice": "digit/no",
+          "units": 2943,
+          "wer": {
+            "am": 4.600931090886214,
+            "speech": 4.48422024508981,
+            "fusion": 4.134849374842662
+          },
+          "delta_vs_better": -0.3493708702471485
+        }
+      ]
+    },
+    {
+      "dataset": "loquacious-dev.short",
+      "model": "Parakeet RNN-T",
+      "slices": [
+        {
+          "slice": "all",
+          "units": 3000,
+          "wer": {
+            "am": 3.950513144945874,
+            "speech": 4.623789820431447,
+            "fusion": 3.7952569328701378
+          },
+          "delta_vs_better": -0.15525621207573614
+        },
+        {
+          "slice": "contraction/yes",
+          "units": 416,
+          "wer": {
+            "am": 4.474327628361858,
+            "speech": 4.67106872095867,
+            "fusion": 4.155971152670823
+          },
+          "delta_vs_better": -0.31835647569103553
+        },
+        {
+          "slice": "contraction/no",
+          "units": 2584,
+          "wer": {
+            "am": 3.847540313859316,
+            "speech": 4.614497212074601,
+            "fusion": 3.72435004084771
+          },
+          "delta_vs_better": -0.1231902730116059
+        },
+        {
+          "slice": "digit/yes",
+          "units": 57,
+          "wer": {
+            "am": 6.622827618600282,
+            "speech": 7.746478873239437,
+            "fusion": 6.294034758102396
+          },
+          "delta_vs_better": -0.32879286049788625
+        },
+        {
+          "slice": "digit/no",
+          "units": 2943,
+          "wer": {
+            "am": 3.8311443078343332,
+            "speech": 4.48422024508981,
+            "fusion": 3.6836584854206
+          },
+          "delta_vs_better": -0.1474858224137332
+        }
+      ]
+    },
+    {
+      "dataset": "loquacious-test",
+      "model": "Granite CTC",
+      "slices": [
+        {
+          "slice": "all",
+          "units": 8087,
+          "wer": {
+            "am": 4.93590270052338,
+            "speech": 4.973481736012549,
+            "fusion": 4.561204373021089
+          },
+          "delta_vs_better": -0.3746983275022915
+        },
+        {
+          "slice": "contraction/yes",
+          "units": 1105,
+          "wer": {
+            "am": 6.869191653515694,
+            "speech": 5.095597263637958,
+            "fusion": 6.593888377394888
+          },
+          "delta_vs_better": 1.4982911137569301
+        },
+        {
+          "slice": "contraction/no",
+          "units": 6982,
+          "wer": {
+            "am": 4.539032620922384,
+            "speech": 4.948409054075955,
+            "fusion": 4.143902504882856
+          },
+          "delta_vs_better": -0.3951301160395282
+        },
+        {
+          "slice": "digit/yes",
+          "units": 188,
+          "wer": {
+            "am": 5.938628158844765,
+            "speech": 6.25,
+            "fusion": 5.669916937522571
+          },
+          "delta_vs_better": -0.26871122132219405
+        },
+        {
+          "slice": "digit/no",
+          "units": 7899,
+          "wer": {
+            "am": 4.8926376784504315,
+            "speech": 4.918416008228529,
+            "fusion": 4.513374982473087
+          },
+          "delta_vs_better": -0.37926269597734485
+        }
+      ]
+    },
+    {
+      "dataset": "loquacious-test",
+      "model": "Parakeet RNN-T",
+      "slices": [
+        {
+          "slice": "all",
+          "units": 8087,
+          "wer": {
+            "am": 4.352923605406616,
+            "speech": 4.973481736012549,
+            "fusion": 4.163275059928758
+          },
+          "delta_vs_better": -0.18964854547785848
+        },
+        {
+          "slice": "contraction/yes",
+          "units": 1105,
+          "wer": {
+            "am": 4.796352317067824,
+            "speech": 5.095597263637958,
+            "fusion": 4.4236924021219695
+          },
+          "delta_vs_better": -0.3726599149458547
+        },
+        {
+          "slice": "contraction/no",
+          "units": 6982,
+          "wer": {
+            "am": 4.261887831792693,
+            "speech": 4.948409054075955,
+            "fusion": 4.10981098109811
+          },
+          "delta_vs_better": -0.15207685069458332
+        },
+        {
+          "slice": "digit/yes",
+          "units": 188,
+          "wer": {
+            "am": 5.326832791621524,
+            "speech": 6.25,
+            "fusion": 5.038829691168503
+          },
+          "delta_vs_better": -0.2880031004530217
+        },
+        {
+          "slice": "digit/no",
+          "units": 7899,
+          "wer": {
+            "am": 4.310908920948494,
+            "speech": 4.918416008228529,
+            "fusion": 4.125510235876982
+          },
+          "delta_vs_better": -0.1853986850715117
+        }
+      ]
+    },
+    {
+      "dataset": "spgispeech",
+      "model": "Granite CTC",
+      "slices": [
+        {
+          "slice": "all",
+          "units": 39341,
+          "wer": {
+            "am": 1.8410869724611474,
+            "speech": 2.5692197720013716,
+            "fusion": 1.6910023922555375
+          },
+          "delta_vs_better": -0.15008458020560989
+        },
+        {
+          "slice": "contraction/yes",
+          "units": 12630,
+          "wer": {
+            "am": 2.2159374388405126,
+            "speech": 3.09975572502247,
+            "fusion": 2.100071132775667
+          },
+          "delta_vs_better": -0.11586630606484549
+        },
+        {
+          "slice": "contraction/no",
+          "units": 26711,
+          "wer": {
+            "am": 1.6165202457229673,
+            "speech": 2.251350413796521,
+            "fusion": 1.445933580213471
+          },
+          "delta_vs_better": -0.1705866655094963
+        },
+        {
+          "slice": "digit/yes",
+          "units": 2751,
+          "wer": {
+            "am": 1.8076136944302503,
+            "speech": 1.9126590688403946,
+            "fusion": 1.4614765512219425
+          },
+          "delta_vs_better": -0.3461371432083078
+        },
+        {
+          "slice": "digit/no",
+          "units": 36590,
+          "wer": {
+            "am": 1.8440309147350575,
+            "speech": 2.626971211767033,
+            "fusion": 1.7111930477936095
+          },
+          "delta_vs_better": -0.13283786694144806
+        }
+      ]
+    },
+    {
+      "dataset": "spgispeech",
+      "model": "Parakeet RNN-T",
+      "slices": [
+        {
+          "slice": "all",
+          "units": 39341,
+          "wer": {
+            "am": 2.6794430378177694,
+            "speech": 2.5692197720013716,
+            "fusion": 2.5497951177388685
+          },
+          "delta_vs_better": -0.01942465426250317
+        },
+        {
+          "slice": "contraction/yes",
+          "units": 12630,
+          "wer": {
+            "am": 3.0541570394225306,
+            "speech": 3.09975572502247,
+            "fusion": 3.0041794402417237
+          },
+          "delta_vs_better": -0.04997759918080691
+        },
+        {
+          "slice": "contraction/no",
+          "units": 26711,
+          "wer": {
+            "am": 2.454939365756396,
+            "speech": 2.251350413796521,
+            "fusion": 2.2775438602287124
+          },
+          "delta_vs_better": 0.026193446432191347
+        },
+        {
+          "slice": "digit/yes",
+          "units": 2751,
+          "wer": {
+            "am": 2.56741214057508,
+            "speech": 1.9126590688403946,
+            "fusion": 2.2286400695172133
+          },
+          "delta_vs_better": 0.31598100067681867
+        },
+        {
+          "slice": "digit/no",
+          "units": 36590,
+          "wer": {
+            "am": 2.6892953032579707,
+            "speech": 2.626971211767033,
+            "fusion": 2.578037293381116
+          },
+          "delta_vs_better": -0.048933918385916986
+        }
+      ]
+    }
+  ]
+}
