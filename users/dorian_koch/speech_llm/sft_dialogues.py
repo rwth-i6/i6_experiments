@@ -69,8 +69,8 @@ LOCALES = {
     "ru": ["Russia"],
 }
 #: bump a scenario's entry when its seeds or writer brief change: only that scenario's jobs re-hash
-SCENARIO_VERSIONS = {"service": 3, "grounded": 3, "help": 3, "chitchat": 3, "skills": 3, "tutor": 3, "longtask": 3,
-                     "assistant": 2}  # fmt: skip
+SCENARIO_VERSIONS = {"service": 3, "grounded": 3, "help": 4, "chitchat": 3, "skills": 4, "tutor": 4, "longtask": 3,
+                     "assistant": 3}  # fmt: skip (2026-11-19 writer v11: fixed general prompt, tutor situations)
 #: the writer prompt / validation (every scenario): hashed into SftWriteDialogues
 WRITER_VERSION = 11
 #: system-prompt detail levels (PersonaPlex: prompts "at varying detail levels") and their draw weights
