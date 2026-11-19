@@ -1745,6 +1745,10 @@ class SftSeeds(Job):
         self.scenario_version = SCENARIO_VERSIONS[scenario]
         self.out_seeds = self.output_path("seeds.jsonl")
 
+    @classmethod
+    def hash(cls, parsed_args):  # Sisyphus hashes the constructor's arguments only: the version goes in here
+        return super().hash({**parsed_args, "scenario_version": SCENARIO_VERSIONS[parsed_args["scenario"]]})
+
     def tasks(self):
         yield Task("run", mini_task=True)
 
@@ -1788,6 +1792,7 @@ class SftWriteDialogues(Job):
         for k, default in (("review", 0), ("review_until_clean", False), ("vllm_args", None), ("seed_slice", None)):
             if d.get(k) == default:  # absent at their defaults: the hashes from before these options stay
                 d.pop(k, None)
+        d["writer_version"] = WRITER_VERSION  # the constructor's arguments are all Sisyphus hashes by itself
         return super().hash(d)
 
     def tasks(self):

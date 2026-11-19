@@ -331,6 +331,38 @@ def check_anchors() -> list[str]:
     return bad
 
 
+def check_versions() -> list[str]:
+    """A bumped SCENARIO_VERSIONS / WRITER_VERSION re-hashes SftSeeds / SftWriteDialogues (2026-11-19: they were
+    attributes only, which Sisyphus does not hash, so the v11 bump left the stale v10 writer job in the queue)."""
+    from sisyphus import job as sis_job
+    from sisyphus import tk
+
+    bad = []
+    src = {"personas": tk.Path("/tmp/p"), "wildchat": tk.Path("/tmp/w")}
+
+    def ids():
+        sis_job.created_jobs.clear()
+        a = sd.SftSeeds(scenario="help", lang="en", n=3, sources=src)._sis_id()
+        sis_job.created_jobs.clear()
+        return a, sd.SftWriteDialogues(seeds=[tk.Path("/tmp/s")])._sis_id()
+
+    s0, w0 = ids()
+    sv, wv = dict(sd.SCENARIO_VERSIONS), sd.WRITER_VERSION
+    try:
+        sd.SCENARIO_VERSIONS["help"] += 1
+        sd.WRITER_VERSION += 1
+        s1, w1 = ids()
+    finally:
+        sd.SCENARIO_VERSIONS.clear()
+        sd.SCENARIO_VERSIONS.update(sv)
+        sd.WRITER_VERSION = wv
+    if s1 == s0:
+        bad.append("a SCENARIO_VERSIONS bump did not re-hash SftSeeds")
+    if w1 == w0:
+        bad.append("a WRITER_VERSION bump did not re-hash SftWriteDialogues")
+    return bad
+
+
 def _patched(fn, **over):
     old = {k: getattr(sd, k) for k in over}
     try:
@@ -371,7 +403,7 @@ MUTANTS = {
 
 if __name__ == "__main__":
     fails = (check_identity() + check_tutor() + check_repair() + check_structure_repair() + check_round6()
-             + check_review_loop() + check_anchors())
+             + check_review_loop() + check_anchors() + check_versions())
     for f in fails:
         print("FAIL", f)
     for name, (fn, over) in MUTANTS.items():
