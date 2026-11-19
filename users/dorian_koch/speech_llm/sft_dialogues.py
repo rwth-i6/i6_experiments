@@ -1681,14 +1681,23 @@ class SftSeeds(Job):
 class SftWriteDialogues(Job):
     """``write_dialogues`` over the seeds of ``seeds`` (one or more ``SftSeeds`` outputs) with the writer on a vLLM
     server. ``out_hf``: ChatterboxInferenceV2's input (``dialogue``) plus ``id, scenario, lang, prompt_lang, policy,
-    level, system_prompt, seed, tries``; ``out_stats``: kept / dropped per reason, with examples."""
+    level, system_prompt, seed, tries``; ``out_stats``: kept / dropped per reason, with examples. ``review``: review
+    passes per dialogue (``write_dialogues``); ``vllm_args``: extra server arguments (e.g. ``--quantization fp8
+    --kv-cache-dtype fp8``: Gemma 4 31B in 8-bit, judged no worse than bf16 at 2.5x the speed, 2026-11-19);
+    ``workers``: requests in flight (not hashed). Seeds are sliced ``seed_slice`` = (k, n): every n-th from k, so one
+    seed set can be written by several jobs."""
 
     def __init__(self, *, seeds: list[tk.Path], model: str = "Qwen/Qwen3.8-27B", temperature: float = 0.8,
                  max_tries: int = 3, thinking: bool = False, reasoning_effort: str | None = None,
-                 max_tokens: int = 12288, max_model_len: int | None = None, rqmt: dict | None = None):  # fmt: skip
+                 max_tokens: int = 12288, max_model_len: int | None = None, review: int = 0,
+                 review_until_clean: bool = False, vllm_args: list[str] | None = None,
+                 seed_slice: tuple[int, int] | None = None, workers: int = 64,
+                 rqmt: dict | None = None):  # fmt: skip
         self.seeds, self.model, self.temperature, self.max_tries = seeds, model, temperature, max_tries
         self.thinking, self.reasoning_effort, self.max_tokens = thinking, reasoning_effort, max_tokens
         self.max_model_len = max_model_len
+        self.review, self.review_until_clean, self.vllm_args = review, review_until_clean, vllm_args
+        self.seed_slice, self.workers = seed_slice, workers
         self.writer_version = WRITER_VERSION
         self.out_hf = self.output_path("out_hf", directory=True)
         self.out_stats = self.output_path("stats.json")
@@ -1698,6 +1707,10 @@ class SftWriteDialogues(Job):
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
         d.pop("rqmt", None)
+        d.pop("workers", None)
+        for k, default in (("review", 0), ("review_until_clean", False), ("vllm_args", None), ("seed_slice", None)):
+            if d.get(k) == default:  # absent at their defaults: the hashes from before these options stay
+                d.pop(k, None)
         return super().hash(d)
 
     def tasks(self):
@@ -1709,10 +1722,14 @@ class SftWriteDialogues(Job):
         from .common import vllm_server
 
         seeds = [json.loads(x) for p in self.seeds for x in open(p.get(), encoding="utf-8")]
-        with vllm_server(self.model, max_model_len=self.max_model_len) as url:
+        if self.seed_slice is not None:
+            k, n = self.seed_slice
+            seeds = seeds[k::n]
+        with vllm_server(self.model, max_model_len=self.max_model_len, extra_args=self.vllm_args) as url:
             rows, stats = write_dialogues(seeds, url, self.model, self.temperature, self.max_tries,
-                                          thinking=self.thinking, max_tokens=self.max_tokens,
-                                          reasoning_effort=self.reasoning_effort)  # fmt: skip
+                                          workers=self.workers, thinking=self.thinking, max_tokens=self.max_tokens,
+                                          reasoning_effort=self.reasoning_effort, review=self.review,
+                                          review_until_clean=self.review_until_clean)  # fmt: skip
         Dataset.from_list(rows).save_to_disk(self.out_hf.get())
         with open(self.out_stats.get(), "w", encoding="utf-8") as f:
             json.dump(stats, f, ensure_ascii=False, indent=1)
@@ -1737,6 +1754,81 @@ class SftVoiceDir(Job):
         print(
             f"[SftVoiceDir] {build_voice_dir(self.out_dir.get(), self.langs, self.n_per_role, self.pool, self.min_snr_db, self.seed, self.en_voices.get() if self.en_voices else None)}"
         )
+
+
+def voice_design_jobs(texts: dict[str, list[str]], langs: list[str], n_assistant: int, n_user: int, seed: int,
+                      region: float) -> list[dict]:
+    """The clips ``SftDesignVoices`` designs: per language and gender ``n_assistant`` assistant and ``n_user`` user
+    descriptions (``voice_descriptions``), each with a native text from ``texts[lang]`` (in rotation, shuffled)."""
+    rng = random.Random(seed)
+    out = []
+    for lg in langs:
+        tx = sorted(set(texts[lg]))
+        assert tx, f"no voice-prompt texts for {lg}"
+        rng.shuffle(tx)
+        k = 0
+        for g in ("female", "male"):
+            for role, n in (("assistant", n_assistant), ("user", n_user)):
+                for d in voice_descriptions(lg, role, g, n, seed=seed, region=region):
+                    out.append({"id": f"{lg}_{role}_{g}_{k}", "lang": lg, "role": role, "gender": g, "instruct": d,
+                                "text": tx[k % len(tx)], "language": LANGS[lg].split(" (")[0].replace("Mandarin ", "")})
+                    k += 1
+    return out
+
+
+def voice_prompt_texts(written_hf: str, langs: list[str]) -> dict[str, list[str]]:
+    """~10 s native turns (20-38 words; 40-70 characters for Chinese) without language tags from written dialogues."""
+    from datasets import load_from_disk
+
+    texts = {lg: [] for lg in langs}
+    for r in load_from_disk(written_hf):
+        for t in json.loads(r["dialogue"])["turns"]:
+            x = t["text"]
+            if "<" in x or t["lang"] not in texts:
+                continue
+            n = len(re.sub(r"\W", "", x)) if t["lang"] == "zh" else len(x.split())
+            if (40 <= n <= 70) if t["lang"] == "zh" else (20 <= n <= 38):
+                texts[t["lang"]].append(x)
+    return texts
+
+
+class SftDesignVoices(Job):
+    """Designed voices for ``ChatterboxInferenceV2`` with Qwen3-TTS: per language and gender ``n_assistant`` +
+    ``n_user`` VoiceDesign descriptions (``voice_descriptions``; ``region``: the share of user voices with a light
+    regional accent), each speaking a native turn from ``texts_hf`` (written dialogues), kept when Qwen3-ASR reads it
+    back (``sft_voice_design.py``). ``out_dir``: ``<lang>/<role>/<gender>/vd_<id>.wav`` + ``.txt`` transcript, the
+    layout the TTS draws ``rng_*`` voices from. Pilot 2026-11-19: 771 of 800 kept, 8,273 s of audio in 616 s."""
+
+    def __init__(self, *, tts_python: tk.AbstractPath, annotate_python: tk.AbstractPath, texts_hf: tk.Path,
+                 langs: list[str], n_assistant: int = 40, n_user: int = 60, seed: int = 1, region: float = 0.5,
+                 model: str = "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign", asr_model: str = "Qwen/Qwen3-ASR-0.6B"):  # fmt: skip
+        self.tts_python, self.annotate_python, self.texts_hf = tts_python, annotate_python, texts_hf
+        self.langs, self.n_assistant, self.n_user, self.seed, self.region = langs, n_assistant, n_user, seed, region
+        self.model, self.asr_model = model, asr_model
+        self.out_work = self.output_path("work", directory=True)
+        self.out_dir = self.output_path("voices", directory=True)
+
+    def tasks(self):
+        yield Task("run", rqmt={"gpu": 1, "cpu": 4, "mem": 32, "time": 3})
+
+    def run(self):
+        import shutil
+        import subprocess
+
+        from huggingface_hub import snapshot_download
+
+        w = self.out_work.get()
+        if not os.path.exists(f"{w}/jobs.json"):
+            jobs = voice_design_jobs(voice_prompt_texts(self.texts_hf.get(), self.langs), self.langs, self.n_assistant,
+                                     self.n_user, self.seed, self.region)  # fmt: skip
+            with open(f"{w}/jobs.json", "w", encoding="utf-8") as f:
+                json.dump(jobs, f, ensure_ascii=False, indent=1)
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sft_voice_design.py")
+        subprocess.run([self.tts_python.get(), script, "gen", w, snapshot_download(self.model)], check=True)
+        subprocess.run([self.annotate_python.get(), script, "check", w, self.asr_model], check=True)
+        if os.path.isdir(self.out_dir.get()):
+            shutil.rmtree(self.out_dir.get())
+        shutil.copytree(f"{w}/voices", self.out_dir.get())
 
 
 class SftPodcastVoices(Job):
