@@ -416,3 +416,25 @@ The graph adds two Speech-Qwen scoring jobs and a CPU report. See
 the public test suite. It adds nine Speech-Qwen scoring jobs, with the four
 Loquacious subsets sharing their parent job. The report is
 `output/reports/asr-lm/possessive-evaluation.md`.
+
+## Speech-Qwen primary rescoring (opt-in)
+
+Run `./sis m config/speech_primary.py` for LibriSpeech dev-other and Loquacious
+dev.short. This holds the frozen Speech-Qwen 1.7B settings fixed (beam 8,
+length penalty 0, 500-token cap) and retains the unique beam transcripts.
+The top output must match the frozen standalone transcript for every segment.
+
+Granite CTC and Parakeet RNN-T separately score the audio likelihood of each
+proposal, summing over alignments. Granite uses HF-normalized text. Parakeet
+uses lowercase text with internal apostrophes preserved. The selected
+transcript retains the original Speech-Qwen wording. The report shows WER at
+acoustic weights 0.03, 0.1, 0.3 and 1 relative to the Speech-Qwen sequence cost,
+plus the standalone baseline and the pool oracle. If any candidate lacks
+a valid acoustic score, that AM condition falls back to the top Speech-Qwen
+hypothesis and counts the utterance in the report. Each AM uses a single
+tokenization per normalized candidate, so Granite's learned output conventions
+can still affect acoustic scores on possessives.
+
+The graph has six GPU jobs and a CPU report. Results appear in
+`output/reports/asr-lm/speech-primary.md` and under
+`output/speech-primary/f4212424889ee5d3/`.
