@@ -373,6 +373,12 @@ class ChatterboxInferenceV2(Job):
     its last word before the marker, the next turn overlapping it by ``cut_overlap`` seconds); every turn is levelled to ``loudness_dbfs`` (speech RMS; None: as synthesized). Output columns: ``chatterbox_v2_inference``'s docstring; ``out_stats``: per
     language error rates, regeneration shares, audio hours, wall times.
 
+    ``tts_model="qwen3"``: every dialogue through Qwen3-TTS instead (``qwen3_tts_worker.py`` over ``qwen3_tts_fast``
+    in ``qwen3_tts_python_path``, ``venvs.qwen3_tts_venv``; voice cloning from each voice wav plus its transcript
+    ``<name>.txt`` beside it); ``code_switch`` ``single_pass`` (a mixed turn as one call in its main language, or with
+    no language token: ``qwen3_mixed_lang="auto"``) or ``segments``; ``qwen3_slots``: its decode batch (not hashed).
+    Exaggeration and the Multilingual V3 settings do not apply.
+
     ``parakeet_python_path``: the NeMo venv (``fdb.fdb_asr_venv()``), needed when a backend is ``parakeet``;
     ``annotate_python_path``: the annotate venv (``qwen-asr``, ``num2words``, ``cn2an``, ``whisper_normalizer``;
     ``venvs.speech_annotate_venv``), always (it scores). The config is resolved at construction, so the hash pins it
@@ -413,6 +419,10 @@ class ChatterboxInferenceV2(Job):
         cut_overlap: list | None = None,
         stress_python_path: tk.AbstractPath | None = None,
         cross_lang_cfg: float | None = None,
+        tts_model: str = "chatterbox",
+        qwen3_tts_python_path: tk.AbstractPath | None = None,
+        qwen3_mixed_lang: str | None = None,
+        qwen3_slots: int = 64,
         chunk: int = 192,
         rqmt: dict | None = None,
     ):
@@ -420,6 +430,8 @@ class ChatterboxInferenceV2(Job):
 
         assert english_model in ("turbo", "mtl"), english_model
         assert code_switch in ("segments", "single_pass"), code_switch
+        assert tts_model in ("chatterbox", "qwen3"), tts_model
+        assert tts_model == "chatterbox" or qwen3_tts_python_path is not None, "tts_model qwen3 needs qwen3_tts_python_path"
         annotators = annotators if annotators is not None else core.DEFAULT_ANNOTATORS
         core.check_annotators(annotators)
         uses = {b for r in annotators.values() for b in r.values()}
@@ -459,6 +471,11 @@ class ChatterboxInferenceV2(Job):
             "ru_stress": stress_python_path is not None,
             "cross_lang_cfg": None if cross_lang_cfg is None else float(cross_lang_cfg),
         }
+        self.qwen3_tts_python_path = qwen3_tts_python_path
+        self.qwen3_slots = qwen3_slots
+        if tts_model == "qwen3":  # keys only for Qwen3 runs: every Chatterbox job keeps its hash
+            self.config["tts_model"] = "qwen3"
+            self.config["qwen3_mixed_lang"] = qwen3_mixed_lang
         self.chunk = chunk
         self.out_hf = self.output_path("out_hf", directory=True)
         self.out_stats = self.output_path("stats.json")
@@ -469,6 +486,10 @@ class ChatterboxInferenceV2(Job):
         d = dict(**parsed_args)
         d.pop("rqmt", None)
         d.pop("chunk", None)
+        d.pop("qwen3_slots", None)
+        for k in ("tts_model", "qwen3_tts_python_path", "qwen3_mixed_lang"):  # in the config / absent: old hashes
+            if d.get(k) in (None, "chatterbox"):
+                d.pop(k, None)
         return super().hash(d)
 
     @staticmethod
@@ -504,7 +525,7 @@ class ChatterboxInferenceV2(Job):
         from . import chatterbox_v2_core as core
 
         here = Path(__file__).resolve().parent
-        cfg = {**self.config, "chunk": self.chunk}
+        cfg = {**self.config, "chunk": self.chunk, "qwen3_slots": self.qwen3_slots}
         args = ["--in_hf", self.in_hf.get(), "--out_hf", self.out_hf.get(), "--scratch_dir", scratch,
                 "--stats_json", f"{self.out_stats.get()}.part0", "--speaker_directory", self.speaker_dir.get(),
                 "--speaker_alias", json.dumps(self.speaker_alias), "--config", json.dumps(cfg),
@@ -517,6 +538,9 @@ class ChatterboxInferenceV2(Job):
             args += ["--parakeet_python", self.parakeet_python_path.get(), "--parakeet_worker", worker]
         if self.stress_python_path is not None:
             args += ["--stress_python", self.stress_python_path.get(), "--stress_worker", str(here / "ru_stress_worker.py")]
+        if self.qwen3_tts_python_path is not None:
+            args += ["--qwen3_tts_python", self.qwen3_tts_python_path.get(),
+                     "--qwen3_tts_worker", str(here / "qwen3_tts_worker.py")]  # fmt: skip
         if self.shard is not None:
             args += ["--in_hf_shard", self.shard, "--in_hf_num_shards", self.num_shards]
         if self.keep_columns:

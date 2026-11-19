@@ -279,6 +279,14 @@ def check_job() -> list[str]:
         bad.append("max_err did not move the hash")
     if mk(annotators={**core.DEFAULT_ANNOTATORS, "de": {"check": "qwen3", "words": "qwen3"}})._sis_id() == h:
         bad.append("annotators did not move the hash")
+    if mk(tts_model="chatterbox", qwen3_slots=16)._sis_id() != h:
+        bad.append("the Qwen3-TTS options moved a Chatterbox job's hash")
+    q3 = dict(tts_model="qwen3", qwen3_tts_python_path=tk.Path("/tmp/q3/bin/python"), code_switch="single_pass")
+    hq = mk(**q3)._sis_id()
+    if hq == h or mk(**q3, qwen3_slots=16)._sis_id() != hq or mk(**q3, qwen3_mixed_lang="auto")._sis_id() == hq:
+        bad.append("Qwen3-TTS job hash: must differ from Chatterbox's, ignore qwen3_slots, include qwen3_mixed_lang")
+    if mk(**q3).config.get("tts_model") != "qwen3":
+        bad.append("tts_model not in the worker config")
     for wrong in ({"*": {"check": "parakeet", "words": "parakeet"}, "zh": {"check": "parakeet", "words": "qwen3"}},
                   {"*": {"check": "whisper", "words": "parakeet"}}):  # fmt: skip
         try:
@@ -294,7 +302,8 @@ def check_job() -> list[str]:
         pass
     here = Path(tts.__file__).resolve().parent
     for f in ("chatterbox_v2_inference.py", "speech_annotate_worker.py", "speech_text_norm.py", "chatterbox_v2_core.py",
-              "chatterbox_inference.py", "chatterbox_fast.py", "chatterbox_fast_mtl.py"):  # fmt: skip
+              "chatterbox_inference.py", "chatterbox_fast.py", "chatterbox_fast_mtl.py", "qwen3_tts_worker.py",
+              "qwen3_tts_fast.py"):  # fmt: skip
         if not (here / f).exists():
             bad.append(f"worker file {f} missing beside tts.py")
     return bad
