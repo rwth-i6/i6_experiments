@@ -28,6 +28,7 @@ import os
 import random
 import re
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 
 from sisyphus import Job, Task, tk
@@ -459,6 +460,7 @@ def tag_requests(rows: list[dict], lang: str, url: str, model: str, workers: int
         out = list(ex.map(one, rows))
     ok = [r for r in out if not r.get("error")]
     stats = {"rows": len(out), "errors": len(out) - len(ok), "wall_s": round(time.time() - t0, 1),
+             "by_source": dict(Counter(str(r.get("source")) for r in out)),
              "eligible": sum(sd.request_eligible(r) for r in ok),
              "share_w_ge_05": {k: round(sum(r["weights"][k] >= 0.5 for r in ok if sd.request_eligible(r))
                                         / max(1, sum(sd.request_eligible(r) for r in ok)), 3) for k in sd.SCENARIOS},
@@ -466,12 +468,26 @@ def tag_requests(rows: list[dict], lang: str, url: str, model: str, workers: int
     return out, stats
 
 
-class SftTagRequests(Job):
-    """:func:`tag_requests` over ``rows`` (``SftSourceRows`` WildChat output) of ``lang``, every ``shard[1]``-th row from
-    ``shard[0]`` -> ``tags.jsonl`` (the rows + ``lang``, ``gist``, ``weights``, ``flags``), ``stats.json``. Fails when
-    more than 2% of the rows stay untagged. ``TAG_VERSION`` is hashed."""
+def load_request_rows(paths: list[str]) -> list[dict]:
+    """The request rows of every file in order (``SftSourceRows`` outputs of one language), each with its ``source``
+    (rows without one: WildChat); a text an earlier row already has is dropped."""
+    out, seen = [], set()
+    for p in paths:
+        for x in open(p, encoding="utf-8"):
+            r = json.loads(x)
+            if r["text"] not in seen:
+                seen.add(r["text"])
+                out.append({**r, "source": r.get("source", "wildchat")})
+    return out
 
-    def __init__(self, *, rows: tk.Path, lang: str, shard: tuple[int, int] = (0, 1),
+
+class SftTagRequests(Job):
+    """:func:`tag_requests` over ``rows`` (``SftSourceRows`` request output, or a list of them: one language's pool,
+    :func:`load_request_rows`) of ``lang``, every ``shard[1]``-th row from ``shard[0]`` -> ``tags.jsonl`` (the rows +
+    ``source``, ``lang``, ``gist``, ``weights``, ``flags``), ``stats.json``. Fails when more than 2% of the rows stay
+    untagged. ``TAG_VERSION`` is hashed."""
+
+    def __init__(self, *, rows: tk.Path | list[tk.Path], lang: str, shard: tuple[int, int] = (0, 1),
                  model: str = "google/gemma-4-31B-it", vllm_args: list[str] | None = None):  # fmt: skip
         self.rows, self.lang, self.shard, self.model, self.vllm_args = rows, lang, tuple(shard), model, vllm_args
         self.out_tags = self.output_path("tags.jsonl")
@@ -489,7 +505,8 @@ class SftTagRequests(Job):
         from .common import vllm_server
 
         k, n = self.shard
-        rows = [json.loads(x) for x in open(self.rows.get(), encoding="utf-8")][k::n]
+        paths = self.rows if isinstance(self.rows, list) else [self.rows]
+        rows = load_request_rows([p.get() for p in paths])[k::n]
         with vllm_server(self.model, max_model_len=8192, extra_args=self.vllm_args) as url:
             out, stats = tag_requests(rows, self.lang, url, self.model)
         with open(self.out_stats.get(), "w") as f:
@@ -894,6 +911,22 @@ def job_groups(shards: list[tuple[str, str, int]], group: str = "cell", per_job:
     return list(out.values())
 
 
+#: request sources of a language's pool, in order (a later source's text that an earlier one has is dropped)
+REQUEST_SOURCES = ("wildchat", "lmarena")
+
+
+def request_rows(rows: dict, lang: str):
+    """``lang``'s request rows for the tagger: one path when WildChat is its only source (the hash from before
+    LMArena), else the list of ``REQUEST_SOURCES`` it has."""
+    got = [rows[(src, lang)] for src in REQUEST_SOURCES if (src, lang) in rows]
+    return got[0] if len(got) == 1 else got
+
+
+def persona_rows(rows: dict, lang: str):
+    """The personas of ``lang``'s users: its own pool (German: Nemotron-Personas-Germany), else the English one."""
+    return rows.get(("personas", lang), rows[("personas", "en")])
+
+
 def build_sft_corpus(*, name: str, rows: dict, env: dict, cell_seeds: int, shard_seeds: int, seed: int,
                      writer: dict, tts: dict, voices: dict, scenario_weights: dict, lang_weights: dict,
                      tagger: dict, fallback: dict | None = None, scenario_smoothing: float = sd.SCENARIO_SMOOTHING,
@@ -907,10 +940,11 @@ def build_sft_corpus(*, name: str, rows: dict, env: dict, cell_seeds: int, shard
     ``{"write", "tts"}``, not hashed: a short request backfills); the shared voice pool (``voices``:
     :func:`build_voice_pool`'s arguments + ``parler_share``); the report and the mix from the weights.
 
-    ``rows``: ``{(source, lang): SftSourceRows.out_rows}`` (personas: ``("personas", "en")`` serves every language);
+    ``rows``: ``{(source, lang): SftSourceRows.out_rows}`` (:func:`request_rows`: a language's request pool;
+    :func:`persona_rows`: its personas, else the English ones; the voice texts read the English personas);
     ``env``: interpreters ``chatterbox``, ``annotate``, ``parakeet``, ``qwen3_tts``, ``parler`` and ``ffmpeg``;
     ``writer`` / ``tts``: ``SftWriteDialogues`` / ``ChatterboxInferenceV2`` settings; ``tagger``: ``SftTagRequests``
-    settings (one job per language over its WildChat rows); ``fallback``: ``{lang: other lang}``, a cell's request draw
+    settings (one job per language over its request pool); ``fallback``: ``{lang: other lang}``, a cell's request draw
     continues into the other language's pool (German: its usable pool is small); ``scenario_smoothing``: the uniform
     share mixed into each request's scenario distribution (``sft_dialogues.request_prob``)."""
     from ..jobs.hf import HfMergeShards
@@ -922,14 +956,14 @@ def build_sft_corpus(*, name: str, rows: dict, env: dict, cell_seeds: int, shard
     out = SftCorpus(pool=pool)
     max_err = dict(tts.get("max_err") or {"*": 0.1})
     tag_langs = sorted(set(langs) | set((fallback or {}).values()))
-    tags = {lg: SftTagRequests(rows=rows[("wildchat", lg)], lang=lg, **tagger) for lg in tag_langs}
+    tags = {lg: SftTagRequests(rows=request_rows(rows, lg), lang=lg, **tagger) for lg in tag_langs}
     if job_hours and "tag" in job_hours:
         for t in tags.values():
             t.rqmt = {**t.rqmt, "time": job_hours["tag"]}
     seeds = {}  # (scenario, lang, k) -> SftSeeds
     for sc in scenarios:
         for lg in langs:
-            src = {"tagged": tags[lg].out_tags, "personas": rows[("personas", "en")]}
+            src = {"tagged": tags[lg].out_tags, "personas": persona_rows(rows, lg)}
             if (s_w := rows.get(("wikipedia", lg))) is not None:
                 src["wikipedia"] = s_w
             if (fallback or {}).get(lg):

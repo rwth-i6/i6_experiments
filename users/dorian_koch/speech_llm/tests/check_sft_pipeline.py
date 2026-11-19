@@ -13,6 +13,8 @@
     puts two cells in one job; a grouped writer hands every shard exactly its own seeds (``write_groups``) and a
     grouped TTS gives every shard the rows and ids it would have alone (``concat_group_inputs`` /
     ``split_group_output``, with a stand-in for the GPU worker);
+  * a language's own sources (German: LMArena requests, Nemotron-Personas-Germany) move exactly that language's cells
+    and tag job, not the voice pool; its tag job reads every request file, its seeds its own personas;
   * the stats catch oddities: a silent turn, unequal or empty tracks, a dialogue of another cell, lost ids, a dialogue
     repeated across shards, a Parler voice outside English.
 
@@ -197,6 +199,31 @@ def check_independence() -> list[str]:
     sub = _cell_ids(_build(scenarios=["help", "service"]))
     if any(sub[c] != a[c] for c in sub):
         bad.append("building fewer scenarios moved the remaining cells")
+    return bad
+
+
+def check_sources() -> list[str]:
+    bad = []
+    a = _build()
+    extra = {(s_, "de"): tk.Path(f"/tmp/sft_guard/{s_}_de.jsonl") for s_ in ("lmarena", "personas")}
+    b = _build(rows={**_rows(), **extra})
+    ca, cb = _cell_ids(a), _cell_ids(b)
+    moved = sorted(c for c in ca if ca[c] != cb[c])
+    if moved != sorted(c for c in ca if c[1] == "de"):
+        bad.append(f"German sources moved {len(moved)} cells, want the {len(sd.SCENARIOS)} German ones: {moved[:4]}")
+    tags = sorted(lg for lg in a.tags if a.tags[lg]._sis_id() != b.tags[lg]._sis_id())
+    if tags != ["de"]:
+        bad.append(f"German sources moved the tag jobs of {tags}")
+    want = [_rows()[("wildchat", "de")], extra[("lmarena", "de")]]
+    if b.tags["de"].rows != want or b.tags["en"].rows != _rows()[("wildchat", "en")]:
+        bad.append("the German tag job does not read WildChat + LMArena (or English reads more than WildChat)")
+    if a.pool._sis_id() != b.pool._sis_id():
+        bad.append("German sources moved the voice pool")
+    for (sc, lg), js in b.shards.items():
+        per = js[0]["seeds"].sources.get("personas")
+        if per != (extra[("personas", "de")] if lg == "de" else _rows()[("personas", "en")]):
+            bad.append(f"{sc}/{lg} seeds read the personas {per}")
+            break
     return bad
 
 
@@ -447,12 +474,22 @@ MUTANTS = {
                                                    dict(write_groups=lambda lists, fn, w: [fn(sum(lists, []), w) for _ in lists])),
     "TTS ids counted across the group": (check_grouping, __import__("i6_experiments.users.dorian_koch.speech_llm.tts",
                                                                     fromlist=["tts"]), dict(split_group_output=_split_ids_across)),
+    "German users on the English personas": (check_sources, sp, dict(persona_rows=lambda rows, lg: rows[("personas", "en")])),
+    "German pool without LMArena": (check_sources, sp, dict(request_rows=lambda rows, lg: rows[("wildchat", lg)])),
     "silence never counted": (check_stats, sp, dict(SILENT_DBFS=-400.0)),
     "no duplicate detection": (check_stats, sp, dict(_digest=lambda x: os.urandom(8).hex())),
 }  # fmt: skip
 
 if __name__ == "__main__":
-    fails = check_independence() + check_grouping() + check_shards() + check_mix() + check_cast() + check_stats()
+    fails = (
+        check_independence()
+        + check_sources()
+        + check_grouping()
+        + check_shards()
+        + check_mix()
+        + check_cast()
+        + check_stats()
+    )
     for f in fails:
         print("FAIL", f)
     for name, (fn, obj, over) in MUTANTS.items():

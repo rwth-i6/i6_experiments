@@ -6,7 +6,7 @@ layout happens in the training adapter. Jobs, one chain per (scenario, language)
 in ``SCENARIO_VERSIONS``) or a mix share re-runs nothing else:
 
   SftSourceRows(source, lang, ...)   login node (network): native source rows -> rows.jsonl (Wikipedia passages,
-                                     WildChat first requests, Nemotron personas)
+                                     WildChat / LMArena first requests, Nemotron personas)
   SftSeeds(scenario, lang, n, ...)   CPU: the scenario's seeds -> seeds.jsonl; a seed is one dialogue's whole brief
                                      (language setup, prompt detail level, length, scenario parameters, source row)
   SftWriteDialogues(seeds, model)    GPU (vLLM): system prompt + turns per seed (JSON schema), validated, retried ->
@@ -46,13 +46,18 @@ LANGS = {"en": "English", "de": "German", "zh": "Mandarin Chinese (simplified ch
 #: claims to have none, and it
 #: names no other maker or model (the writer otherwise has assistants call themselves Yandex's or Alibaba's:
 #: ``FOREIGN_AI``). Another model gets its own identity by changing it.
-PRODUCT = {"name": "Haru-i6-Instruct", "maker": "the i6 group at RWTH Aachen University in Aachen, Germany",
-           # how turns say it (the TTS must read it: "i6" spelled as spoken, no digits, Latin only inside an
-           # <en> tag in Russian / Chinese text)
-           "spoken": {"en": "Haru i six Instruct, from the I six group at RWTH Aachen University",
-                      "de": "Haru i sechs Instruct, vom Lehrstuhl i sechs an der RWTH Aachen",
-                      "ru": "Хару И-шесть Инстракт из группы И-шесть Ахенского технического университета",
-                      "zh": "<en>Haru i six Instruct</en>，来自亚琛工业大学的<en>i six</en>团队"}}
+PRODUCT = {
+    "name": "Haru-i6-Instruct",
+    "maker": "the i6 group at RWTH Aachen University in Aachen, Germany",
+    # how turns say it (the TTS must read it: "i6" spelled as spoken, no digits, Latin only inside an
+    # <en> tag in Russian / Chinese text)
+    "spoken": {
+        "en": "Haru i six Instruct, from the I six group at RWTH Aachen University",
+        "de": "Haru i sechs Instruct, vom Lehrstuhl i sechs an der RWTH Aachen",
+        "ru": "Хару И-шесть Инстракт из группы И-шесть Ахенского технического университета",
+        "zh": "<en>Haru i six Instruct</en>，来自亚琛工业大学的<en>i six</en>团队",
+    },
+}
 #: makers / assistants the writer must not name as the assistant's (any mention rejects the dialogue: a user talking
 #: about them is rare in our scenarios, and a wrong identity is worse than a lost dialogue)
 FOREIGN_AI = re.compile(
@@ -69,8 +74,16 @@ LOCALES = {
     "ru": ["Russia"],
 }
 #: bump a scenario's entry when its seeds or writer brief change: only that scenario's jobs re-hash
-SCENARIO_VERSIONS = {"service": 4, "grounded": 3, "help": 5, "chitchat": 4, "skills": 5, "tutor": 5, "longtask": 4,
-                     "assistant": 4}  # fmt: skip (v12 draw: content from tagged WildChat requests, lists retired)
+SCENARIO_VERSIONS = {
+    "service": 4,
+    "grounded": 3,
+    "help": 5,
+    "chitchat": 4,
+    "skills": 5,
+    "tutor": 5,
+    "longtask": 4,
+    "assistant": 4,
+}  # fmt: skip (v12 draw: content from tagged WildChat requests, lists retired)
 #: the writer prompt / validation (every scenario): hashed into SftWriteDialogues
 WRITER_VERSION = 11
 #: system-prompt detail levels (PersonaPlex: prompts "at varying detail levels") and their draw weights
@@ -144,8 +157,10 @@ def _grounded(lang, rng, rows, req=None):
 
 #: sexual requests WildChat's toxic flag missed (judge rounds 8-9: a fetish role-play written out twice, although the
 #: brief says to replace such requests): such a row is skipped for the next draw
-_NSFW = re.compile(r"(?i)\b(sex\w*|porn\w*|nsfw|erotic\w*|fetish\w*|sissy|nude\w*|naked|horny|bdsm|hentai|slut\w*|"
-                   r"nackt\w*|erotik\w*|fetisch\w*)\b|секс|порн|эрот|голая|голый|色情|性爱|做爱|裸体|成人小说")
+_NSFW = re.compile(
+    r"(?i)\b(sex\w*|porn\w*|nsfw|erotic\w*|fetish\w*|sissy|nude\w*|naked|horny|bdsm|hentai|slut\w*|"
+    r"nackt\w*|erotik\w*|fetisch\w*)\b|секс|порн|эрот|голая|голый|色情|性爱|做爱|裸体|成人小说"
+)
 
 
 def _help(lang, rng, rows, req):
@@ -337,8 +352,12 @@ def _assistant(lang, rng, rows, req):
     sub = _pick(rng, {k: v * (0.05 + req["weights"][k]) for k, v in ASSISTANT_TOPICS.items()})
     inner = SCENARIOS[sub](lang, rng, rows, req)
     opens = "assistant" if rng.random() < ASSISTANT_OPENS else "user"
-    start = ("The conversation opens with the assistant's short greeting asking how it can help (without its name); "
-             "then the user says what they want." if opens == "assistant" else "The user speaks first.")
+    start = (
+        "The conversation opens with the assistant's short greeting asking how it can help (without its name); "
+        "then the user says what they want."
+        if opens == "assistant"
+        else "The user speaks first."
+    )
     brief = (f"A production voice assistant: {PRODUCT['name']}, made by {PRODUCT['maker']}. The system prompt is the "
              f"GENERAL one it runs with for every user, as in a real product (it need not name the assistant or its maker): that it talks "
              f"with people by voice, how it speaks (friendly, concise, natural spoken language), that it is honest "
@@ -423,6 +442,13 @@ def cell_requests(scenario: str, lang: str, seed: int, rows: dict, smoothing: fl
     return own[:a] + other[:b] + own[a:] + other[b:]
 
 
+def request_ref(req: dict) -> dict:
+    """What a seed keeps of its request (traceable): which one, from which language pool and source (rows without a
+    ``source`` predate the field: WildChat), how it was weighted."""
+    return {"id": req["id"], "lang": req["lang"], "source": req.get("source", "wildchat"), "gist": req["gist"],
+            "weights": req["weights"]}  # fmt: skip
+
+
 def draw_request(seq: list[dict], scenario: str, k: int) -> dict | None:
     """Seed ``k``'s request: ``seq[k]``, then further passes over the same order (a request repeats only after every
     eligible one was used); service has no second pass (None: the matter comes from the persona)."""
@@ -464,8 +490,8 @@ def make_seeds(scenario: str, lang: str, n: int, seed: int, rows: dict, start: i
         kw = {"l2": [x for x in LANGS if x != lang][(k + seed) % (len(LANGS) - 1)]} if scenario == "tutor" else {}
         req = draw_request(seq, scenario, k) if scenario in REQUEST_SCENARIOS else None
         s.update(SCENARIOS[scenario](lang, rng, rows, req, **kw))
-        if req is not None:  # traceable: which request, from which pool, how it was weighted
-            s["request"] = {"id": req["id"], "lang": req["lang"], "gist": req["gist"], "weights": req["weights"]}
+        if req is not None:
+            s["request"] = request_ref(req)
         s["cast"] = draw_cast(lang, random.Random(f"{scenario}/{lang}/{seed}/{k}/cast"))
         if rows.get("personas") and not s.get("persona_id"):  # who the user is: own random stream
             pr = random.Random(f"{scenario}/{lang}/{seed}/{k}/persona")
@@ -541,10 +567,12 @@ def _mixing_rule(seed: dict) -> str:
                 f"sentences are {l2}, each tagged inline, e.g. \"Water is <{seed['l2']}>{_WATER[seed['l2']]}</{seed['l2']}>.\"{role} Say a taught word inside a short phrase, never as a "
                 f"bare character. No pinyin, transliteration or spelled-out pronunciation: the audio already says the "
                 f"word. The learner's tries in {l2} are written in {l2}'s own script and tagged too.")  # fmt: skip
-    return ("Stay in the turn's language. Only where a native speaker would really say something in another language "
-            "(a title, a name, a fixed phrase), tag exactly that stretch, e.g. \"Hast du <en>Breaking Bad</en> "
-            "gesehen?\". Everyday loanwords are not tagged. One- or two-letter abbreviations inside Russian or "
-            "Chinese text are written out in that script.")
+    return (
+        "Stay in the turn's language. Only where a native speaker would really say something in another language "
+        '(a title, a name, a fixed phrase), tag exactly that stretch, e.g. "Hast du <en>Breaking Bad</en> '
+        'gesehen?". Everyday loanwords are not tagged. One- or two-letter abbreviations inside Russian or '
+        "Chinese text are written out in that script."
+    )
 
 
 def _interrupt_text(seed: dict) -> str:
@@ -787,7 +815,7 @@ def validate(obj: dict, seed: dict) -> str | None:
             if not _foreign_ok(s["text"], s["lang"]):
                 return f"untagged foreign-script words ({s['lang']})"
             if _untagged_latin(s["text"], s["lang"]):
-                return f"untagged {LANGS[_LATIN_OTHER[s['lang']]]} words in {LANGS[s["lang"]]} text"
+                return f"untagged {LANGS[_LATIN_OTHER[s['lang']]]} words in {LANGS[s['lang']]} text"
             if re.search(r"\d", s["text"]):
                 return "digits (numbers must be words)"
             if _WRITTEN_ONLY.search(s["text"]):
@@ -860,8 +888,10 @@ _LEVEL_SAID = re.compile(r"(?<![\w-])[ABC] ?[12](?!\w)|(?<![\w-])[ABC] (one|two|
 #: rarer than this (wordfreq Zipf) counts as a content word for the cut-leak check (common words like "после" / 因为
 #: recur by chance)
 CUT_LEAK_ZIPF = 5.0
-_ZH_COMMON_BIGRAMS = set("因为 所以 可以 我们 你们 他们 这个 那个 什么 没有 一下 时候 现在 已经 如果 但是 还是 就是 不是 一个 知道 "
-                         "觉得 需要 一些 这样 那样 怎么 为什么 真的 其实 然后 的话 一点 比较 应该".split())
+_ZH_COMMON_BIGRAMS = set(
+    "因为 所以 可以 我们 你们 他们 这个 那个 什么 没有 一下 时候 现在 已经 如果 但是 还是 就是 不是 一个 知道 "
+    "觉得 需要 一些 这样 那样 怎么 为什么 真的 其实 然后 的话 一点 比较 应该".split()
+)
 
 
 def _cut_units(text: str, zh: bool) -> set[str]:
@@ -919,6 +949,8 @@ def _garbled(text: str) -> bool:
                                   or 0x20A0 <= o <= 0x20CF):  # fmt: skip
             return True
     return len(rare) >= 3
+
+
 #: tags or the cut mark inside the system prompt (p12: the writer told the assistant to "tag Russian with <ru>")
 _SP_MARKUP = re.compile(r"</?[a-z]{2}>|<cut/>")
 _PY_SYL = (r"(?:zh|ch|sh|[bpmfdtnlgkhjqxrzcsyw])?(?:iang|iong|uang|uan|uai|ang|eng|ing|ong|ian|iao|ai|ei|ao|ou|an|en|er|"
@@ -1069,8 +1101,10 @@ _LAT_RUN = re.compile(r"[A-Za-z][A-Za-z0-9'’.\-]*(?:\s+[A-Za-z0-9][A-Za-z0-9'�
 _NUM = re.compile(r"(?<![\w.,])(\d+)(?![\w.,]\d|\w)")
 #: German: a number with a dot before a lower-case word or a month is an ordinal ("am 3. Mai"): left as digits (then
 #: rejected) instead of read as a cardinal
-_NUM_DE = re.compile(r"(?<![\w.,])(\d+)(?![\w.,]\d|\w|\.\s*(?:[a-zäöü]|Januar|Februar|März|April|Mai|Juni|Juli|"
-                     r"August|September|Oktober|November|Dezember))")
+_NUM_DE = re.compile(
+    r"(?<![\w.,])(\d+)(?![\w.,]\d|\w|\.\s*(?:[a-zäöü]|Januar|Februar|März|April|Mai|Juni|Juli|"
+    r"August|September|Oktober|November|Dezember))"
+)
 
 
 def _tag_en(m, lang: str = "en") -> str:
@@ -1078,7 +1112,7 @@ def _tag_en(m, lang: str = "en") -> str:
     core = w.rstrip(".-'’")
     if len(re.sub(r"[^A-Za-z]", "", core)) < 3:  # "C", "HN", "AI" alone: the TTS mangles 1-2 letter segments
         return w  # (pilot round 3: "C" -> "See, say the pocket") -> left untagged, so the check rejects it
-    return f"<{lang}>{core}</{lang}>{w[len(core):]}"
+    return f"<{lang}>{core}</{lang}>{w[len(core) :]}"
 
 
 _ZH_DIGITS = "零一二三四五六七八九"
@@ -1136,15 +1170,107 @@ _SCRIPT_RUN = {"ru": re.compile(r"[\u0400-\u04ff][\u0400-\u04ff\s'’-]*[\u0400-
 _PERCENT = {"en": " percent", "de": " Prozent"}
 #: a four-digit number followed by one of these is an amount, not a year ("1250 euros"); judge round 9: "released
 #: 1984" was read "one thousand nine hundred and eighty-four" when only a preceding year word made a year
-_AMOUNT_AFTER = {"euro", "euros", "dollar", "dollars", "pound", "pounds", "franken", "francs", "rubel", "rubles",
-                 "yuan", "people", "personen", "leute", "km", "kilometers", "kilometres", "kilometer", "meter", "meters",
-                 "metres", "steps", "schritte", "calories", "kalorien", "kcal", "words", "wörter", "pieces", "stück",
-                 "grams", "gramm", "g", "ml", "items", "teile", "times", "mal", "minutes", "minuten", "seconds",
-                 "sekunden", "hours", "stunden", "days", "tage", "points", "punkte", "copies", "units", "einheiten",
-                 "square", "quadratmeter", "kilo", "kilos", "kg", "liter", "liters", "litres", "chf", "usd", "eur"}
-_YEAR_BEFORE = {"in", "im", "seit", "since", "until", "till", "bis", "von", "from", "um", "around", "circa", "ca.",
-                "year", "jahr", "jahre", "anno", "ab", "before", "after", "vor", "nach", "by", "of", "des", "early",
-                "late", "mid", "summer", "winter", "spring", "autumn", "sommer", "frühjahr", "herbst"}
+_AMOUNT_AFTER = {
+    "euro",
+    "euros",
+    "dollar",
+    "dollars",
+    "pound",
+    "pounds",
+    "franken",
+    "francs",
+    "rubel",
+    "rubles",
+    "yuan",
+    "people",
+    "personen",
+    "leute",
+    "km",
+    "kilometers",
+    "kilometres",
+    "kilometer",
+    "meter",
+    "meters",
+    "metres",
+    "steps",
+    "schritte",
+    "calories",
+    "kalorien",
+    "kcal",
+    "words",
+    "wörter",
+    "pieces",
+    "stück",
+    "grams",
+    "gramm",
+    "g",
+    "ml",
+    "items",
+    "teile",
+    "times",
+    "mal",
+    "minutes",
+    "minuten",
+    "seconds",
+    "sekunden",
+    "hours",
+    "stunden",
+    "days",
+    "tage",
+    "points",
+    "punkte",
+    "copies",
+    "units",
+    "einheiten",
+    "square",
+    "quadratmeter",
+    "kilo",
+    "kilos",
+    "kg",
+    "liter",
+    "liters",
+    "litres",
+    "chf",
+    "usd",
+    "eur",
+}
+_YEAR_BEFORE = {
+    "in",
+    "im",
+    "seit",
+    "since",
+    "until",
+    "till",
+    "bis",
+    "von",
+    "from",
+    "um",
+    "around",
+    "circa",
+    "ca.",
+    "year",
+    "jahr",
+    "jahre",
+    "anno",
+    "ab",
+    "before",
+    "after",
+    "vor",
+    "nach",
+    "by",
+    "of",
+    "des",
+    "early",
+    "late",
+    "mid",
+    "summer",
+    "winter",
+    "spring",
+    "autumn",
+    "sommer",
+    "frühjahr",
+    "herbst",
+}
 _AND = {"en": "and", "de": "und", "ru": "и", "zh": "和"}
 
 
@@ -1155,11 +1281,16 @@ def _spoken_punct(x: str, lg: str) -> str:
     comma = "，" if lg == "zh" else ","
     x = re.sub(r"\*([^*\n]+)\*", r"\1", x)
     sp = "" if lg == "zh" else " "
-    x = re.sub(r"\s*[(（]([^()（）\[\]]+)[)）]\s*([,.;:!?，。；：！？]?)",
-               lambda m: f"{comma}{sp}{m.group(1).strip()}{m.group(2) or comma}{sp}", x)
+    x = re.sub(
+        r"\s*[(（]([^()（）\[\]]+)[)）]\s*([,.;:!?，。；：！？]?)",
+        lambda m: f"{comma}{sp}{m.group(1).strip()}{m.group(2) or comma}{sp}",
+        x,
+    )
     x = re.sub(r"(?<=\w) & (?=\w)", f" {_AND.get(lg, 'and')} ", x)
     x = re.sub(r"\s+([,，。.])", r"\1", x)
     return re.sub(r"([,，])\s*([,，.。!?！？])", r"\2", re.sub(r" {2,}", " ", x)).strip()
+
+
 _SPOKEN_NAME = re.compile(r"(?i)haru[ -]i[ -]?(?:six|sechs|6)[ -]instruct|хару и-шесть инстракт")
 
 
@@ -1189,8 +1320,11 @@ def repair(obj: dict, seed: dict | None = None) -> dict:
         # a year only after a year word ("in 1999", "seit 1850"): amounts are digits since writer v8 ("1250 Euro")
         v, before, after = int(m.group(1)), m.string[: m.start()].split(), m.string[m.end() :].split()
         nxt = re.sub(r"\W", "", after[0]).lower() if after else ""
-        year = len(m.group(1)) == 4 and 1100 <= v <= 2099 and (
-            (before and before[-1].lower() in _YEAR_BEFORE) or nxt not in _AMOUNT_AFTER)
+        year = (
+            len(m.group(1)) == 4
+            and 1100 <= v <= 2099
+            and ((before and before[-1].lower() in _YEAR_BEFORE) or nxt not in _AMOUNT_AFTER)
+        )
         return (num2words(v, lang=lg, to="year") if year else num2words(v, lang=lg)).replace(",", "")
 
     from opencc import OpenCC
@@ -1201,7 +1335,9 @@ def repair(obj: dict, seed: dict | None = None) -> dict:
     if isinstance(obj.get("system_prompt"), str):  # the TTS spelling of the name leaks into the (text) prompt
         obj["system_prompt"] = _SPOKEN_NAME.sub(PRODUCT["name"], obj["system_prompt"])
         if _CJK.search(obj["system_prompt"]):  # traditional characters in a Chinese prompt too (turns: below)
-            obj["system_prompt"] = t2s(obj["system_prompt"])  # the writer slips into traditional characters, which Chatterbox's zh misreads
+            obj["system_prompt"] = t2s(
+                obj["system_prompt"]
+            )  # the writer slips into traditional characters, which Chatterbox's zh misreads
     for t in obj.get("turns") or []:
         lg, x = t.get("lang"), t.get("text") or ""
         if _CJK.search(x):
@@ -1218,7 +1354,9 @@ def repair(obj: dict, seed: dict | None = None) -> dict:
             x = outside_tags(x, lambda s, lat=lat: _LAT_RUN.sub(lambda m: _tag_en(m, lat), s))
         elif lg in ("en", "de"):
             if not (seed or {}).get("cefr"):  # tutoring: a level code said aloud is rejected instead (spec: never said)
-                x = outside_tags(x, lambda s, lg=lg: _CEFR.sub(lambda m: f"{m.group(1)} {_CEFR_WORD[lg][int(m.group(2)) - 1]}", s))
+                x = outside_tags(
+                    x, lambda s, lg=lg: _CEFR.sub(lambda m: f"{m.group(1)} {_CEFR_WORD[lg][int(m.group(2)) - 1]}", s)
+                )
             x = outside_tags(x, lambda s, lg=lg: (_NUM_DE if lg == "de" else _NUM).sub(lambda m: num(m, lg), s))
             x = outside_tags(x, lambda s, lg=lg: re.sub(r"\s?%", _PERCENT[lg], s))
         t["text"] = _spoken_punct(x, lg)
@@ -1274,8 +1412,13 @@ WIKI_DUMP = "20231101"
 SOURCE_REPOS = {
     "wikipedia": "wikimedia/wikipedia",
     "wildchat": "allenai/WildChat-4.8M",
+    "lmarena": "lmarena-ai/arena-human-preference-140k",
     "personas": "nvidia/Nemotron-Personas",
 }
+#: a language's own repo of a source (German users: personas fitted to German census data, in German)
+SOURCE_REPOS_BY_LANG = {("personas", "de"): "nvidia/Nemotron-Personas-Germany"}
+#: columns read per source (``None``: all); LMArena's rows also hold both models' answers, never read
+SOURCE_COLUMNS = {"lmarena": ["id", "question_id", "conversation_a", "language", "is_code", "evaluation_order"]}
 
 
 def _wikipedia_rows(df, lang):
@@ -1301,48 +1444,119 @@ def _wikipedia_rows(df, lang):
 _NOT_SPOKEN = re.compile(r"```|https?://|www\.|[{};<>]|\(\)|\bdef |\bimport |\buser-\d+|[A-Za-z]+\.[A-Za-z]+\(|\$\w")
 
 
+_LANG_NAMES = {"en": "English", "de": "German", "zh": "Chinese", "ru": "Russian"}
+
+
+def _spoken_request(t: str, lang: str) -> bool:
+    """A first request one could say to a voice assistant: 20-400 characters, >= 4 words (Chinese: 8 characters), at
+    most 3 line breaks, no code / links / markup (``_NOT_SPOKEN``)."""
+    words = len(t) if lang == "zh" else len(t.split())
+    return (20 <= len(t) <= 400 and words >= (8 if lang == "zh" else 4) and t.count("\n") <= 3
+            and not _NOT_SPOKEN.search(t))  # fmt: skip
+
+
 def _wildchat_rows(df, lang):
-    name = {"en": "English", "de": "German", "zh": "Chinese", "ru": "Russian"}[lang]
     out, seen = [], set()
     for r in df.itertuples():
-        if getattr(r, "toxic", False) or getattr(r, "redacted", False) or r.language != name:
+        if getattr(r, "toxic", False) or getattr(r, "redacted", False) or r.language != _LANG_NAMES[lang]:
             continue
         conv = r.conversation
         if len(conv) == 0 or conv[0]["role"] != "user":
             continue
         t = conv[0]["content"].strip()
-        words = len(t) if lang == "zh" else len(t.split())
-        if (20 <= len(t) <= 400 and words >= (8 if lang == "zh" else 4) and t.count("\n") <= 3
-                and not _NOT_SPOKEN.search(t) and t not in seen):  # fmt: skip
+        if _spoken_request(t, lang) and t not in seen:
             seen.add(t)
             out.append({"id": str(r.conversation_hash), "text": t})
     return out
 
 
+def _lmarena_text(content) -> str | None:
+    """A user turn's text: a string (100k) or text parts (140k); None when it carries an image."""
+    if isinstance(content, str):
+        return content
+    parts = list(content)
+    if any(p.get("type") != "text" for p in parts):
+        return None
+    return "\n".join(p.get("text") or "" for p in parts)
+
+
+def _lmarena_rows(df, lang):
+    """First user turns of Arena battles in ``lang`` (140k: language code and the session's first battle; 100k:
+    language name), not tagged code, ``_spoken_request``, not ``_NSFW`` (Arena has no moderation flag); the model
+    answers are never read. ``source``: provenance through tagging into the seeds."""
+    out, seen = [], set()
+    for r in df.itertuples():
+        if r.language not in (lang, _LANG_NAMES[lang]) or bool(r.is_code):
+            continue
+        if getattr(r, "evaluation_order", 1) != 1:  # a later battle of the session: not the user's first request
+            continue
+        conv = r.conversation_a
+        if len(conv) == 0 or conv[0]["role"] != "user" or (t := _lmarena_text(conv[0]["content"])) is None:
+            continue
+        t = t.strip()
+        if _spoken_request(t, lang) and not _NSFW.search(t) and t not in seen:
+            seen.add(t)
+            rid = getattr(r, "id", None) or r.question_id
+            out.append({"id": f"lmarena:{rid}", "text": t, "source": "lmarena"})
+    return out
+
+
 #: a Nemotron persona opens with the person's full name ("Gary Dann is a meticulous ..."): replaced, the cast names
-#: the people
-_PERSONA_NAME = re.compile(r"^(?!(?:A|An|The)\b)[A-Z][\w'’.-]+(?: [A-Z][\w'’.-]+){1,2}(?= )")
+#: the people (German rows have it replaced already: ``_personas_de_text``)
+_PERSONA_NAME = re.compile(r"^(?!(?:A|An|The|Diese|Ein|Eine)\b)[A-Z][\w'’.-]+(?: [A-Z][\w'’.-]+){1,2}(?= )")
 
 
 def _persona_text_clean(text: str) -> str:
     return _PERSONA_NAME.sub("This person", text.strip(), count=1)
 
 
+#: a German persona's name: the words before its first " ist " / " war ", up to 5 ("Mario von Lojewski ist ...")
+_PERSONA_NAME_DE = re.compile(r"^((?:[\w'’.-]+ ){0,4}?[\w'’.-]+) (?=ist |war )")
+#: ... or named in passing ("Ein introvertierter Handwerker namens Nico Schmelzer, der ...": 10% of the rows)
+_PERSONA_NAMENS_DE = re.compile(r" namens [^,]{1,40}(?=,)")
+#: what a person with no occupation (``Nicht zutreffend``, 40% of the rows) does, from ``employment_status``
+_STATUS_DE = {"Ruhestand": "im Ruhestand", "Erwerbslos": "erwerbslos", "In Ausbildung": "in Ausbildung",
+              "Sonstige Nichterwerbstätigkeit": "nicht erwerbstätig"}  # fmt: skip
+
+
+def _personas_de_text(r) -> str:
+    """Nemotron-Personas-Germany: the persona sentence without the name, plus age, occupation and where they live
+    (the census-fitted part)."""
+    text = _PERSONA_NAMENS_DE.sub("", _PERSONA_NAME_DE.sub("Diese Person ", r.persona.strip(), count=1), count=1)
+    job = _STATUS_DE.get(r.employment_status, "erwerbstätig") if r.occupation == "Nicht zutreffend" else r.occupation
+    return f"{text} ({r.age} Jahre, {job}, Wohnort: {r.kreis}, {r.bundesland})"
+
+
 def _personas_rows(df, lang):
+    if "bundesland" in df.columns:  # Nemotron-Personas-Germany
+        return [{"id": str(r.uuid), "text": _personas_de_text(r)} for r in df.itertuples()]
     return [{"id": str(r.uuid), "text": r.persona} for r in df.itertuples()]
 
 
 def source_rows(source: str, lang: str, files: list[str], n: int, seed: int = 0) -> list[dict]:
     """``n`` rows (``{"id", "title"?, "text"}``) of ``source`` in ``lang`` from ``files`` of its HF repo (network).
     ``wikipedia``: an article's lead, 80-220 words (150-450 characters for Chinese); ``wildchat``: first user turns
-    in ``lang``, not toxic / redacted, 20-400 characters, no code or links; ``personas``: Nemotron's ``persona``."""
+    in ``lang``, not toxic / redacted, 20-400 characters, no code or links; ``lmarena``: the same of LMArena's first
+    prompts (``_lmarena_rows``), deduplicated across files; ``personas``: Nemotron's ``persona`` (German:
+    ``_personas_de_text``). A file ``"<repo>:<path>"`` is read from that repo (the source's other dataset)."""
     import pandas as pd
+    import pyarrow.parquet as pq
     from huggingface_hub import hf_hub_download
 
     rows = []
     for f in files:
-        df = pd.read_parquet(hf_hub_download(SOURCE_REPOS[source], f, repo_type="dataset"))
-        rows += {"wikipedia": _wikipedia_rows, "wildchat": _wildchat_rows, "personas": _personas_rows}[source](df, lang)
+        repo, path = (
+            f.split(":", 1) if ":" in f else (SOURCE_REPOS_BY_LANG.get((source, lang), SOURCE_REPOS[source]), f)
+        )
+        local = hf_hub_download(repo, path, repo_type="dataset")
+        cols = SOURCE_COLUMNS.get(source)
+        cols = cols and [c for c in cols if c in pq.read_schema(local).names]
+        df = pd.read_parquet(local, columns=cols)
+        rows += {"wikipedia": _wikipedia_rows, "wildchat": _wildchat_rows, "lmarena": _lmarena_rows,
+                 "personas": _personas_rows}[source](df, lang)  # fmt: skip
+    if source == "lmarena":  # the 100k and 140k sets overlap
+        seen = set()
+        rows = [r for r in rows if not (r["text"] in seen or seen.add(r["text"]))]
     random.Random(seed).shuffle(rows)
     return rows[:n]
 
@@ -1406,8 +1620,9 @@ def write_dialogues(seeds: list[dict], url: str, model: str, temperature: float,
         same = json.dumps(new, sort_keys=True) == json.dumps(obj, sort_keys=True)
         rv["unchanged" if same else "changed"] += 1
         if not same and len(rv["examples"]) < 40:
-            rv["examples"].append({"id": seed["id"], "claims": claims, "problems": problems, "before": obj,
-                                   "after": new})
+            rv["examples"].append(
+                {"id": seed["id"], "claims": claims, "problems": problems, "before": obj, "after": new}
+            )
         return new, not problems and not any(c.get("source") == "none" for c in claims)
 
     def review_loop(seed, obj):
@@ -1508,8 +1723,12 @@ def clip_measures(wav, sr: int, text: str, lang: str) -> dict:
     a, b = edge_trim(y, 16000, lead=True, trail=True, margin=0.0)
     rms = librosa.feature.rms(y=y, frame_length=1024, hop_length=256)[0] + 1e-9
     snr = float(20 * np.log10(np.percentile(rms, 90) / np.percentile(rms, 10)))
-    return {"expr": round(expr, 3), "rate": round(speech_units(text, lang) / max((b - a) / 16000, 0.5), 3),
-            "snr_db": round(snr, 1), "f0_median": round(float(np.median(f)), 1) if len(f) else None}
+    return {
+        "expr": round(expr, 3),
+        "rate": round(speech_units(text, lang) / max((b - a) / 16000, 0.5), 3),
+        "snr_db": round(snr, 1),
+        "f0_median": round(float(np.median(f)), 1) if len(f) else None,
+    }
 
 
 #: Designed voices (no real person cloned): attribute pools for ``voice_descriptions``. Descriptions are English;
@@ -1621,7 +1840,9 @@ def select_podcast_voices(pool_dir: str, out: str, tts_python: str, hf_home: str
     emb = emb / np.linalg.norm(emb, axis=1, keepdims=True)
     report = {"candidates": len(cands), "max_sim": max_sim, "voices": []}
     for g in ("female", "male"):
-        idx = [i for i, c in enumerate(cands) if c["gender"] == g and c["p_gender"] >= 0.9 and c["snr_db"] >= min_snr_db]
+        idx = [
+            i for i, c in enumerate(cands) if c["gender"] == g and c["p_gender"] >= 0.9 and c["snr_db"] >= min_snr_db
+        ]
         idx.sort(key=lambda i: -cands[i]["expr"])
         taken: list[int] = []
         for i in idx:  # distinct speakers, most expressive first
@@ -1763,18 +1984,22 @@ class SftSeeds(Job):
     def __init__(self, *, scenario: str, lang: str, n: int, seed: int = 0, sources: dict | None = None,
                  start: int = 0, scenario_smoothing: float = SCENARIO_SMOOTHING):  # fmt: skip
         assert scenario in SCENARIOS and lang in LANGS
-        need = set(SCENARIO_SOURCES.get(scenario, []))  # personas: the English pool serves every language
+        need = set(SCENARIO_SOURCES.get(scenario, []))  # personas: the language's own pool or the English one
         assert need <= set(sources or {}), f"{scenario} needs sources {need}"
         self.scenario, self.lang, self.n, self.seed, self.start = scenario, lang, n, seed, start
         self.scenario_smoothing = scenario_smoothing
-        self.sources = {k: v for k, v in (sources or {}).items() if k in need or (k == "tagged_fallback" and "tagged" in need)}
+        self.sources = {
+            k: v for k, v in (sources or {}).items() if k in need or (k == "tagged_fallback" and "tagged" in need)
+        }
         self.scenario_version = SCENARIO_VERSIONS[scenario]
         self.out_seeds = self.output_path("seeds.jsonl")
 
     @classmethod
     def hash(cls, parsed_args):  # Sisyphus hashes the constructor's arguments only: the version goes in here
         d = {**parsed_args, "scenario_version": SCENARIO_VERSIONS[parsed_args["scenario"]]}
-        need = set(SCENARIO_SOURCES[d["scenario"]]) | ({"tagged_fallback"} if "tagged" in SCENARIO_SOURCES[d["scenario"]] else set())
+        need = set(SCENARIO_SOURCES[d["scenario"]]) | (
+            {"tagged_fallback"} if "tagged" in SCENARIO_SOURCES[d["scenario"]] else set()
+        )
         d["sources"] = {k: v for k, v in (d.get("sources") or {}).items() if k in need}  # only what the cell reads
         if d.get("start") == 0:  # absent at 0: the seeds from before sharding keep their hashes
             d.pop("start")
@@ -1920,8 +2145,9 @@ class SftVoiceDir(Job):
         )
 
 
-def voice_design_jobs(texts: dict[str, list[str]], langs: list[str], n_assistant: int, n_user: int, seed: int,
-                      region: float) -> list[dict]:
+def voice_design_jobs(
+    texts: dict[str, list[str]], langs: list[str], n_assistant: int, n_user: int, seed: int, region: float
+) -> list[dict]:
     """The clips ``SftDesignVoices`` designs: per language and gender ``n_assistant`` assistant and ``n_user`` user
     descriptions (``voice_descriptions``), each with a native text from ``texts[lang]`` (in rotation, shuffled)."""
     rng = random.Random(seed)
@@ -1934,8 +2160,17 @@ def voice_design_jobs(texts: dict[str, list[str]], langs: list[str], n_assistant
         for g in ("female", "male"):
             for role, n in (("assistant", n_assistant), ("user", n_user)):
                 for d in voice_descriptions(lg, role, g, n, seed=seed, region=region):
-                    out.append({"id": f"{lg}_{role}_{g}_{k}", "lang": lg, "role": role, "gender": g, "instruct": d,
-                                "text": tx[k % len(tx)], "language": LANGS[lg].split(" (")[0].replace("Mandarin ", "")})
+                    out.append(
+                        {
+                            "id": f"{lg}_{role}_{g}_{k}",
+                            "lang": lg,
+                            "role": role,
+                            "gender": g,
+                            "instruct": d,
+                            "text": tx[k % len(tx)],
+                            "language": LANGS[lg].split(" (")[0].replace("Mandarin ", ""),
+                        }
+                    )
                     k += 1
     return out
 

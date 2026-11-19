@@ -1,4 +1,4 @@
-"""Guard: the SFT seeds' request draw from tagged WildChat requests (``sft_dialogues.cell_requests`` / ``draw_request``
+"""Guard: the SFT seeds' request draw from tagged WildChat (German: + LMArena) requests (``sft_dialogues.cell_requests`` / ``draw_request``
 / ``make_seeds``, ``sft_pipeline.tag_row``), against the real module:
 
   * deterministic: the same pool gives the same seeds, in any row order of the pool; shards of a cell give the seeds
@@ -9,6 +9,10 @@
     before every eligible one was used; higher weights come earlier on average;
   * German continues into the fallback (English) pool after its own; service takes requests of weight >= 0.3 only and
     then a matter from the persona;
+  * German's pool is WildChat + LMArena: both load into one pool with their ``source`` (an LMArena text WildChat has
+    is dropped), keep it through tagging, and a German cell draws from both, each seed naming its request's source;
+    LMArena rows are first user turns only (no later battle, other language, code or image; the answers never read);
+    a German persona loses its name;
   * the retired content lists (service domains, chit-chat topics, long tasks, interests) are gone and no brief names
     them; the tagger clamps weights, marks ``_NSFW`` requests unsafe without asking, and a bumped ``TAG_VERSION``
     re-hashes the tag job.
@@ -151,6 +155,65 @@ def check_floors() -> list[str]:
     return bad
 
 
+def check_german_sources() -> list[str]:
+    import tempfile
+
+    import pandas as pd
+
+    bad = []
+    with tempfile.TemporaryDirectory() as d:
+        wc, ar = Path(d, "wc.jsonl"), Path(d, "ar.jsonl")
+        wc.write_text(
+            "".join(json.dumps({"id": f"w{i}", "text": f"Wie plane ich Anfrage {i}?"}) + "\n" for i in range(20))
+        )
+        ar.write_text("".join(json.dumps({"id": f"lmarena:a{i}", "text": t, "source": "lmarena"}) + "\n" for i, t in
+                              enumerate([f"Was koche ich heute, Variante {i}?" for i in range(20)] + ["Wie plane ich Anfrage 3?"])))  # fmt: skip
+        loaded = sp.load_request_rows([str(wc), str(ar)])
+    got = {src: sum(r["source"] == src for r in loaded) for src in ("wildchat", "lmarena")}
+    if got != {"wildchat": 20, "lmarena": 20} or len(loaded) != 40:
+        bad.append(f"the German pool loads {got} of {len(loaded)} rows, want 20 + 20 (one LMArena duplicate dropped)")
+    rng = random.Random(5)
+    tagged = [sp.tag_row(r, "de", {"gist": f"thing {r['id']}", "weights": {k: rng.choice([0.2, 0.5, 1.0]) for k in
+                                   sd.SCENARIOS}, "flags": dict(FLAGS)}) for r in loaded]  # fmt: skip
+    if [t["source"] for t in tagged] != [r["source"] for r in loaded]:
+        bad.append("tagging loses the request's source")
+    rows = {**_rows("de", 1, fallback="en"), "tagged": tagged}
+    for sc in sd.REQUEST_SCENARIOS:
+        src = {s_["request"].get("source") for s_ in sd.make_seeds(sc, "de", 16, 3, rows) if s_.get("request")}
+        if src != {"wildchat", "lmarena"}:
+            bad.append(f"{sc}: a German cell drew requests from {src}, want WildChat and LMArena")
+    user = lambda t: {"role": "user", "content": [{"type": "text", "text": t, "image": None}]}  # noqa: E731
+    ans = {"role": "assistant", "content": [{"type": "text", "text": "ANSWER TEXT"}]}
+    first = "Was kann ich heute Abend mit Freunden kochen?"
+    a140 = pd.DataFrame([
+        {"id": "a", "language": "de", "is_code": False, "evaluation_order": 1, "conversation_a": [user(first), ans]},
+        {"id": "b", "language": "de", "is_code": False, "evaluation_order": 2, "conversation_a": [user("Und was trinke ich dazu am besten?"), ans]},
+        {"id": "c", "language": "en", "is_code": False, "evaluation_order": 1, "conversation_a": [user("What can I cook tonight with friends?"), ans]},
+        {"id": "d", "language": "de", "is_code": True, "evaluation_order": 1, "conversation_a": [user("Schreib mir eine Funktion zum Sortieren."), ans]},
+        {"id": "e", "language": "de", "is_code": False, "evaluation_order": 1, "conversation_a": [
+            {"role": "user", "content": [{"type": "image", "text": None, "image": "x"}, {"type": "text", "text": "Was ist auf dem Bild zu sehen?"}]}, ans]},
+    ])  # fmt: skip
+    a100 = pd.DataFrame([{"question_id": "q", "language": "German", "is_code": False,
+                          "conversation_a": [{"role": "user", "content": "Wie wird das Wetter morgen in Berlin?"}, ans]}])  # fmt: skip
+    got = sd._lmarena_rows(a140, "de") + sd._lmarena_rows(a100, "de")
+    if [(r["id"], r["source"]) for r in got] != [("lmarena:a", "lmarena"), ("lmarena:q", "lmarena")] or got[0][
+        "text"
+    ] != first:
+        bad.append(f"LMArena rows {[(r['id'], r['text'][:30]) for r in got]}: want the first turns of a and q only")
+    per = pd.DataFrame([
+        {"uuid": "u", "persona": "Mario von Lojewski ist ein bescheidener Pragmatiker.", "age": 58,
+         "occupation": "Gärtner", "employment_status": "Erwerbstätig", "kreis": "Kassel", "bundesland": "Hessen"},
+        {"uuid": "v", "persona": "Ein ruhiger Handwerker namens Nico Schmelzer, der gern liest.", "age": 70,
+         "occupation": "Nicht zutreffend", "employment_status": "Ruhestand", "kreis": "Cham", "bundesland": "Bayern"},
+    ])  # fmt: skip
+    t, u = (sd._persona_text_clean(r["text"]) for r in sd._personas_rows(per, "de"))
+    if "Mario" in t or "Lojewski" in t or not t.startswith("Diese Person ist") or "Hessen" not in t:
+        bad.append(f"a German persona reads {t!r}: want the name gone, the place kept")
+    if "Nico" in u or "Schmelzer" in u or "Nicht zutreffend" in u or "im Ruhestand" not in u:
+        bad.append(f"a German persona reads {u!r}: want the name gone and the status for no occupation")
+    return bad
+
+
 def check_retired() -> list[str]:
     bad = []
     for name in ("SERVICE_DOMAINS", "CHITCHAT_TOPICS", "LONG_TASKS", "INTERESTS", "_clean_request"):
@@ -213,7 +276,13 @@ class _Patch:
             setattr(self.obj, k, v)
 
 
-_order, _cell, _prob = sd.request_order, sd.cell_requests, sd.request_prob
+_order, _cell, _prob, _ref, _load = (
+    sd.request_order,
+    sd.cell_requests,
+    sd.request_prob,
+    sd.request_ref,
+    sp.load_request_rows,
+)
 
 
 def _uniform_order(tagged, scenario, key, min_w=0.0, smoothing=0.0):  # mutant: weights ignored (zero ones included)
@@ -249,11 +318,24 @@ MUTANTS = {
         sc, lg, seed, {k: v for k, v in rows.items() if k != "tagged_fallback"}, sm))),
     "service without a floor": (check_floors, sd, dict(SERVICE_MIN_WEIGHT=0.0)),
     "no smoothing": (check_smoothing, sd, dict(request_prob=lambda r, s, sm: _prob(r, s, 0.0))),
+    "German pool loads its first file only": (check_german_sources, sp, dict(load_request_rows=lambda paths: _load(paths[:1]))),
+    "seeds without the request's source": (check_german_sources, sd, dict(request_ref=lambda req: {
+        k: v for k, v in _ref(req).items() if k != "source"})),
+    "German persona keeps its name": (check_german_sources, sd, dict(_PERSONA_NAME_DE=__import__("re").compile("^$"))),
+    "German persona keeps a name given in passing": (check_german_sources, sd, dict(_PERSONA_NAMENS_DE=__import__("re").compile("^$"))),
     "tutor = any tutoring": (check_tagger, sp, dict(TAG_DEFS={**sp.TAG_DEFS, "tutor": "a tutor in any subject"})),
 }  # fmt: skip
 
 if __name__ == "__main__":
-    fails = check_determinism() + check_draw() + check_smoothing() + check_floors() + check_retired() + check_tagger()
+    fails = (
+        check_determinism()
+        + check_draw()
+        + check_smoothing()
+        + check_floors()
+        + check_german_sources()
+        + check_retired()
+        + check_tagger()
+    )
     for f in fails:
         print("FAIL", f)
     for name, (fn, obj, over) in MUTANTS.items():
