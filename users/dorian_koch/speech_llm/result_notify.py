@@ -238,6 +238,7 @@ SINK_KINDS = {
     "RLFinetune": "rl",
     "RLFinetuneV2": "rl",
     "InteractionBenchGrade": "interaction_bench",
+    "SftDataReport": "sft_data",
 }
 
 

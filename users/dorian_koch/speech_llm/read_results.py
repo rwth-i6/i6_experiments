@@ -107,6 +107,12 @@ def render(rec: dict) -> tuple[str, bool]:
                 a, n = sum(v["agree"] for v in agree.values()), sum(v["n"] for v in agree.values())
                 line += f"; agree w/ upstream {a}/{n}"
             out.append(line)
+        elif "sft_report" in p and isinstance(p.get("totals"), dict):  # SftDataReport
+            t = p["totals"]
+            out.append(
+                f"SFT {p['sft_report']}: kept {t.get('kept')}/{t.get('seeds')}, {t.get('hours')} h, "
+                f"CER {_num(t.get('cer_mean'), '{:.3f}')}, over {_num(t.get('over'), '{:.3f}')}; flags {p.get('n_flags')}"
+            )
         elif isinstance(p.get("result"), dict) and "evaluator" in p:  # one VoiceBench subset
             r = p["result"]
             v = r.get("acc", r.get("final"))
