@@ -15,6 +15,8 @@
     ``split_group_output``, with a stand-in for the GPU worker);
   * a language's own sources (German: LMArena requests, Nemotron-Personas-Germany) move exactly that language's cells
     and tag job, not the voice pool; its tag job reads every request file, its seeds its own personas;
+  * voice texts: a text of the wrong length is asked again with its count, so a model that miscounts Chinese
+    characters still fills every language (stand-in server);
   * the stats catch oddities: a silent turn, unequal or empty tracks, a dialogue of another cell, lost ids, a dialogue
     repeated across shards, a Parler voice outside English.
 
@@ -307,6 +309,45 @@ def _written(n):
     return out
 
 
+def check_voice_texts() -> list[str]:
+    """``write_voice_texts`` against a stand-in server that answers too long a Chinese text until it is told the count
+    (the trial's first voice-text job: 51 of 260 Chinese texts lost to length): every language keeps all its texts,
+    the rejections are counted with examples."""
+    import types
+
+    import openai
+
+    zh_ok = "我最近在学做饭，每天晚上下班以后都会试着做一道新菜，虽然常常失败，但是家里人都很捧场，我觉得挺开心的。"
+
+    class _Client:
+        def __init__(self, **_unused):
+            self.chat = types.SimpleNamespace(completions=types.SimpleNamespace(create=self._create))
+
+        def _create(self, messages, **_unused):
+            told = any(m["role"] == "user" and "Chinese characters; it must have" in m["content"] for m in messages)
+            if "Chinese" in messages[1]["content"]:
+                text = zh_ok if told else zh_ok * 2
+            else:
+                text = " ".join(f"word{chr(97 + i % 26)}" for i in range(25)) + messages[1]["content"][-40:]
+            msg = types.SimpleNamespace(content=json.dumps({"text": text}, ensure_ascii=False))
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=msg)])
+
+    bad = []
+    per = [{"id": f"p{k}", "text": f"A {30 + k}-year-old nurse who likes cycling."} for k in range(5)]
+    old = openai.OpenAI
+    try:
+        openai.OpenAI = _Client
+        rows, stats = sp.write_voice_texts(per, ["zh"], 6, 0, "http://x", "m", workers=4)
+    finally:
+        openai.OpenAI = old
+    got = sum(r["lang"] == "zh" for r in rows)
+    if got < 1:
+        bad.append(f"voice texts kept {got} Chinese: lost to length although the server writes it when told the count")
+    if stats["reasons"].get("length", 0) < 6 or not stats["examples"].get("length"):
+        bad.append(f"rejections not counted with examples: {stats['reasons']}")
+    return bad
+
+
 def check_cast() -> list[str]:
     bad = []
     rows = _written(4000)
@@ -476,6 +517,7 @@ MUTANTS = {
                                                                     fromlist=["tts"]), dict(split_group_output=_split_ids_across)),
     "German users on the English personas": (check_sources, sp, dict(persona_rows=lambda rows, lg: rows[("personas", "en")])),
     "German pool without LMArena": (check_sources, sp, dict(request_rows=lambda rows, lg: rows[("wildchat", lg)])),
+    "voice texts retried blind": (check_voice_texts, sp, dict(voice_text_retry=lambda text, why, lang: None)),
     "silence never counted": (check_stats, sp, dict(SILENT_DBFS=-400.0)),
     "no duplicate detection": (check_stats, sp, dict(_digest=lambda x: os.urandom(8).hex())),
 }  # fmt: skip
@@ -488,6 +530,7 @@ if __name__ == "__main__":
         + check_shards()
         + check_mix()
         + check_cast()
+        + check_voice_texts()
         + check_stats()
     )
     for f in fails:

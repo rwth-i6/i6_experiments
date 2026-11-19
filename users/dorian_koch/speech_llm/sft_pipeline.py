@@ -125,14 +125,34 @@ Answer as JSON: {{"text": "..."}}"""
 VT_SCHEMA = {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}
 
 
+#: voice-text size in Chinese characters / words: accepted, and asked for (a little less)
+VT_SIZE = {"zh": (40, 70), "*": (20, 38)}
+VT_ASK = {"zh": (40, 65), "*": (20, 35)}
+
+
+def voice_text_size(text: str, lang: str) -> int:
+    return len(re.sub(r"\W", "", text)) if lang == "zh" else len(text.split())
+
+
+def voice_text_retry(text: str, why: str, lang: str) -> str | None:
+    """The follow-up that asks again after a rejected text: a wrong length names the count (the model miscounts
+    Chinese characters: the trial's first voice-text job lost 51 of 260 Chinese texts to length after 3 blind tries);
+    None = ask afresh."""
+    if why != "length":
+        return None
+    unit = "Chinese characters" if lang == "zh" else "words"
+    lo, hi = VT_ASK["zh" if lang == "zh" else "*"]
+    return (f"That text has {voice_text_size(text, lang)} {unit}; it must have {lo} to {hi}. Write it again with "
+            f"the same content and rules, as JSON.")  # fmt: skip
+
+
 def voice_text_problem(text: str, lang: str) -> str | None:
     """Why ``text`` is no good voice-prompt text in ``lang`` (None = fine): ~10 s of speech (20-38 words; 40-70
     characters for Chinese), plain spoken text in the language's own script."""
     if re.search(r"[\d<>\"“”„«»()\[\]{}/*#@&%+=_|~]", text):
         return "digits or symbols"
-    n = len(re.sub(r"\W", "", text)) if lang == "zh" else len(text.split())
-    lo, hi = (40, 70) if lang == "zh" else (20, 38)
-    if not lo <= n <= hi:
+    lo, hi = VT_SIZE["zh" if lang == "zh" else "*"]
+    if not lo <= voice_text_size(text, lang) <= hi:
         return "length"
     if lang in ("zh", "ru") and re.search(r"[A-Za-z]", text):
         return "Latin letters"
@@ -142,9 +162,10 @@ def voice_text_problem(text: str, lang: str) -> str | None:
 
 
 def write_voice_texts(personas: list[dict], langs: list[str], n: int, seed: int, url: str, model: str,
-                      temperature: float = 1.0, workers: int = 64, max_tries: int = 3) -> tuple[list[dict], dict]:  # fmt: skip
+                      temperature: float = 1.0, workers: int = 64, max_tries: int = 5) -> tuple[list[dict], dict]:  # fmt: skip
     """``n`` texts per language, each for a random persona (``k``-th: ``Random(f"vt/{lang}/{seed}/{k}")``) in a
-    random native locale; a text failing :func:`voice_text_problem` is drawn again (up to ``max_tries``)."""
+    random native locale; a text failing :func:`voice_text_problem` is asked again (up to ``max_tries``; a wrong
+    length with its count, :func:`voice_text_retry`). ``stats``: rejections by reason, up to 5 examples each."""
     from concurrent.futures import ThreadPoolExecutor
 
     from openai import OpenAI
@@ -152,21 +173,22 @@ def write_voice_texts(personas: list[dict], langs: list[str], n: int, seed: int,
     from .common import json_schema_format
 
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url, timeout=600)
-    stats = {"asked": 0, "kept": 0, "reasons": {}}
+    stats = {"asked": 0, "kept": 0, "reasons": {}, "examples": {}}
 
     def one(item):
         lang, k = item
         rng = random.Random(f"vt/{lang}/{seed}/{k}")
         per = personas[rng.randrange(len(personas))]
-        length = "40 to 65 Chinese characters" if lang == "zh" else "20 to 35 words"
+        lo, hi = VT_ASK["zh" if lang == "zh" else "*"]
+        length = f"{lo} to {hi} Chinese characters" if lang == "zh" else f"{lo} to {hi} words"
         msg = VT_PROMPT.format(language=sd.LANGS[lang], place=rng.choice(sd.LOCALES[lang]),
                                persona=sd._persona_text_clean(per["text"]), length=length)  # fmt: skip
         why = None
+        messages = [{"role": "system", "content": VT_SYSTEM}, {"role": "user", "content": msg}]
         for t in range(max_tries):
             try:
                 r = client.chat.completions.create(
-                    model=model, temperature=temperature, max_tokens=400, seed=t,
-                    messages=[{"role": "system", "content": VT_SYSTEM}, {"role": "user", "content": msg}],
+                    model=model, temperature=temperature, max_tokens=400, seed=t, messages=messages,
                     extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                     **json_schema_format(VT_SCHEMA, "voice_text"))  # fmt: skip
                 text = " ".join(json.loads(r.choices[0].message.content)["text"].split())
@@ -176,6 +198,11 @@ def write_voice_texts(personas: list[dict], langs: list[str], n: int, seed: int,
             if why is None:
                 return {"id": f"{lang}_{k}", "lang": lang, "text": text, "persona_id": per["id"]}
             stats["reasons"][why] = stats["reasons"].get(why, 0) + 1
+            if len(stats["examples"].setdefault(why, [])) < 5:
+                stats["examples"][why].append({"lang": lang, "size": voice_text_size(text, lang), "text": text[:300]})
+            follow = voice_text_retry(text, why, lang) if text else None
+            messages = messages[:2] + ([{"role": "assistant", "content": json.dumps({"text": text}, ensure_ascii=False)},
+                                        {"role": "user", "content": follow}] if follow else [])  # fmt: skip
         return None
 
     items = [(lg, k) for lg in langs for k in range(n)]
