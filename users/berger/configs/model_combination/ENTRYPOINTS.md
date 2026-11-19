@@ -411,3 +411,8 @@ native Granite with a fixed text rule, the frozen Granite two-pass result, and
 Speech-Qwen reconstruction at three score margins on the two development sets.
 The graph adds two Speech-Qwen scoring jobs and a CPU report. See
 [POSSESSIVE_RECONSTRUCTION.md](experiments/open_asr/POSSESSIVE_RECONSTRUCTION.md).
+
+`./sis m config/possessive_evaluation.py` evaluates the fixed 2-nat margin on
+the public test suite. It adds nine Speech-Qwen scoring jobs, with the four
+Loquacious subsets sharing their parent job. The report is
+`output/reports/asr-lm/possessive-evaluation.md`.

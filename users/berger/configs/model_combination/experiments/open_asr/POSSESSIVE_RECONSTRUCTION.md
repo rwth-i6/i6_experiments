@@ -38,3 +38,22 @@ normalized alignment, where the preceding reference word matched, native
 Parakeet produced zero `s` → `is` substitutions on both development sets.
 Native Granite produced 197 on dev-other and 157 on dev.short. The pilot
 therefore targets Granite.
+
+## Public test evaluation
+
+Run `./sis m config/possessive_evaluation.py` from the Sisyphus setup.
+This evaluation uses a single 2-nat margin from development. It compares
+native Granite, native Granite with the text rule, literal Granite two-pass,
+Granite two-pass with Speech-Qwen reconstruction, and standalone Speech-Qwen
+1.7B. The nine base datasets each have one new Speech-Qwen scoring job on the
+48 GB queue. The four Loquacious source subsets reuse the parent edit scores.
+All original hypotheses come from completed public runs.
+
+The report uses the full test-set denominator. For chunked recordings it
+reconstructs individual chunks and joins them in benchmark order before scoring.
+It verifies the three frozen baseline scores and reports paired WER changes
+against the original output and the gap between reconstruction and standalone
+Speech-Qwen. It also records restored `s` and damaged correct `is` counts.
+
+Read `output/reports/asr-lm/possessive-evaluation.md` for the report, or
+`output/possessive-evaluation/f4212424889ee5d3/` for JSON and edited hypotheses.
