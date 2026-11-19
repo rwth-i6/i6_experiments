@@ -961,5 +961,8 @@
    "env": "setup",
    "graph": true
   }
- ]
+ ],
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_sft_pipeline.py": {
+  "env": "setup"
+ }
 }

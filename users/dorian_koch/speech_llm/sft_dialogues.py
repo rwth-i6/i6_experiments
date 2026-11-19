@@ -430,13 +430,14 @@ INTERRUPT_KINDS = {
 }
 
 
-def make_seeds(scenario: str, lang: str, n: int, seed: int, rows: dict) -> list[dict]:
-    """``n`` seeds of ``scenario`` for users speaking ``lang`` (deterministic in ``seed``); ``cast``: the people's
-    names and genders (own random stream)."""
+def make_seeds(scenario: str, lang: str, n: int, seed: int, rows: dict, start: int = 0) -> list[dict]:
+    """``n`` seeds of ``scenario`` for users speaking ``lang``, indices ``start`` .. ``start + n - 1``: seed ``k`` is
+    deterministic in (``seed``, ``k``) alone, so a shard of a cell is the same whatever the cell's size; ``cast``: the
+    people's names and genders (own random stream)."""
     from .sft_names import draw_cast
 
     out = []
-    for k in range(n):
+    for k in range(start, start + n):
         rng = random.Random(f"{scenario}/{lang}/{seed}/{k}")
         s = {"id": f"{scenario}_{lang}_{k}", "scenario": scenario, "lang": lang, **draw_language_setup(lang, rng),
              "level": _pick(rng, LEVEL_WEIGHTS)}  # fmt: skip
@@ -1733,21 +1734,26 @@ class SftSourceRows(Job):
 
 
 class SftSeeds(Job):
-    """``n`` seeds of one scenario for users speaking ``lang`` (``make_seeds``) -> ``seeds.jsonl``. ``sources``: the
-    scenario's ``SftSourceRows`` outputs by name (``SCENARIO_SOURCES``). The scenario's version is hashed."""
+    """``n`` seeds of one scenario for users speaking ``lang`` (``make_seeds``), from index ``start`` (a shard) ->
+    ``seeds.jsonl``. ``sources``: the scenario's ``SftSourceRows`` outputs by name (``SCENARIO_SOURCES``). The
+    scenario's version is hashed."""
 
-    def __init__(self, *, scenario: str, lang: str, n: int, seed: int = 0, sources: dict | None = None):
+    def __init__(self, *, scenario: str, lang: str, n: int, seed: int = 0, sources: dict | None = None,
+                 start: int = 0):  # fmt: skip
         assert scenario in SCENARIOS and lang in LANGS
         need = set(SCENARIO_SOURCES.get(scenario, []))  # personas: the English pool serves every language
         assert need <= set(sources or {}), f"{scenario} needs sources {need}"
-        self.scenario, self.lang, self.n, self.seed = scenario, lang, n, seed
+        self.scenario, self.lang, self.n, self.seed, self.start = scenario, lang, n, seed, start
         self.sources = {k: v for k, v in (sources or {}).items() if k in need}
         self.scenario_version = SCENARIO_VERSIONS[scenario]
         self.out_seeds = self.output_path("seeds.jsonl")
 
     @classmethod
     def hash(cls, parsed_args):  # Sisyphus hashes the constructor's arguments only: the version goes in here
-        return super().hash({**parsed_args, "scenario_version": SCENARIO_VERSIONS[parsed_args["scenario"]]})
+        d = {**parsed_args, "scenario_version": SCENARIO_VERSIONS[parsed_args["scenario"]]}
+        if d.get("start") == 0:  # absent at 0: the seeds from before sharding keep their hashes
+            d.pop("start")
+        return super().hash(d)
 
     def tasks(self):
         yield Task("run", mini_task=True)
@@ -1755,7 +1761,7 @@ class SftSeeds(Job):
     def run(self):
         rows = {k: [json.loads(x) for x in open(v.get(), encoding="utf-8")] for k, v in self.sources.items()}
         with open(self.out_seeds.get(), "w", encoding="utf-8") as f:
-            for s in make_seeds(self.scenario, self.lang, self.n, self.seed, rows):
+            for s in make_seeds(self.scenario, self.lang, self.n, self.seed, rows, start=self.start):
                 f.write(json.dumps(s, ensure_ascii=False) + "\n")
 
 
@@ -1858,33 +1864,28 @@ def voice_design_jobs(texts: dict[str, list[str]], langs: list[str], n_assistant
     return out
 
 
-def voice_prompt_texts(written_hf: str, langs: list[str]) -> dict[str, list[str]]:
-    """~10 s native turns (20-38 words; 40-70 characters for Chinese) without language tags from written dialogues."""
-    from datasets import load_from_disk
-
+def voice_prompt_texts(texts_jsonl: str, langs: list[str]) -> dict[str, list[str]]:
+    """The voice-prompt texts per language (``sft_pipeline.SftVoiceTexts``' ``{"lang", "text"}`` rows)."""
     texts = {lg: [] for lg in langs}
-    for r in load_from_disk(written_hf):
-        for t in json.loads(r["dialogue"])["turns"]:
-            x = t["text"]
-            if "<" in x or t["lang"] not in texts:
-                continue
-            n = len(re.sub(r"\W", "", x)) if t["lang"] == "zh" else len(x.split())
-            if (40 <= n <= 70) if t["lang"] == "zh" else (20 <= n <= 38):
-                texts[t["lang"]].append(x)
+    for line in open(texts_jsonl, encoding="utf-8"):
+        r = json.loads(line)
+        if r["lang"] in texts:
+            texts[r["lang"]].append(r["text"])
     return texts
 
 
 class SftDesignVoices(Job):
     """Designed voices for ``ChatterboxInferenceV2`` with Qwen3-TTS: per language and gender ``n_assistant`` +
     ``n_user`` VoiceDesign descriptions (``voice_descriptions``; ``region``: the share of user voices with a light
-    regional accent), each speaking a native turn from ``texts_hf`` (written dialogues), kept when Qwen3-ASR reads it
-    back (``sft_voice_design.py``). ``out_dir``: ``<lang>/<role>/<gender>/vd_<id>.wav`` + ``.txt`` transcript, the
+    regional accent), each speaking a native text from ``texts`` (``sft_pipeline.SftVoiceTexts``: written for the
+    voices, so no dialogue cell feeds the shared voice stage), kept when Qwen3-ASR reads it back
+    (``sft_voice_design.py``). ``out_dir``: ``<lang>/<role>/<gender>/vd_<id>.wav`` + ``.txt`` transcript, the
     layout the TTS draws ``rng_*`` voices from. Pilot 2026-11-19: 771 of 800 kept, 8,273 s of audio in 616 s."""
 
-    def __init__(self, *, tts_python: tk.AbstractPath, annotate_python: tk.AbstractPath, texts_hf: tk.Path,
+    def __init__(self, *, tts_python: tk.AbstractPath, annotate_python: tk.AbstractPath, texts: tk.Path,
                  langs: list[str], n_assistant: int = 40, n_user: int = 60, seed: int = 1, region: float = 0.5,
                  model: str = "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign", asr_model: str = "Qwen/Qwen3-ASR-0.6B"):  # fmt: skip
-        self.tts_python, self.annotate_python, self.texts_hf = tts_python, annotate_python, texts_hf
+        self.tts_python, self.annotate_python, self.texts = tts_python, annotate_python, texts
         self.langs, self.n_assistant, self.n_user, self.seed, self.region = langs, n_assistant, n_user, seed, region
         self.model, self.asr_model = model, asr_model
         self.out_work = self.output_path("work", directory=True)
@@ -1901,7 +1902,7 @@ class SftDesignVoices(Job):
 
         w = self.out_work.get()
         if not os.path.exists(f"{w}/jobs.json"):
-            jobs = voice_design_jobs(voice_prompt_texts(self.texts_hf.get(), self.langs), self.langs, self.n_assistant,
+            jobs = voice_design_jobs(voice_prompt_texts(self.texts.get(), self.langs), self.langs, self.n_assistant,
                                      self.n_user, self.seed, self.region)  # fmt: skip
             with open(f"{w}/jobs.json", "w", encoding="utf-8") as f:
                 json.dump(jobs, f, ensure_ascii=False, indent=1)

@@ -2,8 +2,9 @@
 
     sft_voice_design.py gen <dir> <model>      (Qwen3-TTS venv, GPU): <dir>/jobs.json -> <dir>/wav/<id>.wav
     sft_voice_design.py check <dir> <asr>      (annotate venv, GPU): Qwen3-ASR (language given) against each clip's
-        text; clips with CER <= MAX_CER and MIN_S..MAX_S long go to <dir>/voices/<lang>/<role>/<gender>/vd_<id>.wav
-        with the text beside them (<name>.txt: the voice-clone prompt's transcript); <dir>/check.json per clip.
+        text; clips with CER <= MAX_CER and MIN_S..MAX_S long go to <dir>/voices/<lang>/<role>/<gender>/<name>.wav
+        (a job's "name", default vd_<id>) with the text beside them (<name>.txt: the voice-clone prompt's
+        transcript); <dir>/check.json per clip. Also checks the Parler-TTS clips of ``sft_parler_voices.py``.
 
 Resumable: ``gen`` skips clips already written. Batches of 16, the codec frames capped at 2.5x a slow reading of
 the longest text + 3 s (the default 8192 frames let one clip that never ends hold a batch for minutes).
@@ -59,10 +60,10 @@ def check(d: str, asr: str) -> None:
             ok = s["cer"] <= MAX_CER and MIN_S <= dur <= MAX_S
             res[j["id"]] = {"cer": s["cer"], "dur": round(dur, 2), "ok": ok, "asr": h}
             if ok:
-                o = f"{d}/voices/{lg}/{j['role']}/{j['gender']}"
+                o, name = f"{d}/voices/{lg}/{j['role']}/{j['gender']}", j.get("name", f"vd_{j['id']}")
                 os.makedirs(o, exist_ok=True)
-                shutil.copy(f"{d}/wav/{j['id']}.wav", f"{o}/vd_{j['id']}.wav")
-                with open(f"{o}/vd_{j['id']}.txt", "w", encoding="utf-8") as f:
+                shutil.copy(f"{d}/wav/{j['id']}.wav", f"{o}/{name}.wav")
+                with open(f"{o}/{name}.txt", "w", encoding="utf-8") as f:
                     f.write(j["text"] + "\n")
     with open(f"{d}/check.json", "w") as f:
         json.dump(res, f, ensure_ascii=False, indent=1)
