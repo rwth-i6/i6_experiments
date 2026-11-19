@@ -45,10 +45,13 @@ def compute_optimal_orthogonal_mapping(
       X^T D Z = U Sigma V^T  =>  W* = U V^T
     :param X: Source embeddings (K x d), e.g. Audio clusters
     :param Z: Target embeddings (P x d), e.g. Text phonemes
-    :param D: Alignment matrix (K x P), binary or weighted dictionary
+    :param D: Alignment matrix (K x P), binary or weighted dictionary, OR 1D array of target indices (K,)
     :return: Orthogonal transformation matrix W* (d x d)
     """
-    M = X.T @ D @ Z  # (d x d)
+    if D.ndim == 1:
+        M = X.T @ Z[D]
+    else:
+        M = X.T @ D @ Z  # (d x d)
     U, _, Vt = np.linalg.svd(M)
     W = U @ Vt
     return W
@@ -95,8 +98,11 @@ def compute_csls_similarity(
     else:
         r_S = np.zeros((1, P), dtype=np.float32)
 
-    csls_matrix = 2.0 * sim_matrix - r_T - r_S
-    return csls_matrix
+    # Compute CSLS in-place on sim_matrix to avoid holding multiple (K x P) matrices in RAM
+    sim_matrix *= 2.0
+    sim_matrix -= r_T
+    sim_matrix -= r_S
+    return sim_matrix
 
 
 def induce_dictionary_nn(
@@ -106,6 +112,7 @@ def induce_dictionary_nn(
     retrieval_metric: str = "cosine",
     csls_k: int = 10,
     compatibility_mask: Optional[np.ndarray] = None,
+    return_dense: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Induces a new dictionary D via nearest neighbor retrieval using dot-product similarity
@@ -117,7 +124,8 @@ def induce_dictionary_nn(
     :param retrieval_metric: 'cosine' or 'csls'
     :param csls_k: Number of neighbors for CSLS
     :param compatibility_mask: Optional boolean mask (K x P) where True indicates structurally valid pairs
-    :return: (D, similarities) where D is binary (K x P) and similarities is (K,)
+    :param return_dense: If False, returns 1D array of best target indices of shape (K,), saving memory
+    :return: (D, similarities) where D is binary (K x P) or 1D indices (K,) and similarities is (K,)
     """
     K = X.shape[0]
     P = Z.shape[0]
@@ -138,6 +146,11 @@ def induce_dictionary_nn(
 
     best_targets = np.argmax(sim_matrix, axis=1)  # (K,)
     best_sims = np.max(sim_matrix, axis=1)  # (K,)
+
+    del sim_matrix
+
+    if not return_dense:
+        return best_targets, best_sims
 
     D = np.zeros((K, P), dtype=np.float32)
     D[np.arange(K), best_targets] = 1.0
