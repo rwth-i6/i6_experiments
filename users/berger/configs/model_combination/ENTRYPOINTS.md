@@ -438,3 +438,12 @@ can still affect acoustic scores on possessives.
 The graph has six GPU jobs and a CPU report. Results appear in
 `output/reports/asr-lm/speech-primary.md` and under
 `output/speech-primary/f4212424889ee5d3/`.
+
+## Parakeet TDT v3 (opt-in)
+
+Run `./sis m config/parakeet_tdt.py` for LibriSpeech dev-other and Loquacious
+dev.short. The config builds the TDT RASR branch, exports the stateful ONNX
+scorer, and schedules native greedy, RASR beam 1 and 8, and beam-8 text- and
+Speech-Qwen 1.7B fusion at scales 0.1 and 0.25. Results appear in
+`output/reports/asr-lm/parakeet-tdt.md`. See
+[PARAKEET_TDT.md](experiments/open_asr/PARAKEET_TDT.md).
