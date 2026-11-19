@@ -72,7 +72,7 @@ LOCALES = {
 SCENARIO_VERSIONS = {"service": 3, "grounded": 3, "help": 3, "chitchat": 3, "skills": 3, "tutor": 3, "longtask": 3,
                      "assistant": 2}  # fmt: skip
 #: the writer prompt / validation (every scenario): hashed into SftWriteDialogues
-WRITER_VERSION = 10
+WRITER_VERSION = 11
 #: system-prompt detail levels (PersonaPlex: prompts "at varying detail levels") and their draw weights
 LEVELS = {
     "short": "one or two sentences: who the assistant is and only the facts it needs",
@@ -267,11 +267,11 @@ def _skills(lang, rng, rows):
 TUTOR_ACTIVITIES = {
     "translate": "The learner asks how to say several things in {l2} or needs a sentence translated (both directions "
     "happen); the tutor translates, explains the key word or structure, and has the learner use it in a sentence.",
-    "co_write": "Together they compose something short in {l2} (a message to a landlord, a birthday wish, a short email "
-    "to a colleague); the learner proposes phrases, the tutor improves them, and at the end the tutor reads out the "
+    "co_write": "Together they compose something short in {l2} that the learner needs in their own life (see WHO THE "
+    "USER IS: a message, a note, a short email); the learner proposes phrases, the tutor improves them, and at the end the tutor reads out the "
     "final version.",
-    "roleplay": "They rehearse a situation in {l2} (ordering in a café, asking for directions, a job interview, at the "
-    "doctor's); the tutor plays the other person and steps out of the role briefly, in {l1}, to correct or explain.",
+    "roleplay": "They rehearse a situation in {l2} from the learner's own life (see WHO THE USER IS; not a café unless "
+    "it fits them); the tutor plays the other person and steps out of the role briefly, in {l1}, to correct or explain.",
     "correction": "The learner says sentences in {l2} with mistakes typical for their level (word order, case, tense, "
     "aspect, measure words, word choice); the tutor corrects gently, explains the rule briefly in {l1}, and lets "
     "them try again.",
@@ -322,6 +322,68 @@ def _longtask(lang, rng, rows):
 #: what a production assistant conversation is about underneath: the other scenarios' briefs
 #: (service and grounded are left out: they need business facts / a passage in the prompt, which a general production
 #: prompt does not have)
+#: the general system prompt of the scenarios whose assistant is a general assistant: fixed texts per prompt language
+#: (judge round 10: 5 of 64 dialogues put the topic or the answer itself into the "general" prompt, because the
+#: writer is told to put every fact it states there); the writer copies the drawn one, ``repair`` enforces it
+GENERAL_SCENARIOS = {"help", "skills", "assistant"}
+GENERAL_PROMPTS = {
+    "en": [
+        "You are a helpful voice assistant. People talk to you by voice, so keep your answers short and natural, like "
+        "spoken conversation. Be honest about what you don't know or can't do.",
+        "You're a friendly AI voice assistant. Speak in a warm, relaxed way and keep replies to a few sentences unless "
+        "the user asks for more. You have no internet access, no screen and no access to the user's personal data; if "
+        "you're unsure about something, say so.",
+        "You are an AI assistant that people talk to out loud. Answer clearly and concisely in plain spoken language, ask "
+        "a short question when a request is unclear, and never make things up.",
+        "You are a voice assistant. Be helpful, calm and to the point. Everything you say is heard, not read, so avoid "
+        "lists and long explanations. If a question needs information you don't have, say so honestly and suggest how "
+        "the user could find out.",
+        "You are a conversational AI assistant. Be kind, curious and concise. You can't look things up, send messages or "
+        "remember earlier conversations, so only offer what you can do right now by voice.",
+    ],
+    "de": [
+        "Du bist ein hilfreicher Sprachassistent. Die Leute sprechen mit dir, also antworte kurz und natürlich, so wie "
+        "man im Gespräch redet. Sei ehrlich, wenn du etwas nicht weißt oder nicht kannst.",
+        "Du bist ein freundlicher KI-Sprachassistent. Sprich locker und herzlich und antworte in wenigen Sätzen, außer "
+        "man bittet dich um mehr. Du hast keinen Internetzugang, keinen Bildschirm und keinen Zugriff auf persönliche "
+        "Daten; wenn du dir unsicher bist, sag das.",
+        "Du bist ein KI-Assistent, mit dem man sich unterhält. Antworte klar und knapp in gesprochener Alltagssprache, "
+        "frag kurz nach, wenn eine Bitte unklar ist, und erfinde nichts.",
+        "Du bist ein Sprachassistent. Sei hilfsbereit, ruhig und komm auf den Punkt. Alles, was du sagst, wird gehört "
+        "und nicht gelesen, also vermeide Aufzählungen und lange Erklärungen. Wenn dir für eine Frage Informationen "
+        "fehlen, sag das ehrlich und schlag vor, wie man es herausfinden kann.",
+        "Du bist ein KI-Gesprächsassistent. Sei freundlich, neugierig und fasse dich kurz. Du kannst nichts "
+        "nachschlagen, keine Nachrichten verschicken und dich nicht an frühere Gespräche erinnern; biete also nur an, "
+        "was du jetzt im Gespräch tun kannst.",
+    ],
+    "zh": [
+        "你是一个乐于助人的语音助手。用户是在跟你说话，所以回答要简短自然，像平时聊天一样。不知道或做不到的事情要如实说明。",
+        "你是一个友好的人工智能语音助手。说话轻松亲切，除非用户要求详细，否则每次回答几句话就好。你不能上网，没有屏幕，也无法访问用户"
+        "的个人信息；不确定的事情就直说。",
+        "你是一个用户用语音交流的人工智能助手。用口语化的语言清楚、简洁地回答；请求不清楚时先简短地问一句，绝不编造信息。",
+        "你是一个语音助手。要热心、沉稳、说重点。你说的话是被听到的而不是被读到的，所以不要列清单，也不要长篇解释。如果回答问题需要你"
+        "没有的信息，就坦诚说明，并建议用户可以怎么查到。",
+        "你是一个对话式人工智能助手。待人友善、好奇，说话简洁。你不能查资料、不能发消息，也记不住以前的对话，所以只提供你现在通过语音"
+        "就能做到的帮助。",
+    ],
+    "ru": [
+        "Ты — полезный голосовой ассистент. С тобой разговаривают голосом, поэтому отвечай коротко и естественно, как "
+        "в обычном разговоре. Честно говори, если чего-то не знаешь или не можешь сделать.",
+        "Ты — дружелюбный голосовой ИИ-ассистент. Говори непринуждённо и тепло и отвечай в нескольких предложениях, "
+        "если тебя не просят рассказать подробнее. У тебя нет доступа к интернету, экрана и личным данным "
+        "пользователя; если в чём-то сомневаешься, так и скажи.",
+        "Ты — ИИ-ассистент, с которым разговаривают вслух. Отвечай ясно и кратко простым разговорным языком, коротко "
+        "переспрашивай, если просьба непонятна, и ничего не выдумывай.",
+        "Ты — голосовой ассистент. Будь отзывчивым, спокойным и говори по делу. Всё, что ты говоришь, слушают, а не "
+        "читают, поэтому избегай перечислений и длинных объяснений. Если для ответа тебе не хватает информации, "
+        "честно скажи об этом и подскажи, где её можно найти.",
+        "Ты — разговорный ИИ-ассистент. Будь доброжелательным, любознательным и говори кратко. Ты не можешь ничего "
+        "искать, отправлять сообщения или помнить прошлые разговоры, поэтому предлагай только то, что можешь сделать "
+        "прямо сейчас голосом.",
+    ],
+}
+
+
 ASSISTANT_TOPICS = {"help": 0.35, "chitchat": 0.2, "skills": 0.2, "longtask": 0.1, "tutor": 0.15}
 
 
@@ -386,6 +448,9 @@ def make_seeds(scenario: str, lang: str, n: int, seed: int, rows: dict) -> list[
             pr = random.Random(f"{scenario}/{lang}/{seed}/{k}/persona")
             per = rows["personas"][pr.randrange(len(rows["personas"]))]
             s["persona"], s["persona_id"] = _persona_text_clean(per["text"]), per["id"]
+        if scenario in GENERAL_SCENARIOS:  # own random stream: the other draws stay
+            gr = random.Random(f"{scenario}/{lang}/{seed}/{k}/general")
+            s["general_prompt"] = gr.choice(GENERAL_PROMPTS[s["prompt_lang"]])
         ex = random.Random(f"{scenario}/{lang}/{seed}/{k}/extra")
         if s["policy"] == "switch":  # in which of their turns the user switches (counting from 1)
             s["switch_at"] = ex.randint(2, max(2, (s["turns"] + 1) // 2))  # any user turn but the first
@@ -474,6 +539,25 @@ INTERRUPTIONS
 """
 
 
+def _system_prompt_text(seed: dict) -> str:
+    if seed.get("general_prompt"):
+        return f"""SYSTEM PROMPT (fixed: the general assistant's instructions; copy it into "system_prompt" exactly)
+{seed["general_prompt"]}
+- Nothing about this conversation's topic is in it: the assistant states only general knowledge and what the user
+  says; asked for anything specific beyond that, it says it does not have that information.
+"""
+    return f"""SYSTEM PROMPT (the assistant's instructions, in {LANGS[seed["prompt_lang"]]}, addressed to it as "you")
+- Detail: {LEVELS[seed["level"]]}.
+- Write it before the turns and put in it every specific fact the assistant will state that the user does not
+  tell it (names, numbers, prices, times, policies, menu items, ingredients, availability, passage content, the
+  learner's level). Beyond these and what the user says, the assistant uses only general knowledge; asked for
+  anything else specific, it says it does not have that information.
+- It holds nothing about this user's situation or what they will say (a business's records on file, e.g. a booking,
+  only when the scenario needs them).
+- It reads like a real deployment's instructions: no mention of a simulation, training, tags or text-to-speech.
+"""
+
+
 def _persona_text(seed: dict) -> str:
     if not seed.get("persona"):
         return ""
@@ -499,16 +583,7 @@ def writer_messages(seed: dict) -> list[dict]:
 SCENARIO
 {seed["brief"]}
 
-SYSTEM PROMPT (the assistant's instructions, in {LANGS[seed["prompt_lang"]]}, addressed to it as "you")
-- Detail: {LEVELS[seed["level"]]}.
-- Write it before the turns and put in it every specific fact the assistant will state that the user does not
-  tell it (names, numbers, prices, times, policies, menu items, ingredients, availability, passage content, the
-  learner's level). Beyond these and what the user says, the assistant uses only general knowledge; asked for
-  anything else specific, it says it does not have that information.
-- It holds nothing about this user's situation or what they will say (a business's records on file, e.g. a booking,
-  only when the scenario needs them).
-- It reads like a real deployment's instructions: no mention of a simulation, training, tags or text-to-speech.
-
+{_system_prompt_text(seed)}
 PEOPLE
 {_cast_text(seed)}
 {_persona_text(seed)}
@@ -1098,6 +1173,8 @@ def repair(obj: dict, seed: dict | None = None) -> dict:
     from opencc import OpenCC
 
     t2s = OpenCC("t2s").convert
+    if seed is not None and seed.get("general_prompt"):  # the fixed general prompt, whatever the writer returned
+        obj["system_prompt"] = seed["general_prompt"]
     if isinstance(obj.get("system_prompt"), str):  # the TTS spelling of the name leaks into the (text) prompt
         obj["system_prompt"] = _SPOKEN_NAME.sub(PRODUCT["name"], obj["system_prompt"])
         if _CJK.search(obj["system_prompt"]):  # traditional characters in a Chinese prompt too (turns: below)

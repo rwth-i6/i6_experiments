@@ -318,6 +318,16 @@ def check_anchors() -> list[str]:
                     bad.append(f"skills/{lg}: topic not anchored in a real request")
                 if sc == "longtask" and "fits the user's life" not in msg:
                     bad.append(f"longtask/{lg}: task not tied to the persona")
+                if sc in ("help", "skills", "assistant"):  # the fixed general prompt, copied and enforced
+                    gp = s.get("general_prompt")
+                    if gp not in sd.GENERAL_PROMPTS[s["prompt_lang"]] or gp not in msg:
+                        bad.append(f"{sc}/{lg}: no fixed general prompt in {s['prompt_lang']}")
+                    o = sd.repair({"system_prompt": "You know: Man Utd revenue was 600 million.", "turns": [],
+                                   "user_facts": []}, s)  # fmt: skip
+                    if o["system_prompt"] != gp:
+                        bad.append(f"{sc}/{lg}: the writer's topic prompt survived repair")
+                elif s.get("general_prompt"):
+                    bad.append(f"{sc}/{lg}: a scenario with its own prompt got the general one")
     return bad
 
 
@@ -356,6 +366,7 @@ MUTANTS = {
     "other scripts left untagged": (check_structure_repair, dict(_SCRIPT_RUN={})),
     "no persona section": (check_anchors, dict(_persona_text=lambda seed: "")),
     "persona names kept": (check_anchors, dict(_PERSONA_NAME=__import__("re").compile(r"(?!x)x"))),
+    "writer's general prompt kept": (check_anchors, dict(GENERAL_SCENARIOS=set())),
 }
 
 if __name__ == "__main__":
