@@ -17,6 +17,7 @@
     and tag job, not the voice pool; its tag job reads every request file, its seeds its own personas;
   * voice texts: a text of the wrong length is asked again with its count, so a model that miscounts Chinese
     characters still fills every language (stand-in server);
+  * the TTS job finds the Parakeet worker when its task runs inside the job's work dir (Sisyphus' recipe finder);
   * the stats catch oddities: a silent turn, unequal or empty tracks, a dialogue of another cell, lost ids, a dialogue
     repeated across shards, a Parler voice outside English.
 
@@ -348,6 +349,37 @@ def check_voice_texts() -> list[str]:
     return bad
 
 
+#: a Sisyphus task's view: the recipe finder only (no ``recipe`` on ``sys.path``), the module imported from the setup
+#: root, the task run inside its job's work dir; argv[2] = a mutant that looks ``speech_llm`` up at run time
+_TASK_CWD_PROBE = """
+import importlib.util, os, sys
+sys.path.insert(0, "recipe/sisyphus")
+from sisyphus.loader import RecipeFinder
+sys.meta_path.append(RecipeFinder)
+from i6_experiments.users.dorian_koch.speech_llm import tts
+os.chdir(sys.argv[1])
+if len(sys.argv) > 2:
+    tts.parakeet_worker_path = lambda: os.path.join(importlib.util.find_spec("speech_llm").submodule_search_locations[0],
+                                                    "full_duplex", "moshi_family", "rl", "parakeet_worker.py")
+print(tts.parakeet_worker_path())
+"""
+_TASK_CWD_MUTANT = False
+
+
+def check_task_cwd() -> list[str]:
+    """The TTS job finds the Parakeet worker from inside its work dir (the SFT trial's 4 TTS jobs died on it)."""
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as d:
+        r = subprocess.run([sys.executable, "-c", _TASK_CWD_PROBE, d] + (["mutant"] if _TASK_CWD_MUTANT else []),
+                           cwd=SETUP, capture_output=True, text=True, timeout=120)  # fmt: skip
+    out = r.stdout.strip().splitlines()
+    if r.returncode or not out or not os.path.exists(out[-1]):
+        return [f"the Parakeet worker is not found from a job's work dir: {(r.stderr.strip().splitlines() or ['?'])[-1]}"]
+    return []
+
+
 def check_cast() -> list[str]:
     bad = []
     rows = _written(4000)
@@ -517,6 +549,7 @@ MUTANTS = {
                                                                     fromlist=["tts"]), dict(split_group_output=_split_ids_across)),
     "German users on the English personas": (check_sources, sp, dict(persona_rows=lambda rows, lg: rows[("personas", "en")])),
     "German pool without LMArena": (check_sources, sp, dict(request_rows=lambda rows, lg: rows[("wildchat", lg)])),
+    "speech_llm looked up at run time": (check_task_cwd, sys.modules[__name__], dict(_TASK_CWD_MUTANT=True)),
     "voice texts retried blind": (check_voice_texts, sp, dict(voice_text_retry=lambda text, why, lang: None)),
     "silence never counted": (check_stats, sp, dict(SILENT_DBFS=-400.0)),
     "no duplicate detection": (check_stats, sp, dict(_digest=lambda x: os.urandom(8).hex())),
@@ -531,6 +564,7 @@ if __name__ == "__main__":
         + check_mix()
         + check_cast()
         + check_voice_texts()
+        + check_task_cwd()
         + check_stats()
     )
     for f in fails:

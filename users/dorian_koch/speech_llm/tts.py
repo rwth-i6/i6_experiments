@@ -10,7 +10,23 @@ from .common import (
     run_worker_script,
 )
 import json
+import importlib.util
 from i6_experiments.users.dorian_koch.jobs.hf import HfMergeShards
+
+#: the ``speech_llm`` package, looked up when this module is imported (from the setup root: manager, worker unpickling
+#: the job). A Sisyphus task runs inside its job's ``work/`` dir, where the recipe finder (``IMPORT_PATHS``, relative
+#: to the cwd) no longer finds a package not imported yet: a lookup at run time returned None (SFT trial TTS jobs,
+#: 2026-11-19).
+_SPEECH_LLM_SPEC = importlib.util.find_spec("speech_llm")
+
+
+def parakeet_worker_path() -> str:
+    """``speech_llm``'s Parakeet worker script (run by another interpreter; nothing is imported here)."""
+    assert _SPEECH_LLM_SPEC is not None, "speech_llm was not importable when tts was imported"
+    root = _SPEECH_LLM_SPEC.submodule_search_locations[0]
+    worker = os.path.join(root, "full_duplex", "moshi_family", "rl", "parakeet_worker.py")
+    assert os.path.exists(worker), worker
+    return worker
 
 
 # cluster lmod is behaving wierd, just install ffmpeg ourselves...
@@ -561,8 +577,6 @@ class ChatterboxInferenceV2(Job):
             shutil.rmtree(scratch, ignore_errors=True)
 
     def _run(self, scratch: str):
-        import importlib.util
-
         from . import chatterbox_v2_core as core
 
         here = Path(__file__).resolve().parent
@@ -580,10 +594,7 @@ class ChatterboxInferenceV2(Job):
                 "--annotate_python", self.annotate_python_path.get(),
                 "--annotate_worker", str(here / "speech_annotate_worker.py")]  # fmt: skip
         if self.parakeet_python_path is not None:
-            root = importlib.util.find_spec("speech_llm").submodule_search_locations[0]  # imports nothing
-            worker = os.path.join(root, "full_duplex", "moshi_family", "rl", "parakeet_worker.py")
-            assert os.path.exists(worker), worker
-            args += ["--parakeet_python", self.parakeet_python_path.get(), "--parakeet_worker", worker]
+            args += ["--parakeet_python", self.parakeet_python_path.get(), "--parakeet_worker", parakeet_worker_path()]
         if self.stress_python_path is not None:
             args += ["--stress_python", self.stress_python_path.get(), "--stress_worker", str(here / "ru_stress_worker.py")]
         if self.qwen3_tts_python_path is not None:
