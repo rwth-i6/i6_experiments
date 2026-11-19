@@ -16,7 +16,7 @@ import sys
 
 SR = 24000  # the rate the inference script renders at (``Tts.sr``)
 LANG = {"en": "English", "de": "German", "zh": "Chinese", "ru": "Russian", "fr": "French", "es": "Spanish",
-        "it": "Italian", "pt": "Portuguese", "ja": "Japanese", "ko": "Korean"}  # fmt: skip
+        "it": "Italian", "pt": "Portuguese", "ja": "Japanese", "ko": "Korean", "auto": "Auto"}  # fmt: skip
 
 
 def read(f):

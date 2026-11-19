@@ -3,10 +3,11 @@
 Asserted against the real modules:
 
   * ``plan_dialogue`` routes every item of a dialogue to the Qwen3 worker (kind ``q3``), one item per short turn,
-    a code-switched turn as ONE item in its main language with no language tag left in its text, and refuses
-    ``tts_model: "qwen3"`` without ``code_switch: "single_pass"``;
-  * ``Tts.synth`` hands the worker exactly the items' texts, languages, voice files and seeds, and puts the returned
-    audio back in item order;
+    a code-switched turn as ONE item in its main language with no language tag left in its text (``qwen3_mixed_lang:
+    "auto"``: that item's TTS language is ``auto``, its check language stays the main one), with ``code_switch:
+    "segments"`` one item per language span, and refuses Chatterbox's span-token modes;
+  * ``Tts.synth`` hands the worker exactly the items' texts, TTS languages, voice files and seeds, and puts the
+    returned audio back in item order;
   * the worker process (the real ``qwen3_tts_worker.py`` over a stand-in ``qwen3_tts_fast``): the ICL prompt gets the
     transcript beside the voice file, ISO codes become Qwen3's language names, a voice without a transcript is an
     error, results come back in request order.
@@ -63,10 +64,16 @@ def check_plan(tmp):
     if "<" in t0["text"] or t0["lang"] != "de" or "good morning" not in t0["text"]:
         bad.append(f"code-switched turn not one main-language item without tags: {t0['lang']} {t0['text']!r}")
     try:
-        inf.plan_dialogue(dlg, 7, {**cfg, "code_switch": "segments"}, str(vd))
-        bad.append("tts_model qwen3 accepted code_switch segments")
+        inf.plan_dialogue(dlg, 7, {**cfg, "code_switch": "mixed"}, str(vd))
+        bad.append("tts_model qwen3 accepted code_switch mixed (Chatterbox span tokens)")
     except AssertionError:
         pass
+    a = inf.plan_dialogue(dlg, 7, {**cfg, "qwen3_mixed_lang": "auto"}, str(vd))["items"]
+    if [it.get("tts_lang") for it in a] != ["auto", None] or a[0]["lang"] != "de":
+        bad.append(f"qwen3_mixed_lang auto: tts_lang {[it.get('tts_lang') for it in a]}, check lang {a[0]['lang']}")
+    g = inf.plan_dialogue(dlg, 7, {**cfg, "code_switch": "segments"}, str(vd))["items"]
+    if [(it["turn"], it["lang"]) for it in g] != [(0, "de"), (0, "en"), (0, "de"), (1, "de")]:
+        bad.append(f"qwen3 segments: {[(it['turn'], it['lang'], it['text']) for it in g]}")
     return p
 
 
@@ -81,12 +88,13 @@ def check_synth(p):
     tts = inf.Tts("cpu")
     tts.models["q3"] = FakeWorker()
     items = [dict(it, seed=100 + k) for k, it in enumerate(p["items"])]
+    items[0]["tts_lang"] = "auto"
     out = tts.synth(items)
     if len(calls) != 1 or calls[0][0] != "synth_many":
         bad.append(f"worker calls: {calls}")
         return
     kw = calls[0][1]
-    want = {"texts": [it["text"] for it in items], "languages": [it["lang"] for it in items],
+    want = {"texts": [it["text"] for it in items], "languages": ["auto"] + [it["lang"] for it in items[1:]],
             "voices": [it["voice"] for it in items], "seeds": [it["seed"] for it in items]}  # fmt: skip
     for k, v in want.items():
         if kw.get(k) != v:

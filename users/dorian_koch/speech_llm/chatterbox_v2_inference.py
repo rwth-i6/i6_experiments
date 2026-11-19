@@ -268,7 +268,8 @@ class Tts:
             if kind == "q3":
                 wavs = m.call_split("synth_many", ("texts", "languages", "voices", "seeds"),
                                     texts=[items[i].get("tts_text") or items[i]["text"] for i in idx],
-                                    languages=[items[i]["lang"] for i in idx], voices=[items[i]["voice"] for i in idx],
+                                    languages=[items[i].get("tts_lang") or items[i]["lang"] for i in idx],
+                                    voices=[items[i]["voice"] for i in idx],
                                     seeds=[items[i]["seed"] for i in idx])  # fmt: skip
                 for i, w in zip(idx, wavs):
                     out[i] = np.asarray(w, np.float32)
@@ -315,7 +316,7 @@ def plan_dialogue(raw, diag_id, cfg: dict, speaker_dir: str) -> dict:
     for t in turns:
         s = core.turn_segments(t, lang)
         if cfg["code_switch"] == "single_pass" and len(s) > 1:
-            s = [{"lang": core.main_lang(s), "text": core.join_segments([x["text"] for x in s])}]
+            s = [{"lang": core.main_lang(s), "text": core.join_segments([x["text"] for x in s]), "mixed": True}]
         if cfg["code_switch"] in ("mixed", "mixed_lead") and len(s) > 1:
             # one T3 pass across languages (chatterbox_fast_mtl.text_tokens ``spans``); a turn too long for one item
             # stays in segments
@@ -324,10 +325,13 @@ def plan_dialogue(raw, diag_id, cfg: dict, speaker_dir: str) -> dict:
                 segs.append([{"lang": main, "text": whole, "spans": s}])
                 continue
         assert s, f"dialogue {diag_id}: a turn without text: {t!r}"
-        segs.append([{"lang": x["lang"], "text": p} for x in s for p in core.split_long(x["text"], x["lang"])])
+        segs.append([{"lang": x["lang"], "text": p, **({"mixed": True} if x.get("mixed") else {})} for x in s
+                     for p in core.split_long(x["text"], x["lang"])])  # fmt: skip
     langs = {x["lang"] for s in segs for x in s} | {sp["lang"] for s in segs for x in s for sp in x.get("spans", [])}
-    if cfg.get("tts_model") == "qwen3":  # one item per turn: Qwen3-TTS reads mixed-language text itself
-        assert cfg["code_switch"] == "single_pass", "tts_model qwen3 needs code_switch single_pass"
+    if cfg.get("tts_model") == "qwen3":  # Qwen3-TTS: no per-span language control
+        # single_pass: a mixed turn is one item in its main language (or no language token: ``qwen3_mixed_lang``
+        # "auto"); segments: each language span its own item with its own language token
+        assert cfg["code_switch"] in ("single_pass", "segments"), "tts_model qwen3: code_switch single_pass or segments"
         kind = "q3"
     else:
         kind = "turbo" if cfg["english_model"] == "turbo" and langs == {"en"} else "mtl"
@@ -355,6 +359,8 @@ def plan_dialogue(raw, diag_id, cfg: dict, speaker_dir: str) -> dict:
     for ti, (t, s) in enumerate(zip(turns, segs)):
         for si, x in enumerate(s):
             items.append({"turn": ti, "segment": si, "text": x["text"], "lang": x["lang"], "model": kind,
+                          **({"tts_lang": "auto"} if kind == "q3" and x.get("mixed")
+                             and cfg.get("qwen3_mixed_lang") == "auto" else {}),
                           **({"spans": x["spans"], "span_tags": cfg["code_switch"] == "mixed"} if "spans" in x else {}),
                           "speaker": t["speaker"], "voice": voices[t["speaker"]],
                           "exaggeration": float(t.get("exaggeration", exag[t["speaker"]])),
@@ -507,7 +513,7 @@ def main():
     ap.add_argument("--config", required=True, help="JSON: default_lang, english_model, code_switch, annotators, "
                     "max_err, max_attempts, segment_gap, chunk, qwen3_asr_model, qwen3_aligner_model, exaggeration, mtl_decode, "
                     "pace, min_pace_units, loudness_dbfs, gaps, cut_overlap, ru_stress, cross_lang_cfg, tts_model, qwen3_slots, "
-                    "qwen3_tts_model")  # fmt: skip
+                    "qwen3_tts_model, qwen3_mixed_lang")  # fmt: skip
     ap.add_argument("--parakeet_python")
     ap.add_argument("--parakeet_worker")
     ap.add_argument("--annotate_python", required=True)
