@@ -946,5 +946,8 @@
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_sft_writer_rules.py": {
   "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_qwen3_tts_backend.py": {
+  "env": "setup"
  }
 }

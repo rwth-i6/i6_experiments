@@ -4,8 +4,10 @@ that regenerates bad segments, and word timings, in one pass on one GPU.
 Run by the job under the Chatterbox venv (``chatterbox_inference.py``'s sibling files). Per chunk of dialogues:
 
 1. **Plan** (``plan_dialogue``): each turn's language segments (``chatterbox_v2_core.turn_segments``), the TTS model
-   per dialogue (Turbo when every segment is English and ``english_model`` is ``turbo``, else Multilingual V3 for the
-   whole dialogue, so a voice never changes model mid-dialogue), the voice per speaker, one seed per segment, the
+   per dialogue (``tts_model: "qwen3"``: Qwen3-TTS for every dialogue, ``qwen3_tts_worker.py`` in its own venv, each
+   turn one item in its main language (``code_switch: "single_pass"``); else Turbo when every segment is English and
+   ``english_model`` is ``turbo``, else Multilingual V3 for the whole dialogue, so a voice never changes model
+   mid-dialogue), the voice per speaker, one seed per segment, the
    pause before each turn drawn by who speaks next (``gaps``: the user's varies widely, the assistant's little).
 2. **Synthesize + check** (``chatterbox_v2_core.synthesize_checked``): every segment batched through
    ``chatterbox_fast`` / ``chatterbox_fast_mtl``, transcribed by its language's ``check`` backend, scored against its
@@ -208,20 +210,25 @@ class Annotators:
 
 
 class Tts:
-    """Turbo and Multilingual V3, each loaded on first use; conditionals cached per (model, voice file, exaggeration)."""
+    """Turbo and Multilingual V3, each loaded on first use; conditionals cached per (model, voice file, exaggeration).
+    ``q3``: (python, worker script, spec) of the Qwen3-TTS worker (model kind ``q3``), started on first use."""
 
     #: the batched decoders' sizes per model (slots, S3Gen batch); halved for the rest of the run after an out-of-memory
     SIZES = {"turbo": (96, 32), "mtl": (64, 16)}
 
-    def __init__(self, device: str, mtl_decode: dict | None = None):
-        self.device, self.models, self.conds = device, {}, {}
+    def __init__(self, device: str, mtl_decode: dict | None = None, q3: tuple[str, str, dict] | None = None):
+        self.device, self.models, self.conds, self.q3 = device, {}, {}, q3
         self.mtl_decode = mtl_decode or {}  # ContinuousMtlT3 sampling (cfg_weight, temperature, ...)
         self.sizes = dict(self.SIZES)
 
     def model(self, kind: str):
         if kind not in self.models:
             t0 = time.time()
-            if kind == "turbo":
+            if kind == "q3":
+                assert self.q3, "tts_model qwen3 needs --qwen3_tts_python and --qwen3_tts_worker"
+                py, worker, spec = self.q3
+                m = WorkerProc([py, worker, json.dumps(spec)], "qwen3_tts")
+            elif kind == "turbo":
                 from chatterbox.tts_turbo import ChatterboxTurboTTS
 
                 m = ChatterboxTurboTTS.from_pretrained(device=self.device)
@@ -258,6 +265,14 @@ class Tts:
             if not idx:
                 continue
             m = self.model(kind)
+            if kind == "q3":
+                wavs = m.call_split("synth_many", ("texts", "languages", "voices", "seeds"),
+                                    texts=[items[i].get("tts_text") or items[i]["text"] for i in idx],
+                                    languages=[items[i]["lang"] for i in idx], voices=[items[i]["voice"] for i in idx],
+                                    seeds=[items[i]["seed"] for i in idx])  # fmt: skip
+                for i, w in zip(idx, wavs):
+                    out[i] = np.asarray(w, np.float32)
+                continue
             assert m.sr == self.sr
             batch = [{"text": items[i].get("tts_text") or items[i]["text"], "lang": items[i]["lang"], "seed": items[i]["seed"],
                       "spans": items[i].get("tts_spans") or items[i].get("spans"), "span_tags": items[i].get("span_tags", True),
@@ -311,7 +326,11 @@ def plan_dialogue(raw, diag_id, cfg: dict, speaker_dir: str) -> dict:
         assert s, f"dialogue {diag_id}: a turn without text: {t!r}"
         segs.append([{"lang": x["lang"], "text": p} for x in s for p in core.split_long(x["text"], x["lang"])])
     langs = {x["lang"] for s in segs for x in s} | {sp["lang"] for s in segs for x in s for sp in x.get("spans", [])}
-    kind = "turbo" if cfg["english_model"] == "turbo" and langs == {"en"} else "mtl"
+    if cfg.get("tts_model") == "qwen3":  # one item per turn: Qwen3-TTS reads mixed-language text itself
+        assert cfg["code_switch"] == "single_pass", "tts_model qwen3 needs code_switch single_pass"
+        kind = "q3"
+    else:
+        kind = "turbo" if cfg["english_model"] == "turbo" and langs == {"en"} else "mtl"
     voices, used = {}, set()
     for t in turns:
         sp = t["speaker"]
@@ -459,7 +478,7 @@ def make_row(p, tracks, sr, turn_rows, seg_rows, word_rows, speaker_dir, id_pref
             "voice": [os.path.relpath(v, speaker_dir) for v in p["voices"].values()],
             "exaggeration": [p["exaggeration"][sp] for sp in p["voices"]],
         },
-        "tts_model": {"turbo": "chatterbox_turbo", "mtl": "chatterbox_multilingual_v3"}[p["kind"]],
+        "tts_model": {"turbo": "chatterbox_turbo", "mtl": "chatterbox_multilingual_v3", "q3": "qwen3_tts_12hz_1.7b_base"}[p["kind"]],
     }
     for c in keep_cols:
         v = (pt or {}).get(c)
@@ -487,13 +506,16 @@ def main():
     ap.add_argument("--id_prefix", default="")
     ap.add_argument("--config", required=True, help="JSON: default_lang, english_model, code_switch, annotators, "
                     "max_err, max_attempts, segment_gap, chunk, qwen3_asr_model, qwen3_aligner_model, exaggeration, mtl_decode, "
-                    "pace, min_pace_units, loudness_dbfs, gaps, cut_overlap, ru_stress, cross_lang_cfg")  # fmt: skip
+                    "pace, min_pace_units, loudness_dbfs, gaps, cut_overlap, ru_stress, cross_lang_cfg, tts_model, qwen3_slots, "
+                    "qwen3_tts_model")  # fmt: skip
     ap.add_argument("--parakeet_python")
     ap.add_argument("--parakeet_worker")
     ap.add_argument("--annotate_python", required=True)
     ap.add_argument("--annotate_worker", required=True)
     ap.add_argument("--stress_python", help="Russian stress venv (ru_stress_worker.py); without it Russian is unstressed")
     ap.add_argument("--stress_worker")
+    ap.add_argument("--qwen3_tts_python", help="Qwen3-TTS venv (tts_model qwen3)")
+    ap.add_argument("--qwen3_tts_worker", help="qwen3_tts_worker.py")
     args = ap.parse_args()
     cfg = json.loads(args.config)
     print(f"Config: {json.dumps(cfg)}", flush=True)
@@ -527,7 +549,11 @@ def main():
                      {"asr": cfg["qwen3_asr_model"], "aligner": cfg["qwen3_aligner_model"]},
                      cfg.get("metric", "cer"))  # fmt: skip
     print(f"Annotators ready in {time.time() - t_start:.0f} s", flush=True)
-    tts, stats = Tts("cuda", cfg.get("mtl_decode")), {"dialogues": 0, "time": {}, "lang": {}}
+    q3 = None
+    if args.qwen3_tts_python:
+        q3 = (args.qwen3_tts_python, args.qwen3_tts_worker, {"device": "cuda", "slots": cfg.get("qwen3_slots", 64),
+                                                              "model": cfg.get("qwen3_tts_model")})  # fmt: skip
+    tts, stats = Tts("cuda", cfg.get("mtl_decode"), q3), {"dialogues": 0, "time": {}, "lang": {}}
     stress = None
     if cfg.get("ru_stress"):
         assert args.stress_python and args.stress_worker, "ru_stress needs --stress_python and --stress_worker"
