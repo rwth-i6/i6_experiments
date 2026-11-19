@@ -949,5 +949,17 @@
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_qwen3_tts_backend.py": {
   "env": "setup"
- }
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_output_name_length.py": [
+  {
+   "env": "setup"
+  },
+  {
+   "args": [
+    "--graph"
+   ],
+   "env": "setup",
+   "graph": true
+  }
+ ]
 }

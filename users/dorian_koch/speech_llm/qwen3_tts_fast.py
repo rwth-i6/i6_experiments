@@ -70,8 +70,13 @@ def load(device: str = "cuda", path: str = MODEL):
     return Qwen3TTSModel.from_pretrained(path, device_map=device, dtype=torch.bfloat16, attn_implementation="sdpa")
 
 
-def prompt(model, ref_audio, ref_text: str):
-    """Upstream's ICL voice-clone prompt (reference codes + speaker embedding + reference text) for one clip."""
+def prompt(model, ref_audio, ref_text: str | None, timbre_only: bool = False):
+    """Upstream's voice-clone prompt for one clip: ICL (reference codes + speaker embedding + reference text), or with
+    ``timbre_only`` the speaker embedding alone (upstream ``x_vector_only_mode``). ICL continues the reference
+    recording, accent included, so text in another language than the clip's comes out with the clip's accent
+    (60 foreign spans, Qwen3-ASR in the span's language: ICL 11.9% vs speaker embedding only 1.0% CER)."""
+    if timbre_only:
+        return model.create_voice_clone_prompt(ref_audio=ref_audio, ref_text=None, x_vector_only_mode=True)[0]
     return model.create_voice_clone_prompt(ref_audio=ref_audio, ref_text=ref_text)[0]
 
 
@@ -413,12 +418,12 @@ def gen_kwargs(model, **over) -> dict:
 
 def decode(model, codes: list[torch.Tensor], ref_codes: list[torch.Tensor]) -> list[np.ndarray]:
     """Upstream's decode for a group: reference codes + generated codes through ``speech_tokenizer.decode`` (one
-    padded batch), the reference part cut off proportionally."""
-    full = [torch.cat([r.to(c.device), c], dim=0) for r, c in zip(ref_codes, codes)]
+    padded batch), the reference part cut off proportionally. A timbre-only prompt has no reference codes (None)."""
+    full = [c if r is None else torch.cat([r.to(c.device), c], dim=0) for r, c in zip(ref_codes, codes)]
     wavs, _ = model.model.speech_tokenizer.decode([{"audio_codes": c} for c in full])
     out = []
     for w, r, c in zip(wavs, ref_codes, full):
-        cut = int(int(r.shape[0]) / max(int(c.shape[0]), 1) * w.shape[0])
+        cut = 0 if r is None else int(int(r.shape[0]) / max(int(c.shape[0]), 1) * w.shape[0])
         out.append(w[cut:])
     return out
 

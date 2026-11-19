@@ -5,15 +5,19 @@ Asserted against the real modules:
   * ``plan_dialogue`` routes every item of a dialogue to the Qwen3 worker (kind ``q3``), one item per short turn,
     a code-switched turn as ONE item in its main language with no language tag left in its text (``qwen3_mixed_lang:
     "auto"``: that item's TTS language is ``auto``, its check language stays the main one), with ``code_switch:
-    "segments"`` one item per language span, and refuses Chatterbox's span-token modes;
-  * ``Tts.synth`` hands the worker exactly the items' texts, TTS languages, voice files and seeds, and puts the
-    returned audio back in item order;
+    "segments"`` one item per language span, a span in another language than its speaker's voice prompt with
+    ``voice_mode: "timbre"`` (speaker embedding only; the ICL clone would carry the prompt's accent), and refuses
+    Chatterbox's span-token modes;
+  * ``Tts.synth`` hands the worker exactly the items' texts, TTS languages, voice files, seeds and voice modes, and
+    puts the returned audio back in item order;
   * the worker process (the real ``qwen3_tts_worker.py`` over a stand-in ``qwen3_tts_fast``): the ICL prompt gets the
     transcript beside the voice file, ISO codes become Qwen3's language names, a voice without a transcript is an
-    error, results come back in request order.
+    error, results come back in request order, ``modes`` "timbre" builds a speaker-embedding-only prompt (no
+    transcript needed) and leaves "clone" items on the ICL prompt;
+  * ``qwen3_tts_fast.decode`` decodes a timbre-only item (no reference codes) without cutting anything off.
 
 Shown failing on the inference script before the backend existed (no ``q3`` kind) and on a worker that ignores the
-transcript sidecar.
+transcript sidecar; the timbre-only parts on the code before 2026-11-19 (no voice modes).
 
 Run from the setup root:
     CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_qwen3_tts_backend.py
@@ -74,6 +78,9 @@ def check_plan(tmp):
     g = inf.plan_dialogue(dlg, 7, {**cfg, "code_switch": "segments"}, str(vd))["items"]
     if [(it["turn"], it["lang"]) for it in g] != [(0, "de"), (0, "en"), (0, "de"), (1, "de")]:
         bad.append(f"qwen3 segments: {[(it['turn'], it['lang'], it['text']) for it in g]}")
+    # turn 0 is the user's (English voice prompt): its German spans timbre only, its English span cloned
+    if [it.get("voice_mode") for it in g] != ["timbre", None, "timbre", None]:
+        bad.append(f"qwen3 segments voice modes: {[(it['lang'], it.get('voice_mode')) for it in g]}")
     return p
 
 
@@ -89,13 +96,16 @@ def check_synth(p):
     tts.models["q3"] = FakeWorker()
     items = [dict(it, seed=100 + k) for k, it in enumerate(p["items"])]
     items[0]["tts_lang"] = "auto"
+    items[0].pop("voice_mode", None)
+    items[1]["voice_mode"] = "timbre"
     out = tts.synth(items)
     if len(calls) != 1 or calls[0][0] != "synth_many":
         bad.append(f"worker calls: {calls}")
         return
     kw = calls[0][1]
     want = {"texts": [it["text"] for it in items], "languages": ["auto"] + [it["lang"] for it in items[1:]],
-            "voices": [it["voice"] for it in items], "seeds": [it["seed"] for it in items]}  # fmt: skip
+            "voices": [it["voice"] for it in items], "seeds": [it["seed"] for it in items],
+            "modes": ["clone", "timbre"]}  # fmt: skip
     for k, v in want.items():
         if kw.get(k) != v:
             bad.append(f"worker got {k}={kw.get(k)!r}, want {v!r}")
@@ -108,8 +118,8 @@ import numpy as np
 MODEL = "fake"
 def load(device, path):
     return "model"
-def prompt(model, ref_audio, ref_text):
-    return {"audio": ref_audio, "text": ref_text}
+def prompt(model, ref_audio, ref_text, timbre_only=False):
+    return {"audio": ref_audio, "text": "TIMBRE" if timbre_only else ref_text}
 def synthesize(model, items, slots=64):
     import json, os
     with open(os.environ["Q3_LOG"], "a") as f:
@@ -148,6 +158,14 @@ def check_worker(tmp):
         bad.append(f"worker returns {type(res[0]).__name__}, not bytes (numpy arrays do not unpickle across venvs)")
     elif [len(r) // 4 for r in res] != [5, 6]:
         bad.append(f"worker results out of order: {[len(r) for r in res]}")
+    try:  # v2 has no transcript: fine for a timbre-only prompt
+        w.call("synth_many", texts=["Hallo.", "Hi."], languages=["de", "en"], voices=[str(v1), str(v2)],
+               seeds=[5, 6], modes=["clone", "timbre"])  # fmt: skip
+        got = json.loads(log.read_text().splitlines()[-1])
+        if [g["ref"] for g in got] != ["Das ist meine Stimme.", "TIMBRE"]:
+            bad.append(f"worker voice modes: prompts {[g['ref'] for g in got]}, want ICL then timbre only")
+    except RuntimeError as e:
+        bad.append(f"worker voice modes: {e}")
     try:
         w.call("synth_many", texts=["x"], languages=["de"], voices=[str(v2)], seeds=[1])
         bad.append("a voice without a transcript was accepted")
@@ -158,6 +176,22 @@ def check_worker(tmp):
     proc.wait(timeout=30)
 
 
+def check_decode():
+    import torch
+
+    import qwen3_tts_fast as q3
+
+    class Tok:
+        def decode(self, batch):
+            return [np.arange(100 * int(b["audio_codes"].shape[0]), dtype=np.float32) for b in batch], 24000
+
+    model = types.SimpleNamespace(model=types.SimpleNamespace(speech_tokenizer=Tok()))
+    codes = [torch.zeros(3, 16), torch.zeros(4, 16)]
+    out = q3.decode(model, codes, [torch.zeros(2, 16), None])
+    if [len(w) for w in out] != [300, 400] or out[1][0] != 0:
+        bad.append(f"decode with / without reference codes: lengths {[len(w) for w in out]} (want 300, 400)")
+
+
 with tempfile.TemporaryDirectory() as tmp:
     try:
         p = check_plan(tmp)
@@ -165,6 +199,10 @@ with tempfile.TemporaryDirectory() as tmp:
     except Exception as e:  # noqa: BLE001 -- a guard failure, reported below
         bad.append(f"plan/synth raised {type(e).__name__}: {e}")
     check_worker(tmp)
+try:
+    check_decode()
+except Exception as e:  # noqa: BLE001 -- a guard failure, reported below
+    bad.append(f"decode raised {type(e).__name__}: {e}")
 for b in bad:
     print("FAIL", b)
 print("check_qwen3_tts_backend:", "FAIL" if bad else "ok")

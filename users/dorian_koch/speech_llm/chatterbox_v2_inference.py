@@ -266,11 +266,12 @@ class Tts:
                 continue
             m = self.model(kind)
             if kind == "q3":
-                wavs = m.call_split("synth_many", ("texts", "languages", "voices", "seeds"),
+                wavs = m.call_split("synth_many", ("texts", "languages", "voices", "seeds", "modes"),
                                     texts=[items[i].get("tts_text") or items[i]["text"] for i in idx],
                                     languages=[items[i].get("tts_lang") or items[i]["lang"] for i in idx],
                                     voices=[items[i]["voice"] for i in idx],
-                                    seeds=[items[i]["seed"] for i in idx])  # fmt: skip
+                                    seeds=[items[i]["seed"] for i in idx],
+                                    modes=[items[i].get("voice_mode", "clone") for i in idx])  # fmt: skip
                 for i, w in zip(idx, wavs):  # raw float32 bytes (the worker's numpy is not ours)
                     out[i] = np.frombuffer(w, "<f4").astype(np.float32)
                 continue
@@ -361,6 +362,9 @@ def plan_dialogue(raw, diag_id, cfg: dict, speaker_dir: str) -> dict:
             items.append({"turn": ti, "segment": si, "text": x["text"], "lang": x["lang"], "model": kind,
                           **({"tts_lang": "auto"} if kind == "q3" and x.get("mixed")
                              and cfg.get("qwen3_mixed_lang") == "auto" else {}),
+                          # Qwen3 segments in another language than the voice prompt's: speaker embedding only (the
+                          # clone prompt would carry its accent into them; ``qwen3_tts_fast.prompt``)
+                          **({"voice_mode": "timbre"} if kind == "q3" and x["lang"] != vlang[t["speaker"]] else {}),
                           **({"spans": x["spans"], "span_tags": cfg["code_switch"] == "mixed"} if "spans" in x else {}),
                           "speaker": t["speaker"], "voice": voices[t["speaker"]],
                           "exaggeration": float(t.get("exaggeration", exag[t["speaker"]])),

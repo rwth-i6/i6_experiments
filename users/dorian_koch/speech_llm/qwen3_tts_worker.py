@@ -3,10 +3,12 @@
 
 Protocol as ``ru_stress_worker``: 8-byte little-endian length + pickle on stdin / stdout, first message
 ``{"ready": True}``, request ``{"method", ...}`` -> ``{"result"}`` or ``{"error"}``. Method ``synth_many(texts,
-languages, voices, seeds)`` -> ``list[bytes]``: raw little-endian float32 mono at ``SR`` (bytes, not numpy arrays:
+languages, voices, seeds, modes=None)`` -> ``list[bytes]``: raw little-endian float32 mono at ``SR`` (bytes, not numpy arrays:
 this venv's numpy 2 pickles arrays the caller's numpy 1 cannot load). ``voices``: voice prompt wav paths; each
 needs its transcript beside it (``<name>.txt``: the ICL clone prompt is the clip plus its text). ``languages``: ISO
-codes (``en``, ``de``, ``zh``, ``ru``, ...). Argument: JSON ``{"model", "device", "slots"}``.
+codes (``en``, ``de``, ``zh``, ``ru``, ...). ``modes``: per item ``"clone"`` (default; ICL) or ``"timbre"`` (speaker
+embedding only: for text in another language than the voice prompt's, which ICL would speak with the prompt's
+accent; ``qwen3_tts_fast.prompt``). Argument: JSON ``{"model", "device", "slots"}``.
 """
 
 import json
@@ -62,11 +64,15 @@ def serve() -> None:
         try:
             if req["method"] != "synth_many":
                 raise ValueError(f"unknown method {req['method']!r}")
-            for v in req["voices"]:
-                if v not in prompts:
-                    prompts[v] = q3.prompt(model, v, ref_text(v))
-            items = [{"text": t, "language": LANG[lg], "prompt": prompts[v], "seed": int(s)}
-                     for t, lg, v, s in zip(req["texts"], req["languages"], req["voices"], req["seeds"])]  # fmt: skip
+            modes = req.get("modes") or ["clone"] * len(req["voices"])
+            for v, md in zip(req["voices"], modes, strict=True):
+                if md not in ("clone", "timbre"):
+                    raise ValueError(f"unknown voice mode {md!r}")
+                if (v, md) not in prompts:
+                    prompts[v, md] = (q3.prompt(model, v, None, timbre_only=True) if md == "timbre"
+                                      else q3.prompt(model, v, ref_text(v)))  # fmt: skip
+            items = [{"text": t, "language": LANG[lg], "prompt": prompts[v, md], "seed": int(s)}
+                     for t, lg, v, s, md in zip(req["texts"], req["languages"], req["voices"], req["seeds"], modes)]  # fmt: skip
             wavs, sr = q3.synthesize(model, items, slots=int(spec.get("slots", 64)))
             if sr != SR:
                 import torchaudio.functional as AF
