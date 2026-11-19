@@ -3,7 +3,8 @@
 
 Protocol as ``ru_stress_worker``: 8-byte little-endian length + pickle on stdin / stdout, first message
 ``{"ready": True}``, request ``{"method", ...}`` -> ``{"result"}`` or ``{"error"}``. Method ``synth_many(texts,
-languages, voices, seeds)`` -> ``list[np.ndarray]`` (float32, mono, ``SR``). ``voices``: voice prompt wav paths; each
+languages, voices, seeds)`` -> ``list[bytes]``: raw little-endian float32 mono at ``SR`` (bytes, not numpy arrays:
+this venv's numpy 2 pickles arrays the caller's numpy 1 cannot load). ``voices``: voice prompt wav paths; each
 needs its transcript beside it (``<name>.txt``: the ICL clone prompt is the clip plus its text). ``languages``: ISO
 codes (``en``, ``de``, ``zh``, ``ru``, ...). Argument: JSON ``{"model", "device", "slots"}``.
 """
@@ -71,7 +72,7 @@ def serve() -> None:
                 import torchaudio.functional as AF
 
                 wavs = [AF.resample(torch.from_numpy(w), sr, SR).numpy() for w in wavs]
-            write(out, {"result": [np.asarray(w, np.float32) for w in wavs], "id": req.get("id")})
+            write(out, {"result": [np.asarray(w, "<f4").tobytes() for w in wavs], "id": req.get("id")})
         except Exception as e:  # reported to the caller, which raises (CUDA OOM: the caller splits the batch)
             torch.cuda.empty_cache()
             write(out, {"error": f"{type(e).__name__}: {e}", "id": req.get("id")})

@@ -83,7 +83,7 @@ def check_synth(p):
     class FakeWorker:
         def call_split(self, method, lists, **kw):
             calls.append((method, kw))
-            return [np.full(10 + i, i, np.float32) for i in range(len(kw["texts"]))]
+            return [np.full(10 + i, i, "<f4").tobytes() for i in range(len(kw["texts"]))]
 
     tts = inf.Tts("cpu")
     tts.models["q3"] = FakeWorker()
@@ -144,7 +144,9 @@ def check_worker(tmp):
             {"text": "Привет.", "language": "Russian", "ref": "Das ist meine Stimme.", "seed": 4}]  # fmt: skip
     if got != want:
         bad.append(f"worker items {got} != {want}")
-    if [len(r) for r in res] != [5, 6]:
+    if not all(isinstance(r, bytes) for r in res):
+        bad.append(f"worker returns {type(res[0]).__name__}, not bytes (numpy arrays do not unpickle across venvs)")
+    elif [len(r) // 4 for r in res] != [5, 6]:
         bad.append(f"worker results out of order: {[len(r) for r in res]}")
     try:
         w.call("synth_many", texts=["x"], languages=["de"], voices=[str(v2)], seeds=[1])

@@ -271,8 +271,8 @@ class Tts:
                                     languages=[items[i].get("tts_lang") or items[i]["lang"] for i in idx],
                                     voices=[items[i]["voice"] for i in idx],
                                     seeds=[items[i]["seed"] for i in idx])  # fmt: skip
-                for i, w in zip(idx, wavs):
-                    out[i] = np.asarray(w, np.float32)
+                for i, w in zip(idx, wavs):  # raw float32 bytes (the worker's numpy is not ours)
+                    out[i] = np.frombuffer(w, "<f4").astype(np.float32)
                 continue
             assert m.sr == self.sr
             batch = [{"text": items[i].get("tts_text") or items[i]["text"], "lang": items[i]["lang"], "seed": items[i]["seed"],
