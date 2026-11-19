@@ -1765,6 +1765,17 @@ class SftSeeds(Job):
                 f.write(json.dumps(s, ensure_ascii=False) + "\n")
 
 
+def write_groups(seed_lists: list[list[dict]], write_fn, workers: int) -> list:
+    """``write_fn(seeds, workers)`` for every list at once (one server for a group of shards): the ``workers``
+    requests in flight shared by list size; results in list order."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    total = sum(len(s) for s in seed_lists) or 1
+    ws = [max(1, round(workers * len(s) / total)) for s in seed_lists]
+    with ThreadPoolExecutor(max(1, len(seed_lists))) as ex:
+        return list(ex.map(write_fn, seed_lists, ws))
+
+
 class SftWriteDialogues(Job):
     """``write_dialogues`` over the seeds of ``seeds`` (one or more ``SftSeeds`` outputs) with the writer on a vLLM
     server. ``out_hf``: ChatterboxInferenceV2's input (``dialogue``) plus ``id, scenario, lang, prompt_lang, policy,
@@ -1772,21 +1783,28 @@ class SftWriteDialogues(Job):
     passes per dialogue (``write_dialogues``); ``vllm_args``: extra server arguments (e.g. ``--quantization fp8
     --kv-cache-dtype fp8``: Gemma 4 31B in 8-bit, judged no worse than bf16 at 2.5x the speed, 2026-11-19);
     ``workers``: requests in flight (not hashed). Seeds are sliced ``seed_slice`` = (k, n): every n-th from k, so one
-    seed set can be written by several jobs."""
+    seed set can be written by several jobs. ``per_input``: each ``seeds`` file is a shard written separately under one
+    server (``write_groups``) -> ``out_hfs[i]``, ``out_stats_parts[i]``; ``out_stats`` sums the group."""
 
     def __init__(self, *, seeds: list[tk.Path], model: str = "Qwen/Qwen3.8-27B", temperature: float = 0.8,
                  max_tries: int = 3, thinking: bool = False, reasoning_effort: str | None = None,
                  max_tokens: int = 12288, max_model_len: int | None = None, review: int = 0,
                  review_until_clean: bool = False, vllm_args: list[str] | None = None,
                  seed_slice: tuple[int, int] | None = None, workers: int = 64,
-                 rqmt: dict | None = None):  # fmt: skip
+                 rqmt: dict | None = None, per_input: bool = False):  # fmt: skip
         self.seeds, self.model, self.temperature, self.max_tries = seeds, model, temperature, max_tries
         self.thinking, self.reasoning_effort, self.max_tokens = thinking, reasoning_effort, max_tokens
         self.max_model_len = max_model_len
         self.review, self.review_until_clean, self.vllm_args = review, review_until_clean, vllm_args
         self.seed_slice, self.workers = seed_slice, workers
         self.writer_version = WRITER_VERSION
-        self.out_hf = self.output_path("out_hf", directory=True)
+        self.per_input = per_input
+        assert not (per_input and seed_slice), "per_input writes whole seed files"
+        if per_input:
+            self.out_hfs = [self.output_path(f"out_hf_{i}", directory=True) for i in range(len(seeds))]
+            self.out_stats_parts = [self.output_path(f"stats_{i}.json") for i in range(len(seeds))]
+        else:
+            self.out_hf = self.output_path("out_hf", directory=True)
         self.out_stats = self.output_path("stats.json")
         self.rqmt = rqmt or {"gpu": 1, "cpu": 8, "mem": 48, "time": 4}
 
@@ -1795,7 +1813,8 @@ class SftWriteDialogues(Job):
         d = dict(**parsed_args)
         d.pop("rqmt", None)
         d.pop("workers", None)
-        for k, default in (("review", 0), ("review_until_clean", False), ("vllm_args", None), ("seed_slice", None)):
+        for k, default in (("review", 0), ("review_until_clean", False), ("vllm_args", None), ("seed_slice", None),
+                           ("per_input", False)):  # fmt: skip
             if d.get(k) == default:  # absent at their defaults: the hashes from before these options stay
                 d.pop(k, None)
         d["writer_version"] = WRITER_VERSION  # the constructor's arguments are all Sisyphus hashes by itself
@@ -1809,6 +1828,8 @@ class SftWriteDialogues(Job):
 
         from .common import vllm_server
 
+        if self.per_input:
+            return self._run_per_input()
         seeds = [json.loads(x) for p in self.seeds for x in open(p.get(), encoding="utf-8")]
         if self.seed_slice is not None:
             k, n = self.seed_slice
@@ -1822,6 +1843,32 @@ class SftWriteDialogues(Job):
         with open(self.out_stats.get(), "w", encoding="utf-8") as f:
             json.dump(stats, f, ensure_ascii=False, indent=1)
         print(f"[SftWriteDialogues] kept {len(rows)}/{len(seeds)}; reasons {stats['reasons']}", flush=True)
+
+    def _run_per_input(self):
+        from datasets import Dataset
+
+        from .common import vllm_server
+
+        lists = [[json.loads(x) for x in open(p.get(), encoding="utf-8")] for p in self.seeds]
+        t0 = time.time()
+        with vllm_server(self.model, max_model_len=self.max_model_len, extra_args=self.vllm_args) as url:
+
+            def one(seeds, workers):
+                return write_dialogues(seeds, url, self.model, self.temperature, self.max_tries, workers=workers,
+                                       thinking=self.thinking, max_tokens=self.max_tokens,
+                                       reasoning_effort=self.reasoning_effort, review=self.review,
+                                       review_until_clean=self.review_until_clean)  # fmt: skip
+
+            res = write_groups(lists, one, self.workers)
+        for (rows, stats), hf, st in zip(res, self.out_hfs, self.out_stats_parts):
+            Dataset.from_list(rows).save_to_disk(hf.get())
+            with open(st.get(), "w", encoding="utf-8") as f:
+                json.dump(stats, f, ensure_ascii=False, indent=1)
+        total = {"parts": len(res), "seeds": sum(len(s) for s in lists), "kept": sum(len(r) for r, _ in res),
+                 "kept_by_part": [len(r) for r, _ in res], "wall_s": round(time.time() - t0, 1)}  # fmt: skip
+        with open(self.out_stats.get(), "w", encoding="utf-8") as f:
+            json.dump(total, f, indent=1)
+        print(f"[SftWriteDialogues] {total}", flush=True)
 
 
 class SftVoiceDir(Job):

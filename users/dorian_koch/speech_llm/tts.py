@@ -343,6 +343,35 @@ class ChatterboxInference(Job):
             merge_hf_parts(out_hf, [f"{out_hf}.part{k}" for k in range(n)])
 
 
+#: the column a grouped ``ChatterboxInferenceV2`` tags each input row with (which of ``in_hfs`` it came from)
+GROUP_PART = "_group_part"
+
+
+def concat_group_inputs(paths: list[str], out: str) -> str:
+    """``paths``' datasets as one (in order), each row tagged with its input's index in :data:`GROUP_PART`."""
+    from datasets import concatenate_datasets, load_from_disk
+
+    parts = []
+    for i, p in enumerate(paths):
+        ds = load_from_disk(p)
+        parts.append(ds.add_column(GROUP_PART, [str(i)] * len(ds)))
+    concatenate_datasets(parts).save_to_disk(out)
+    return out
+
+
+def split_group_output(path: str, prefixes: list[str], outs: list[str]) -> None:
+    """The worker's output of a grouped run back into one dataset per input (input order kept), ids
+    ``<prefix>dialogue_<k>`` with ``k`` counted within the input, so a part looks the same whatever it was grouped with."""
+    from datasets import load_from_disk
+
+    ds = load_from_disk(path)
+    part = [int(x) for x in ds[GROUP_PART]]
+    for i, (pre, out) in enumerate(zip(prefixes, outs)):
+        idx = [j for j, p in enumerate(part) if p == i]
+        sub = ds.select(idx).remove_columns(["id", GROUP_PART])
+        sub.add_column("id", [f"{pre}dialogue_{k}" for k in range(len(idx))]).save_to_disk(out)
+
+
 class ChatterboxInferenceV2(Job):
     """Dialogue TTS for SFT data, any Chatterbox language: turns that switch language, an ASR check that regenerates
     bad segments, and word timings, all in one pass on one GPU (worker ``chatterbox_v2_inference.py``; the model-free
@@ -379,6 +408,9 @@ class ChatterboxInferenceV2(Job):
     no language token: ``qwen3_mixed_lang="auto"``) or ``segments``; ``qwen3_slots``: its decode batch (not hashed).
     Exaggeration and the Multilingual V3 settings do not apply.
 
+    ``in_hfs`` (instead of ``in_hf``) + ``in_prefixes``: several inputs in one GPU job (one model load), one output per
+    input (``out_hfs``; ids ``<prefix>dialogue_<k>``, ``split_group_output``); ``out_stats`` covers the group.
+
     ``parakeet_python_path``: the NeMo venv (``fdb.fdb_asr_venv()``), needed when a backend is ``parakeet``;
     ``annotate_python_path``: the annotate venv (``qwen-asr``, ``num2words``, ``cn2an``, ``whisper_normalizer``;
     ``venvs.speech_annotate_venv``), always (it scores). The config is resolved at construction, so the hash pins it
@@ -390,7 +422,7 @@ class ChatterboxInferenceV2(Job):
         *,
         venv_python_path: tk.AbstractPath,
         annotate_python_path: tk.AbstractPath,
-        in_hf: tk.Path,
+        in_hf: tk.Path | None = None,
         speaker_dir: tk.Path,
         parakeet_python_path: tk.AbstractPath | None = None,
         speaker_alias: dict[str, str] | None = None,
@@ -425,8 +457,13 @@ class ChatterboxInferenceV2(Job):
         qwen3_slots: int = 64,
         chunk: int = 192,
         rqmt: dict | None = None,
+        in_hfs: list[tk.Path] | None = None,
+        in_prefixes: list[str] | None = None,
     ):
         from . import chatterbox_v2_core as core
+
+        assert (in_hf is None) != (in_hfs is None), "in_hf or in_hfs"
+        assert in_hfs is None or (len(in_prefixes or []) == len(in_hfs) and shard is None and not id_prefix)
 
         assert english_model in ("turbo", "mtl"), english_model
         assert code_switch in ("segments", "single_pass"), code_switch
@@ -477,7 +514,11 @@ class ChatterboxInferenceV2(Job):
             self.config["tts_model"] = "qwen3"
             self.config["qwen3_mixed_lang"] = qwen3_mixed_lang
         self.chunk = chunk
-        self.out_hf = self.output_path("out_hf", directory=True)
+        self.in_hfs, self.in_prefixes = in_hfs, in_prefixes
+        if in_hfs is None:
+            self.out_hf = self.output_path("out_hf", directory=True)
+        else:
+            self.out_hfs = [self.output_path(f"out_hf_{i}", directory=True) for i in range(len(in_hfs))]
         self.out_stats = self.output_path("stats.json")
         self.rqmt = rqmt if rqmt is not None else {"gpu": 1, "cpu": 4, "mem": 32, "time": 4}
 
@@ -487,7 +528,7 @@ class ChatterboxInferenceV2(Job):
         d.pop("rqmt", None)
         d.pop("chunk", None)
         d.pop("qwen3_slots", None)
-        for k in ("tts_model", "qwen3_tts_python_path", "qwen3_mixed_lang"):  # in the config / absent: old hashes
+        for k in ("tts_model", "qwen3_tts_python_path", "qwen3_mixed_lang", "in_hfs", "in_prefixes"):  # old hashes
             if d.get(k) in (None, "chatterbox"):
                 d.pop(k, None)
         return super().hash(d)
@@ -526,7 +567,14 @@ class ChatterboxInferenceV2(Job):
 
         here = Path(__file__).resolve().parent
         cfg = {**self.config, "chunk": self.chunk, "qwen3_slots": self.qwen3_slots}
-        args = ["--in_hf", self.in_hf.get(), "--out_hf", self.out_hf.get(), "--scratch_dir", scratch,
+        group = self.in_hfs is not None
+        if group:  # one input, split again below
+            in_hf = concat_group_inputs([p.get() for p in self.in_hfs], os.path.join(scratch, "group_in"))
+            out_hf = os.path.join(scratch, "group_out")
+        else:
+            in_hf, out_hf = self.in_hf.get(), self.out_hf.get()
+        keep = self.keep_columns + ([GROUP_PART] if group else [])
+        args = ["--in_hf", in_hf, "--out_hf", out_hf, "--scratch_dir", scratch,
                 "--stats_json", f"{self.out_stats.get()}.part0", "--speaker_directory", self.speaker_dir.get(),
                 "--speaker_alias", json.dumps(self.speaker_alias), "--config", json.dumps(cfg),
                 "--annotate_python", self.annotate_python_path.get(),
@@ -543,8 +591,8 @@ class ChatterboxInferenceV2(Job):
                      "--qwen3_tts_worker", str(here / "qwen3_tts_worker.py")]  # fmt: skip
         if self.shard is not None:
             args += ["--in_hf_shard", self.shard, "--in_hf_num_shards", self.num_shards]
-        if self.keep_columns:
-            args += ["--keep_columns", *self.keep_columns]
+        if keep:
+            args += ["--keep_columns", *keep]
         if self.id_prefix:
             args += ["--id_prefix", self.id_prefix]
 
@@ -552,7 +600,7 @@ class ChatterboxInferenceV2(Job):
             add_torchcodec_to_env(env, ffmpeg_path=self.ffmpeg_path, npp_venv_python=self.venv_python_path.get(),
                                   venv_python=self.venv_python_path.get(), who="ChatterboxInferenceV2")  # fmt: skip
 
-        out_hf, stats = self.out_hf.get(), self.out_stats.get()
+        stats = self.out_stats.get()
 
         def args_for(k, n):
             a = list(args)
@@ -571,6 +619,8 @@ class ChatterboxInferenceV2(Job):
         with open(stats, "w") as f:
             json.dump({"summary": core.stats_summary(raw), "raw": raw, "workers": n,
                        "peak_tts_gpu_gb": max(p["peak_tts_gpu_gb"] for p in parts)}, f, indent=1)  # fmt: skip
+        if group:
+            split_group_output(out_hf, self.in_prefixes, [p.get() for p in self.out_hfs])
 
 
 class ParlerTTSInference(Job):

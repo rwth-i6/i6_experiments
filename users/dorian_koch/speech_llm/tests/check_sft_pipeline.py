@@ -9,6 +9,10 @@
     report refuses a mix that is not that;
   * voices are drawn per dialogue (the same voices in any row order), Parler voices go to English users at the set
     share and nowhere else, never one voice for both speakers;
+  * grouping shards into GPU jobs (``job_groups``) changes no shard's seeds; the full-run setting (``"cell"``) never
+    puts two cells in one job; a grouped writer hands every shard exactly its own seeds (``write_groups``) and a
+    grouped TTS gives every shard the rows and ids it would have alone (``concat_group_inputs`` /
+    ``split_group_output``, with a stand-in for the GPU worker);
   * the stats catch oddities: a silent turn, unequal or empty tracks, a dialogue of another cell, lost ids, a dialogue
     repeated across shards, a Parler voice outside English.
 
@@ -63,9 +67,94 @@ def _cell_ids(corpus) -> dict:
     """(scenario, lang) -> the ids of every job of the cell (per shard, in order) and its merge."""
     out = {}
     for c, js in corpus.shards.items():
-        out[c] = [tuple(j[k]._sis_id() for k in ("seeds", "write", "cast", "tts", "stats")) for j in js]
+        out[c] = [tuple(j[k]._sis_id() for k in ("seeds", "write", "cast", "tts", "stats")) + (j["part"],) for j in js]
         out[c].append(corpus.cells[c].creator._sis_id())
     return out
+
+
+def _seed_ids(corpus) -> dict:
+    return {(c, k): j["seeds"]._sis_id() for c, js in corpus.shards.items() for k, j in enumerate(js)}
+
+
+def _cells_per_job(corpus) -> dict:
+    """GPU job id (writer, TTS) -> the cells whose shards it processes."""
+    out: dict = {}
+    for c, js in corpus.shards.items():
+        for j in js:
+            for k in ("write", "tts"):
+                out.setdefault(j[k]._sis_id(), set()).add(c)
+    return out
+
+
+def check_grouping() -> list[str]:
+    bad = []
+    cell = _build()
+    lang = _build(group="language")
+    pair = _build(shards_per_job=2)
+    if _seed_ids(lang) != _seed_ids(cell) or _seed_ids(pair) != _seed_ids(cell):
+        bad.append("grouping changed a shard's seeds job")
+    for name, c in (("cell", cell), ("cell, 2 per job", pair)):
+        mixed = {j: cs for j, cs in _cells_per_job(c).items() if len(cs) > 1}
+        if mixed:
+            bad.append(f"{name}: a GPU job holds several cells: {sorted(mixed.values(), key=str)[:2]}")
+    n = len({j for j, cs in _cells_per_job(lang).items() if len(cs) == len(sd.SCENARIOS)})
+    if n != 2 * len(sd.LANGS):  # one writer + one TTS job per language
+        bad.append(f"language grouping: {n} GPU jobs hold a whole language, want {2 * len(sd.LANGS)}")
+    # a grouped writer: each shard written from exactly its own seeds
+    lists = [[{"id": f"s{i}_{k}"} for k in range(3 + i)] for i in range(3)]
+
+    def fake(seeds, workers):
+        return [{"id": x["id"], "text": x["id"][::-1]} for x in seeds], {"n": len(seeds)}
+
+    together = sd.write_groups(lists, fake, 64)
+    alone = [sd.write_groups([x], fake, 64)[0] for x in lists]
+    if together != alone:
+        bad.append("a grouped writer's shard output differs from the shard written alone")
+    bad += _check_tts_groups()
+    return bad
+
+
+def _check_tts_groups() -> list[str]:
+    """``ChatterboxInferenceV2(in_hfs=...)``'s concat and split around a stand-in worker (the worker's contract: rows
+    in input order, ids ``dialogue_<i>``, the keep columns passed through as strings)."""
+    import shutil
+    import tempfile
+
+    from datasets import Dataset, load_from_disk
+
+    from i6_experiments.users.dorian_koch.speech_llm import tts
+
+    tmp = tempfile.mkdtemp(prefix="sft_guard_")
+    try:
+        parts = []
+        for i in range(3):
+            parts.append(f"{tmp}/in{i}")
+            Dataset.from_list([{"id": f"help_en_{10 * i + j}", "sft_id": f"help_en_{10 * i + j}", "dialogue": f"d{i}{j}"}
+                               for j in range(2 + i)]).save_to_disk(parts[-1])  # fmt: skip
+
+        def run(idx, tag):
+            gin = tts.concat_group_inputs([parts[i] for i in idx], f"{tmp}/{tag}_in")
+            rows = [{"id": f"dialogue_{n}", "turns": f"spoken {r['dialogue']}", "sft_id": r["sft_id"],
+                     tts.GROUP_PART: r[tts.GROUP_PART]} for n, r in enumerate(load_from_disk(gin))]  # fmt: skip
+            Dataset.from_list(rows).save_to_disk(f"{tmp}/{tag}_out")
+            outs = [f"{tmp}/{tag}_o{i}" for i in idx]
+            tts.split_group_output(f"{tmp}/{tag}_out", [f"p{i}_" for i in idx], outs)
+            return {i: [dict(r) for r in load_from_disk(o)] for i, o in zip(idx, outs)}
+
+        together = run([0, 1, 2], "g")
+        alone = {}
+        for i in range(3):
+            alone.update(run([i], f"a{i}"))
+        bad = []
+        if together != alone:
+            bad.append("a grouped TTS shard differs from the shard spoken alone (rows or ids)")
+        if [r["id"] for r in together[2]] != [f"p2_dialogue_{k}" for k in range(4)]:
+            bad.append(f"grouped TTS ids {[r['id'] for r in together[2]]}")
+        if [r["sft_id"] for r in together[1]] != ["help_en_10", "help_en_11", "help_en_12"]:
+            bad.append("a grouped TTS shard holds another shard's rows")
+        return bad
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def check_independence() -> list[str]:
@@ -318,6 +407,22 @@ def _shared_stream_cast(rows, index, share):  # mutant: one random stream over t
     return out
 
 
+_job_groups = sp.job_groups
+
+
+def _split_ids_across(path, prefixes, outs):  # mutant: ids counted across the whole group
+    from datasets import load_from_disk
+
+    from i6_experiments.users.dorian_koch.speech_llm import tts
+
+    ds = load_from_disk(path)
+    part = [int(x) for x in ds[tts.GROUP_PART]]
+    for i, (pre, out) in enumerate(zip(prefixes, outs)):
+        idx = [j for j, p in enumerate(part) if p == i]
+        sub = ds.select(idx).remove_columns(["id", tts.GROUP_PART])
+        sub.add_column("id", [f"{pre}dialogue_{j}" for j in idx]).save_to_disk(out)
+
+
 MUTANTS = {
     "seeds keyed by the shard's own index": (check_shards, sd,
                                              dict(make_seeds=lambda sc, lg, n, seed, rows, start=0: _make_seeds(sc, lg, n, seed, rows))),
@@ -325,12 +430,18 @@ MUTANTS = {
     "one version for all scenarios": (check_independence, sd.SftSeeds, dict(hash=classmethod(_global_version_hash))),
     "mix ignores the weights": (check_mix, sp, dict(mix_weights=lambda cells, a, b: {c: 1 / len(list(cells)) for c in cells})),
     "voices from one stream per shard": (check_cast, sp, dict(cast_voices=_shared_stream_cast)),
+    "cell grouping by language": (check_grouping, sp,
+                                  dict(job_groups=lambda sh, group="cell", per_job=1: _job_groups(sh, "language", per_job))),
+    "every shard written from the group's seeds": (check_grouping, sd,
+                                                   dict(write_groups=lambda lists, fn, w: [fn(sum(lists, []), w) for _ in lists])),
+    "TTS ids counted across the group": (check_grouping, __import__("i6_experiments.users.dorian_koch.speech_llm.tts",
+                                                                    fromlist=["tts"]), dict(split_group_output=_split_ids_across)),
     "silence never counted": (check_stats, sp, dict(SILENT_DBFS=-400.0)),
     "no duplicate detection": (check_stats, sp, dict(_digest=lambda x: os.urandom(8).hex())),
 }  # fmt: skip
 
 if __name__ == "__main__":
-    fails = check_independence() + check_shards() + check_mix() + check_cast() + check_stats()
+    fails = check_independence() + check_grouping() + check_shards() + check_mix() + check_cast() + check_stats()
     for f in fails:
         print("FAIL", f)
     for name, (fn, obj, over) in MUTANTS.items():

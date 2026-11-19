@@ -4,15 +4,16 @@ independent chain per (scenario, language) cell, sharded, a shared voice stage, 
   voices (shared):  SftVoiceTexts -> SftDesignVoices (Qwen3-TTS VoiceDesign, every language)  -> SftVoicePool
                                   -> SftParlerVoices (Parler-TTS, English user voices)       /
   cell x shard k:   SftSeeds(start=k*S, n=S) -> SftWriteDialogues -> SftCastVoices -> ChatterboxInferenceV2
-                    -> SftShardStats (hard invariants raise)
+                    -> SftShardStats (hard invariants raise); the writer and the TTS are GPU jobs over a group of
+                    shards (``job_groups``: shards of one cell; one output per shard), so the model loads once
   cell:             HfMergeShards (links): the cell's dataset
   corpus:           SftDataReport (bounds -> flags, duplicates, voice reuse, the mix); ``mix_train_data``: the
                     training mix, ``[(cell dataset, weight)]`` from a scenario and a language weight
 
 Seed ``k`` of a cell depends only on (scenario, language, seed, k) (``sft_dialogues.make_seeds``), so shard ``k`` is
 the same job whatever the cell's size: a bigger cell adds shards. Changing one scenario (its
-``SCENARIO_VERSIONS`` entry) or one cell's size re-hashes only that cell's jobs; a weight reaches only the report and
-the mix. Global inputs re-hash every cell on purpose: the writer (``WRITER_VERSION``, its settings), the TTS
+``SCENARIO_VERSIONS`` entry) or one cell's size re-hashes only that cell's jobs (its groups'); a weight reaches only
+the report and the mix. Global inputs re-hash every cell on purpose: the writer (``WRITER_VERSION``, its settings), the TTS
 settings, the voice pool, the source rows.
 """
 
@@ -43,6 +44,7 @@ __all__ = [
     "build_sft_corpus",
     "build_voice_pool",
     "shard_ranges",
+    "job_groups",
     "mix_weights",
     "mix_train_data",
 ]
@@ -717,7 +719,8 @@ class SftDataReport(Job):
 @dataclass
 class SftCorpus:
     pool: SftVoicePool
-    #: (scenario, lang) -> per shard ``{"seeds", "write", "cast", "tts", "stats"}`` jobs
+    #: (scenario, lang) -> per shard ``{"seeds", "write", "cast", "tts", "stats"}`` jobs and ``part`` (its index in
+    #: the group's writer / TTS outputs)
     shards: dict = field(default_factory=dict)
     #: (scenario, lang) -> the cell's dataset (its shards linked)
     cells: dict = field(default_factory=dict)
@@ -726,13 +729,27 @@ class SftCorpus:
     train_data: list = field(default_factory=list)
 
 
+def job_groups(shards: list[tuple[str, str, int]], group: str = "cell", per_job: int = 1) -> list[list]:
+    """Which shards ``(scenario, lang, k)`` one GPU job (writer, TTS) processes. ``"cell"``: shards ``k`` with the same
+    ``k // per_job`` of one cell, so a job never mixes cells and growing a cell keeps its full groups (the full run:
+    ``per_job=1``). ``"language"``: every shard of a language in one job, across scenarios (test runs only: a change
+    in one cell re-runs its language's whole group). A shard's seeds and outputs do not depend on its group."""
+    assert group in ("cell", "language") and per_job >= 1, (group, per_job)
+    out: dict = {}
+    for sc, lg, k in shards:
+        key = (sc, lg, k // per_job) if group == "cell" else lg
+        out.setdefault(key, []).append((sc, lg, k))
+    return list(out.values())
+
+
 def build_sft_corpus(*, name: str, rows: dict, env: dict, cell_seeds: int, shard_seeds: int, seed: int,
                      writer: dict, tts: dict, voices: dict, scenario_weights: dict, lang_weights: dict,
-                     cell_sizes: dict | None = None, scenarios: list[str] | None = None,
-                     langs: list[str] | None = None) -> SftCorpus:  # fmt: skip
+                     group: str = "cell", shards_per_job: int = 1, cell_sizes: dict | None = None,
+                     scenarios: list[str] | None = None, langs: list[str] | None = None) -> SftCorpus:  # fmt: skip
     """Every (scenario, language) cell: ``cell_seeds`` seeds (``cell_sizes`` overrides per ``(scenario, lang)``) in
-    shards of ``shard_seeds``, each its own seeds -> writer -> cast -> TTS -> stats chain; the shared voice pool
-    (``voices``: :func:`build_voice_pool`'s arguments + ``parler_share``); the report and the mix from the weights.
+    shards of ``shard_seeds``, each its own seeds -> cast -> stats chain, written and spoken in GPU jobs over
+    :func:`job_groups` (``group``, ``shards_per_job``; one output per shard); the shared voice pool (``voices``:
+    :func:`build_voice_pool`'s arguments + ``parler_share``); the report and the mix from the weights.
 
     ``rows``: ``{(source, lang): SftSourceRows.out_rows}`` (personas: ``("personas", "en")`` serves every language);
     ``env``: interpreters ``chatterbox``, ``annotate``, ``parakeet``, ``qwen3_tts``, ``parler`` and ``ffmpeg``;
@@ -745,28 +762,34 @@ def build_sft_corpus(*, name: str, rows: dict, env: dict, cell_seeds: int, shard
     pool = build_voice_pool(personas=rows[("personas", "en")], env=env, langs=langs, **voices)
     out = SftCorpus(pool=pool)
     max_err = dict(tts.get("max_err") or {"*": 0.1})
+    seeds = {}  # (scenario, lang, k) -> SftSeeds
     for sc in scenarios:
         for lg in langs:
             src = {s: rows[(s, lg)] for s in ("wikipedia", "wildchat") if (s, lg) in rows}
             src["personas"] = rows[("personas", "en")]
-            jobs = []
             for start, n in shard_ranges((cell_sizes or {}).get((sc, lg), cell_seeds), shard_seeds):
-                k = start // shard_seeds
-                seeds = sd.SftSeeds(scenario=sc, lang=lg, n=n, start=start, seed=seed, sources=src)
-                write = sd.SftWriteDialogues(seeds=[seeds.out_seeds], **writer)
-                cast = SftCastVoices(written=write.out_hf, pool=pool.out_index, parler_share=voices["parler_share"])
-                speech = ChatterboxInferenceV2(venv_python_path=env["chatterbox"], annotate_python_path=env["annotate"],
-                                               parakeet_python_path=env["parakeet"],
-                                               qwen3_tts_python_path=env["qwen3_tts"], ffmpeg_path=env["ffmpeg"],
-                                               in_hf=cast.out_hf, speaker_dir=pool.out_dir,
-                                               id_prefix=f"{sc}_{lg}_{k:03d}_", keep_columns=TTS_KEEP, **tts)  # fmt: skip
-                stats = SftShardStats(cell={"scenario": sc, "lang": lg, "shard": k}, seeds=seeds.out_seeds,
-                                      write_stats=write.out_stats, cast=cast.out_hf, tts=speech.out_hf,
-                                      max_err=max_err)  # fmt: skip
-                jobs.append({"seeds": seeds, "write": write, "cast": cast, "tts": speech, "stats": stats})
-            out.shards[(sc, lg)] = jobs
-            if jobs:
-                out.cells[(sc, lg)] = HfMergeShards(shard_paths=[j["tts"].out_hf for j in jobs]).out_hf
+                seeds[(sc, lg, start // shard_seeds)] = sd.SftSeeds(scenario=sc, lang=lg, n=n, start=start, seed=seed,
+                                                                    sources=src)  # fmt: skip
+    shard_jobs = {}
+    for grp in job_groups(list(seeds), group, shards_per_job):
+        write = sd.SftWriteDialogues(seeds=[seeds[s].out_seeds for s in grp], per_input=True, **writer)
+        casts = [SftCastVoices(written=write.out_hfs[i], pool=pool.out_index, parler_share=voices["parler_share"])
+                 for i in range(len(grp))]  # fmt: skip
+        speech = ChatterboxInferenceV2(venv_python_path=env["chatterbox"], annotate_python_path=env["annotate"],
+                                       parakeet_python_path=env["parakeet"], qwen3_tts_python_path=env["qwen3_tts"],
+                                       ffmpeg_path=env["ffmpeg"], in_hfs=[c.out_hf for c in casts],
+                                       in_prefixes=[f"{sc}_{lg}_{k:03d}_" for sc, lg, k in grp],
+                                       speaker_dir=pool.out_dir, keep_columns=TTS_KEEP, **tts)  # fmt: skip
+        for i, (sc, lg, k) in enumerate(grp):
+            stats = SftShardStats(cell={"scenario": sc, "lang": lg, "shard": k}, seeds=seeds[(sc, lg, k)].out_seeds,
+                                  write_stats=write.out_stats_parts[i], cast=casts[i].out_hf, tts=speech.out_hfs[i],
+                                  max_err=max_err)  # fmt: skip
+            shard_jobs[(sc, lg, k)] = {"seeds": seeds[(sc, lg, k)], "write": write, "cast": casts[i], "tts": speech,
+                                       "part": i, "stats": stats}  # fmt: skip
+    for (sc, lg, k), j in sorted(shard_jobs.items()):
+        out.shards.setdefault((sc, lg), []).append(j)
+    for c, js in out.shards.items():
+        out.cells[c] = HfMergeShards(shard_paths=[j["tts"].out_hfs[j["part"]] for j in js]).out_hf
     w = mix_weights(out.cells, scenario_weights, lang_weights)
     out.train_data = mix_train_data(out.cells, scenario_weights, lang_weights)
     out.report = SftDataReport(
