@@ -317,3 +317,19 @@ stay fixed. This adds four auxiliary scoring jobs only; see
 [CONTRACTION_RESCORING.md](CONTRACTION_RESCORING.md). AppTek noise expansion stays
 deferred; the company agent's next checkpoint remains the convention-aware
 fixed-hypothesis diagnostic on its two dev sets.
+
+Contraction rescoring completed on 2026-11-19: [review](CONTRACTION_REVIEW_20261119.md).
+Best-of-three renderings change WER by at most 0.006 points, with no consistent
+benefit across the two dev sets. Literal parity and GPU score gates passed.
+Keep literal rescoring as the default; the result does not justify first-pass
+multiword contraction rewriting at this stage. The next checkpoint remains the
+AppTek full-dev score/search diagnostic, not a larger contraction sweep.
+
+A subsequent cohort breakdown identifies a specific unresolved mismatch:
+Granite systematically emits `is` for reference possessive 's. This dominates
+its additional errors relative to Speech-Qwen in the ambiguous-contraction
+cohort and occurs before fusion. Those forms were excluded from the rescoring
+rules, and three inspected n-best pools lack correct possessive outputs. See the
+follow-up section of the review. Targeted possessive representation/coverage is
+therefore a separate candidate investigation; the negative core-contraction
+ablation must not be generalized to it.

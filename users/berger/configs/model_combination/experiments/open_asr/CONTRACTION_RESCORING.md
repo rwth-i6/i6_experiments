@@ -1,5 +1,8 @@
 # Contraction wording in Speech-Qwen rescoring
 
+Completed 2026-11-19: [results and interpretation](CONTRACTION_REVIEW_20261119.md).
+The finite contraction variants do not meaningfully improve WER at frozen settings.
+
 This development-only experiment tests whether presenting equivalent contraction
 wordings to Speech-Qwen improves ranking, while leaving acoustic hypotheses
 unchanged. It is independent of the company-side forced-scoring work.

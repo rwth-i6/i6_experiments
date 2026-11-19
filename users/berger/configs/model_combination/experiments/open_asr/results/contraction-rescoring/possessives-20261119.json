@@ -1,0 +1,134 @@
+{
+  "source": {
+    "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/convention_audit/ConventionAuditJob.skquFOX9RP5F/output/summary.json",
+    "sha256": "36ce4ee2afeef7aa460e39d8c4290fac942f540775e70e0b5c1730a5d0f42c55"
+  },
+  "classification": "Speech-Qwen raw output. Core = a supported EXPAND contraction present, not an expanded phrase. Ambiguous = apostrophe-s or apostrophe-d, including possessives. Cohorts overlap only in the explicitly both group.",
+  "normalizer_examples": {
+    "Arthur's court": "arthur s court",
+    "Arthur is court": "arthur is court"
+  },
+  "order": [
+    "Granite native",
+    "Granite AM-only tree",
+    "Granite + Speech-Qwen one-pass",
+    "Speech-Qwen standalone"
+  ],
+  "datasets": {
+    "librispeech-dev-other": {
+      "core_only": {
+        "units": 188,
+        "wer": [
+          1.804,
+          1.772,
+          1.804,
+          2.188
+        ]
+      },
+      "ambiguous_only": {
+        "units": 282,
+        "wer": [
+          6.648,
+          6.399,
+          6.104,
+          3.504
+        ]
+      },
+      "both": {
+        "units": 34,
+        "wer": [
+          2.477,
+          2.477,
+          2.477,
+          3.411
+        ]
+      },
+      "no_contraction": {
+        "units": 2356,
+        "wer": [
+          2.198,
+          2.113,
+          1.95,
+          2.559
+        ]
+      },
+      "fusion_vs_speech_on_ambiguous": {
+        "included_units": 310,
+        "excluded_reference_mismatch": 6,
+        "introduced_reference_word_errors": 259,
+        "s_to_is": 210
+      },
+      "pool_examples": [
+        {
+          "id": "3660-172183-0000",
+          "total_candidates": 37,
+          "wrong": "arthur is court",
+          "wrong_candidates": 35,
+          "correct_possessive_candidates": 0
+        },
+        {
+          "id": "3660-6517-0005",
+          "total_candidates": 42,
+          "wrong": "anderson is people",
+          "wrong_candidates": 40,
+          "correct_possessive_candidates": 0
+        }
+      ]
+    },
+    "loquacious-dev.short": {
+      "core_only": {
+        "units": 136,
+        "wer": [
+          3.689,
+          3.777,
+          3.149,
+          3.288
+        ]
+      },
+      "ambiguous_only": {
+        "units": 252,
+        "wer": [
+          8.301,
+          8.166,
+          7.558,
+          5.332
+        ]
+      },
+      "both": {
+        "units": 27,
+        "wer": [
+          4.664,
+          4.527,
+          4.39,
+          4.252
+        ]
+      },
+      "no_contraction": {
+        "units": 2584,
+        "wer": [
+          4.399,
+          4.326,
+          3.881,
+          4.614
+        ]
+      },
+      "fusion_vs_speech_on_ambiguous": {
+        "included_units": 272,
+        "excluded_reference_mismatch": 7,
+        "introduced_reference_word_errors": 195,
+        "s_to_is": 155
+      },
+      "pool_examples": [
+        {
+          "id": "20171026-0900-PLENARY-3-en_20171026-09:32:35_5",
+          "total_candidates": 27,
+          "wrong": "report is references",
+          "wrong_candidates": 21,
+          "correct_possessive_candidates": 0
+        }
+      ]
+    }
+  },
+  "attribution_note": "Plain kaldialign alignment on identical system-normalized reference grids only. Insertions excluded. Counts describe errors where S is correct and Granite fusion is wrong; not all corpus errors.",
+  "pool_note": "Three spot checks only. Correct checks included apostrophe-s, separate s and joined plural-s spellings. No claim that every affected pool lacks a correct candidate."
+}
