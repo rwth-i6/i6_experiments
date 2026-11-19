@@ -298,21 +298,38 @@ def analyze_encoder_states_contrastive(
     loss_name: str = "dev_loss_ce",
     extra_forward_config: Optional[ReturnnConfig] = None,
     rqmt: Optional[Dict[str, Any]] = None,
+    transcript_text_files: Optional[Dict[str, tk.Path]] = None,
+    transcript_seq_tags_files: Optional[Dict[str, tk.Path]] = None,
+    valid_seq_tags_files: Optional[Dict[str, tk.Path]] = None,
 ) -> Dict[Union[int, str], Dict[str, tk.Path]]:
     """
     Run contrastive shared-encoder PCA analysis forward jobs.
     Computes pairwise BERTScore similarity matrix with IDF and baseline rescaling,
-    identifies most dissimilar sequence pairs, and plots 4 sequences with text transcripts.
+    identifies most dissimilar and most similar sequence pairs, and plots comparative
+    trajectories with text transcripts.
     """
     from .data.librispeech import text as librispeech_text
     from ..models.analysis.encoder_state_pca.contrastive_callback import ComputeBertScoreSimilarityMatrixJob
 
     bertscore_jobs: Dict[str, ComputeBertScoreSimilarityMatrixJob] = {}
+    resolved_text_files: Dict[str, tk.Path] = {}
+    resolved_seq_tags_files: Dict[str, tk.Path] = {}
+
     for key in test_data_dict.keys():
-        text_file, seq_tags_file = librispeech_text.get_text(key)
+        if transcript_text_files and key in transcript_text_files and transcript_seq_tags_files and key in transcript_seq_tags_files:
+            text_file = transcript_text_files[key]
+            seq_tags_file = transcript_seq_tags_files[key]
+        else:
+            librispeech_key = "train-clean-100" if key == "dev3k" else key
+            text_file, seq_tags_file = librispeech_text.get_text(librispeech_key)
+        resolved_text_files[key] = text_file
+        resolved_seq_tags_files[key] = seq_tags_file
+        valid_tags_file = valid_seq_tags_files.get(key) if valid_seq_tags_files else None
+
         bertscore_job = ComputeBertScoreSimilarityMatrixJob(
             text_file=text_file,
             seq_tags_file=seq_tags_file,
+            valid_seq_tags_file=valid_tags_file,
             max_seqs=200,
             priority_seq_tags=plot_seq_tags,
             lang="en",
@@ -346,7 +363,8 @@ def analyze_encoder_states_contrastive(
             checkpoint = get_checkpoint(training_name, train_job, get_best_averaged_checkpoint=(4, loss_name))
 
         for key, dataset in test_data_dict.items():
-            text_file, seq_tags_file = librispeech_text.get_text(key)
+            text_file = resolved_text_files[key]
+            seq_tags_file = resolved_seq_tags_files[key]
             bertscore_job = bertscore_jobs[key]
 
             callback_opts = {

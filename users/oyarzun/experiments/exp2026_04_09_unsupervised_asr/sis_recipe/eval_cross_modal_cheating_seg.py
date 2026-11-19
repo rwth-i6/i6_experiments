@@ -9,7 +9,7 @@ For each segment defined by the cheating segmentation:
   3. Evaluate against ground-truth phoneme sequences using Levenshtein distance (PER).
 """
 
-from typing import List, Dict, Optional, Tuple, Iterator, Union
+from typing import List, Dict, Optional, Tuple, Iterator, Union, Any
 import os
 import glob
 import json
@@ -737,8 +737,8 @@ class CheatingSegmentationNearestNeighborEvalJob(tk.Job):
                         best_token = phoneme_vocab[int(b_idx)]
                         best_phone = _to_phone(best_token)
                         if self.ignore_silence and (
-                            best_phone in ("[SIL]", "SIL", "<sil>", "<eps>", "blank", "")
-                            or best_token in ("[SIL]", "SIL", "<sil>", "<eps>", "blank", "")
+                            best_phone in ("[SIL]", "SIL", "<sil>", "<eps>", "blank", "<w>", "<W>", "")
+                            or best_token in ("[SIL]", "SIL", "<sil>", "<eps>", "blank", "<w>", "<W>", "")
                         ):
                             continue
                         pred_phonemes.append(best_phone)
@@ -752,8 +752,8 @@ class CheatingSegmentationNearestNeighborEvalJob(tk.Job):
                         best_phone = precomputed_cluster_phones[idx_val]
                         best_token = precomputed_cluster_tokens[idx_val]
                         if self.ignore_silence and (
-                            best_phone in ("[SIL]", "SIL", "<sil>", "<eps>", "blank", "")
-                            or best_token in ("[SIL]", "SIL", "<sil>", "<eps>", "blank", "")
+                            best_phone in ("[SIL]", "SIL", "<sil>", "<eps>", "blank", "<w>", "<W>", "")
+                            or best_token in ("[SIL]", "SIL", "<sil>", "<eps>", "blank", "<w>", "<W>", "")
                         ):
                             continue
                         pred_phonemes.append(best_phone)
@@ -785,8 +785,8 @@ class CheatingSegmentationNearestNeighborEvalJob(tk.Job):
                             best_token = phoneme_vocab[int(b_idx)]
                             best_phone = _to_phone(best_token)
                             if self.ignore_silence and (
-                                best_phone in ("[SIL]", "SIL", "<sil>", "<eps>", "blank", "")
-                                or best_token in ("[SIL]", "SIL", "<sil>", "<eps>", "blank", "")
+                                best_phone in ("[SIL]", "SIL", "<sil>", "<eps>", "blank", "<w>", "<W>", "")
+                                or best_token in ("[SIL]", "SIL", "<sil>", "<eps>", "blank", "<w>", "<W>", "")
                             ):
                                 continue
                             pred_phonemes.append(best_phone)
@@ -1387,4 +1387,67 @@ class PhonemeNgramRescoreJob(tk.Job):
         logging.info(
             f"4-gram rescoring complete. Final PER: {final_chosen_per:.2f}%. Report written to {self.out_per_report_txt.get_path()}"
         )
+
+
+class JoinCheatingSegScoresJob(tk.Job):
+    """
+    Joins cheating segmentation nearest-neighbor PER (cosine / CSLS) and 4-gram LM rescoring PER
+    into a clean summary table for an ablation.
+    """
+    __sis_version__ = 1
+
+    def __init__(self, scores: Dict[str, Any], title: str = "Cheating Segmentation Evaluation Scores"):
+        super().__init__()
+        self.scores = scores
+        self.title = title
+        self.out_summary_txt = self.output_path("score_results.txt")
+        self.out_summary_json = self.output_path("score_results.json")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    @staticmethod
+    def _extract_val(v: Any) -> Any:
+        if hasattr(v, "get"):
+            v = v.get()
+        if hasattr(v, "get_path"):
+            v = v.get_path()
+        if isinstance(v, str) and os.path.exists(v):
+            if v.endswith(".json"):
+                try:
+                    with open(v, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    return data.get("per", data.get("score", data))
+                except Exception:
+                    pass
+            else:
+                try:
+                    with open(v, "r", encoding="utf-8") as f:
+                        return float(f.read().strip())
+                except Exception:
+                    pass
+        if isinstance(v, (int, float)):
+            return round(float(v), 2)
+        return v
+
+    def run(self):
+        res = {}
+        for k, v in self.scores.items():
+            res[k] = self._extract_val(v)
+
+        max_key_len = max([len(k) for k in res.keys()] + [15])
+        with open(self.out_summary_txt.get_path(), "w", encoding="utf-8") as f:
+            width = max_key_len + 18
+            f.write("=" * width + "\n")
+            f.write(f" {self.title}\n")
+            f.write("=" * width + "\n")
+            f.write(f"  {'Metric / Stage'.ljust(max_key_len)} | {'PER (%)':>10}\n")
+            f.write("  " + "-" * max_key_len + "-+-----------" + "\n")
+            for k, val in res.items():
+                val_str = f"{val:.2f}" if isinstance(val, (int, float)) else str(val)
+                f.write(f"  {k.ljust(max_key_len)} | {val_str:>10}\n")
+            f.write("=" * width + "\n")
+
+        with open(self.out_summary_json.get_path(), "w", encoding="utf-8") as fj:
+            json.dump(res, fj, indent=2)
 

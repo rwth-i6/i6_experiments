@@ -71,7 +71,7 @@ from .data.wmt14_de_en import (
     PrepareWmt14MonolingualNewsCrawlJob,
 )
 from .data.word2vec import TrainWord2VecJob
-from .bleu_eval import ComputeBleuJob
+from .bleu_eval import ComputeBleuJob, JoinScoresJob, SummarizeEpochCheckpointsJob
 from .per_eval import ComputePerJob
 from .eval_word_by_word_baseline import WordByWordCrossLingualEvalJob
 from .eval_sequence_difference import SequenceDifferenceEvalJob
@@ -392,6 +392,7 @@ def run_en_blank_phoneme_unmt_pipeline(
     # -------------------------------------------------------------------------
     src2trg_tag = f"en_blank2{target_lang}"
     trg2src_tag = f"{target_lang}2en_blank"
+    wbw_score_results = {}
 
     for metric in ("cosine", "csls"):
         # en_blank -> target_lang
@@ -435,6 +436,9 @@ def run_en_blank_phoneme_unmt_pipeline(
             per_wbw_s2t_col.out_summary_json,
         )
 
+        wbw_score_results[f"{src2trg_tag}_{metric}_bleu"] = wbw_s2t.out_bleu
+        wbw_score_results[f"{src2trg_tag}_{metric}_per"] = per_wbw_s2t.out_per
+
         # target_lang -> en_blank
         wbw_t2s = WordByWordCrossLingualEvalJob(
             src_embeddings_npy=align_job.out_mapped_src_emb_npy,
@@ -462,6 +466,19 @@ def run_en_blank_phoneme_unmt_pipeline(
         per_wbw_t2s.add_alias(f"{prefix_name}/baseline_word_by_word/{trg2src_tag}_{metric}/per_eval")
         tk.register_output(f"{prefix_name}/baseline_word_by_word/{trg2src_tag}_{metric}/per", per_wbw_t2s.out_per)
         tk.register_output(f"{prefix_name}/baseline_word_by_word/{trg2src_tag}_{metric}/per_report.txt", per_wbw_t2s.out_report)
+
+        wbw_score_results[f"{trg2src_tag}_{metric}_bleu"] = wbw_t2s.out_bleu
+        wbw_score_results[f"{trg2src_tag}_{metric}_per"] = per_wbw_t2s.out_per
+
+    # Join baseline word-by-word scores
+    if wbw_score_results:
+        join_wbw_job = JoinScoresJob(
+            scores=wbw_score_results,
+            title=f"Baseline Word-by-Word Scores ({prefix_name})",
+        )
+        join_wbw_job.add_alias(f"{prefix_name}/baseline_word_by_word/score_results")
+        tk.register_output(f"{prefix_name}/baseline_word_by_word/score_results.txt", join_wbw_job.out_summary_txt)
+        tk.register_output(f"{prefix_name}/baseline_word_by_word/score_results.json", join_wbw_job.out_summary_json)
 
     # -------------------------------------------------------------------------
     # 6. Stage 2 — UNdreaMT Denoising + On-the-Fly Backtranslation Training
@@ -693,12 +710,14 @@ def run_en_blank_phoneme_unmt_pipeline(
         }
 
         # Evaluate checkpoints in both directions (en_blank -> trg and trg -> en_blank)
+        undreamt_epoch_scores = {}
         for eval_ep in eval_epochs:
             ckpt = get_checkpoint(
                 training_name=undreamt_train_name,
                 train_job=train_job,
                 get_specific_checkpoint=eval_ep,
             )
+            ep_scores = {}
 
             for (
                 direction_name,
@@ -799,6 +818,9 @@ def run_en_blank_phoneme_unmt_pipeline(
                 tk.register_output(f"{recog_prefix}/per_report.txt", per_job.out_report)
                 tk.register_output(f"{recog_prefix}/per_summary.json", per_job.out_summary_json)
 
+                ep_scores[f"{direction_name}_bleu"] = bleu_job.out_bleu
+                ep_scores[f"{direction_name}_per"] = per_job.out_per
+
                 seq_diff_job = SequenceDifferenceEvalJob(
                     input_txt=src_file,
                     hypothesis_txt=best_hyp,
@@ -821,6 +843,25 @@ def run_en_blank_phoneme_unmt_pipeline(
                     )
                     comet_job.add_alias(f"{recog_prefix}/comet_eval")
                     tk.register_output(f"{recog_prefix}/comet", comet_job.out_comet)
+
+            if ep_scores:
+                ep_join_job = JoinScoresJob(
+                    scores=ep_scores,
+                    title=f"UNdreaMT Epoch {eval_ep} Evaluation Scores ({train_name})",
+                )
+                ep_join_job.add_alias(f"{undreamt_train_name}/recog_ep{eval_ep}/score_results")
+                tk.register_output(f"{undreamt_train_name}/recog_ep{eval_ep}/score_results.txt", ep_join_job.out_summary_txt)
+                tk.register_output(f"{undreamt_train_name}/recog_ep{eval_ep}/score_results.json", ep_join_job.out_summary_json)
+                undreamt_epoch_scores[eval_ep] = ep_scores
+
+        if undreamt_epoch_scores:
+            summary_epochs_job = SummarizeEpochCheckpointsJob(
+                epoch_scores=undreamt_epoch_scores,
+                title=f"UNdreaMT Checkpoint Evaluation Summary ({train_name})",
+            )
+            summary_epochs_job.add_alias(f"{undreamt_train_name}/results_all_epochs")
+            tk.register_output(f"{undreamt_train_name}/results_all_epochs.txt", summary_epochs_job.out_summary_txt)
+            tk.register_output(f"{undreamt_train_name}/results_all_epochs.json", summary_epochs_job.out_summary_json)
 
         # Shared Encoder PCA State Visualization (EN+Blank vs EN / DE)
         from .analysis import analyze_encoder_states

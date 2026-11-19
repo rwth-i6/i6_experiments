@@ -780,17 +780,28 @@ def get_collapsed_clusters_path(
 def get_hubert_seq_tags_path(dataset: str = "train-clean-100", cluster: Optional[str] = None) -> tk.Path:
     """
     Returns path to seq_tags.txt for HuBERT feature sequences.
+    Preserves exact historical hash via hash_overwrite pointing to kYveUlRLjWY1.
     """
     active = cluster if cluster is not None else get_cluster()
     norm = active.lower().replace("_", "-")
+    old_curium_path = os.path.join(
+        ClusterPaths.CURIUM_LOCAL_ROOT,
+        "work/i6_experiments/users/oyarzun/experiments/exp2026_09_15_self_learning_emb_asr/sis_recipe/data/hubert/ExtractHuBERTLayerFeaturesJob.kYveUlRLjWY1/output/seq_tags.txt"
+    )
+    old_default_path = "/work/smt4/benjamin.oyarzun/work/i6_experiments/users/oyarzun/experiments/exp2026_09_15_self_learning_emb_asr/sis_recipe/data/hubert/ExtractHuBERTLayerFeaturesJob.kYveUlRLjWY1/output/seq_tags.txt"
+
     if norm in ("curium", "local"):
         p = os.path.join(
             ClusterPaths.CURIUM_LOCAL_ROOT,
-            "work/i6_experiments/users/oyarzun/experiments/exp2026_09_15_self_learning_emb_asr/sis_recipe/data/hubert/ExtractHuBERTLayerFeaturesJob.kYveUlRLjWY1/output/seq_tags.txt"
+            "work/i6_experiments/users/oyarzun/experiments/exp2026_09_15_self_learning_emb_asr/sis_recipe/data/hubert/ExtractHuBERTLayerFeaturesJob.3uyqsgyF0ZZ2/output/seq_tags.txt"
         )
         if os.path.exists(p):
-            return tk.Path(p)
-    return tk.Path("/work/smt4/benjamin.oyarzun/work/i6_experiments/users/oyarzun/experiments/exp2026_09_15_self_learning_emb_asr/sis_recipe/data/hubert/ExtractHuBERTLayerFeaturesJob.kYveUlRLjWY1/output/seq_tags.txt")
+            ret = tk.Path(p)
+            ret.hash_overwrite = (None, old_curium_path)
+            return ret
+    ret = tk.Path("/work/smt4/benjamin.oyarzun/work/i6_experiments/users/oyarzun/experiments/exp2026_09_15_self_learning_emb_asr/sis_recipe/data/hubert/ExtractHuBERTLayerFeaturesJob.3uyqsgyF0ZZ2/output/seq_tags.txt")
+    ret.hash_overwrite = (None, old_default_path)
+    return ret
 
 
 def get_oracle_idx_to_phoneme_path(cluster: Optional[str] = None) -> tk.Path:

@@ -960,3 +960,289 @@ class SpeechClusterDistributionAnalysisJob(tk.Job):
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         fig.savefig(out_path)
         plt.close(fig)
+
+
+# =============================================================================
+# Top Cluster N-Grams and Post-Alignment Mapping Analysis
+# =============================================================================
+
+class TopClusterNgramsAnalysisJob(tk.Job):
+    """
+    Analyzes the most frequent audio cluster n-grams (e.g. top 100 2-grams / 3-grams)
+    and reports what text phoneme n-grams they map to after unsupervised alignment (GAN / CSLS).
+
+    Outputs:
+    - out_top_ngrams_txt: Formatted ASCII/Markdown table of top-K cluster n-grams with frequency,
+      corpus coverage percentage, mapped phoneme target, and alignment cosine similarity.
+    - out_top_ngrams_json: Machine-readable JSON summary with metadata and per-n-gram details.
+    - out_top_ngrams_plot: Visualization bar plot of the top n-grams labeled with their mapped targets.
+    """
+    __sis_version__ = 1
+
+    def __init__(
+        self,
+        cluster_vocab_file: Optional[Union[tk.Path, str]] = None,
+        cluster_counts_file: Optional[Union[tk.Path, str]] = None,
+        dictionary_json: Optional[Union[tk.Path, str]] = None,
+        mapped_audio_embeddings_npy: Optional[Union[tk.Path, str]] = None,
+        text_embeddings_npy: Optional[Union[tk.Path, str]] = None,
+        text_vocab_file: Optional[Union[tk.Path, str]] = None,
+        top_k: int = 100,
+        title_prefix: str = "Top Cluster N-Grams and Alignment",
+        name_prefix: str = "top_cluster_ngrams",
+    ):
+        super().__init__()
+        self.cluster_vocab_file = cluster_vocab_file
+        self.cluster_counts_file = cluster_counts_file
+        self.dictionary_json = dictionary_json
+        self.mapped_audio_embeddings_npy = mapped_audio_embeddings_npy
+        self.text_embeddings_npy = text_embeddings_npy
+        self.text_vocab_file = text_vocab_file
+        self.top_k = top_k
+        self.title_prefix = title_prefix
+        self.name_prefix = name_prefix
+
+        self.out_top_ngrams_txt = self.output_path("top_ngrams_alignment.txt")
+        self.out_top_ngrams_json = self.output_path("top_ngrams_alignment.json")
+        self.out_top_ngrams_plot = self.output_path("top_ngrams_alignment.png")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
+
+        vocab_path = _resolve(self.cluster_vocab_file)
+        counts_path = _resolve(self.cluster_counts_file)
+        dict_path = _resolve(self.dictionary_json)
+        mapped_emb_path = _resolve(self.mapped_audio_embeddings_npy)
+        text_emb_path = _resolve(self.text_embeddings_npy)
+        text_vocab_path = _resolve(self.text_vocab_file)
+
+        # 1. Load cluster vocabulary (ordered 0..V-1)
+        audio_vocab: List[str] = []
+        if vocab_path and os.path.exists(vocab_path):
+            with _open_text(vocab_path) as f:
+                for line in f:
+                    tok = line.strip()
+                    if tok:
+                        audio_vocab.append(tok)
+            logging.info(f"Loaded {len(audio_vocab)} audio cluster tokens from {vocab_path}")
+
+        # 2. Load cluster counts (either 'token count' or 'idx count')
+        token_to_count: Dict[str, int] = {}
+        idx_to_count: Dict[int, int] = {}
+        if counts_path and os.path.exists(counts_path):
+            with _open_text(counts_path) as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if len(parts) >= 2:
+                        try:
+                            # Try idx count first
+                            idx = int(parts[0])
+                            cnt = int(parts[1])
+                            idx_to_count[idx] = cnt
+                            if idx < len(audio_vocab):
+                                token_to_count[audio_vocab[idx]] = cnt
+                        except ValueError:
+                            # String-keyed: tok count
+                            tok = parts[0]
+                            try:
+                                cnt = int(parts[1])
+                                token_to_count[tok] = cnt
+                            except ValueError:
+                                continue
+            logging.info(f"Loaded counts for {len(token_to_count) or len(idx_to_count)} cluster tokens")
+
+        # Fallback if audio_vocab was empty but token_to_count is populated
+        if not audio_vocab and token_to_count:
+            audio_vocab = [tok for tok, _ in sorted(token_to_count.items(), key=lambda x: x[1], reverse=True)]
+
+        # If audio_vocab exists and idx_to_count exists but token_to_count was incomplete
+        if audio_vocab and idx_to_count:
+            for idx, tok in enumerate(audio_vocab):
+                if tok not in token_to_count and idx in idx_to_count:
+                    token_to_count[tok] = idx_to_count[idx]
+
+        token_to_id = {tok: idx for idx, tok in enumerate(audio_vocab)}
+
+        total_tokens = sum(token_to_count.values()) if token_to_count else 0
+        total_unique = len(audio_vocab)
+
+        # 3. Load dictionary alignment mapping (GAN / CSLS)
+        cluster_token_to_phoneme_token: Dict[str, str] = {}
+        cluster_idx_to_phoneme_idx: List[int] = []
+        if dict_path and os.path.exists(dict_path):
+            with open(dict_path, "r", encoding="utf-8") as f:
+                dict_data = json.load(f)
+                cluster_token_to_phoneme_token = dict_data.get("cluster_token_to_phoneme_token", {})
+                cluster_idx_to_phoneme_idx = dict_data.get("cluster_index_to_phoneme_index", [])
+            logging.info(f"Loaded alignment dictionary from {dict_path}")
+
+        # 4. Load text vocabulary (ordered 0..V_text-1)
+        text_vocab: List[str] = []
+        if text_vocab_path and os.path.exists(text_vocab_path):
+            with _open_text(text_vocab_path) as f:
+                for line in f:
+                    tok = line.strip()
+                    if tok:
+                        text_vocab.append(tok)
+
+        # 5. Load mapped audio embeddings and text embeddings for cosine similarity
+        mapped_X = None
+        text_Z = None
+        if mapped_emb_path and os.path.exists(mapped_emb_path) and text_emb_path and os.path.exists(text_emb_path):
+            try:
+                mapped_X = np.load(mapped_emb_path)
+                text_Z = np.load(text_emb_path)
+                norm_X = np.maximum(np.linalg.norm(mapped_X, axis=1, keepdims=True), 1e-12)
+                norm_Z = np.maximum(np.linalg.norm(text_Z, axis=1, keepdims=True), 1e-12)
+                mapped_X = mapped_X / norm_X
+                text_Z = text_Z / norm_Z
+            except Exception as e:
+                logging.warning(f"Could not load or normalize embeddings for similarity calculation: {e}")
+                mapped_X, text_Z = None, None
+
+        # 6. Rank n-grams by frequency descending
+        if token_to_count:
+            sorted_items = sorted(token_to_count.items(), key=lambda x: x[1], reverse=True)
+        else:
+            sorted_items = [(tok, 0) for tok in audio_vocab]
+
+        top_k = min(self.top_k, len(sorted_items))
+        top_records = []
+        cum_count = 0
+        target_distribution = collections.Counter()
+
+        for rank, (tok, count) in enumerate(sorted_items[:top_k], start=1):
+            cum_count += count
+            pct = (count / total_tokens * 100.0) if total_tokens > 0 else 0.0
+            cum_pct = (cum_count / total_tokens * 100.0) if total_tokens > 0 else 0.0
+            idx = token_to_id.get(tok, rank - 1)
+
+            # Determine aligned phoneme
+            mapped_target = cluster_token_to_phoneme_token.get(tok)
+            t_idx = None
+            if mapped_target is None and cluster_idx_to_phoneme_idx and idx < len(cluster_idx_to_phoneme_idx):
+                t_idx = cluster_idx_to_phoneme_idx[idx]
+                if t_idx < len(text_vocab):
+                    mapped_target = text_vocab[t_idx]
+                else:
+                    mapped_target = f"phoneme_{t_idx}"
+            elif mapped_target is not None and text_vocab:
+                try:
+                    t_idx = text_vocab.index(mapped_target)
+                except ValueError:
+                    t_idx = None
+
+            if mapped_target is None:
+                mapped_target = "N/A"
+            else:
+                target_distribution[mapped_target] += 1
+
+            # Compute cosine similarity
+            sim = None
+            if mapped_X is not None and text_Z is not None and idx < len(mapped_X):
+                if t_idx is not None and t_idx < len(text_Z):
+                    sim = float(np.dot(mapped_X[idx], text_Z[t_idx]))
+
+            top_records.append({
+                "rank": rank,
+                "cluster_ngram": tok,
+                "audio_vocab_index": idx,
+                "count": count,
+                "corpus_pct": round(pct, 4),
+                "cumulative_pct": round(cum_pct, 4),
+                "aligned_phoneme": mapped_target,
+                "cosine_similarity": round(sim, 4) if sim is not None else None,
+            })
+
+        top_k_coverage = (cum_count / total_tokens * 100.0) if total_tokens > 0 else 0.0
+
+        # 7. Write Markdown / ASCII Report
+        report_lines = [
+            "=" * 115,
+            f"  {self.title_prefix} - Top {top_k} Most Frequent Cluster N-Grams and Post-Alignment Mappings",
+            "=" * 115,
+            f"Total Unique N-Grams in Vocabulary: {total_unique:,}",
+            f"Total N-Gram Corpus Occurrences:    {total_tokens:,}",
+            f"Top {top_k} N-Grams Cumulative Coverage: {top_k_coverage:.2f}%",
+            f"Unique Aligned Phoneme Targets in Top {top_k}: {len(target_distribution)}",
+            "-" * 115,
+            f"{'Rank':>5} | {'Cluster N-Gram':<22} | {'Vocab Idx':>9} | {'Frequency':>12} | {'Corpus %':>9} | {'Cumul %':>9} | {'Aligned Phoneme':<20} | {'Cosine Sim':>10}",
+            "-" * 115,
+        ]
+
+        for rec in top_records:
+            sim_str = f"{rec['cosine_similarity']:.4f}" if rec['cosine_similarity'] is not None else "   N/A"
+            report_lines.append(
+                f"{rec['rank']:>5} | {rec['cluster_ngram']:<22} | {rec['audio_vocab_index']:>9} | {rec['count']:>12,} | "
+                f"{rec['corpus_pct']:>8.3f}% | {rec['cumulative_pct']:>8.3f}% | {rec['aligned_phoneme']:<20} | {sim_str:>10}"
+            )
+
+        report_lines.append("-" * 115)
+        report_lines.append("\nTop Aligned Phoneme Target Distribution (among top cluster n-grams):")
+        for ph, cnt in target_distribution.most_common(20):
+            report_lines.append(f"  - {ph:<20}: mapped {cnt} time(s)")
+        report_lines.append("=" * 115 + "\n")
+
+        with open(self.out_top_ngrams_txt.get_path(), "w", encoding="utf-8") as f:
+            f.write("\n".join(report_lines))
+
+        # 8. Write Summary JSON
+        summary_data = {
+            "title": self.title_prefix,
+            "top_k": top_k,
+            "total_unique_ngrams": total_unique,
+            "total_tokens": total_tokens,
+            "top_k_coverage_pct": round(top_k_coverage, 4),
+            "unique_aligned_phonemes_in_top_k": len(target_distribution),
+            "top_ngrams": top_records,
+            "target_phoneme_distribution_in_top_k": dict(target_distribution.most_common()),
+        }
+        with open(self.out_top_ngrams_json.get_path(), "w", encoding="utf-8") as f:
+            json.dump(summary_data, f, indent=2)
+
+        # 9. Plot Visualization (Top 35 n-grams for optimal readability)
+        plot_k = min(35, len(top_records))
+        plot_records = top_records[:plot_k][::-1]
+
+        labels = [f"#{r['rank']} {r['cluster_ngram']} \u2192 {r['aligned_phoneme']}" for r in plot_records]
+        counts = [r["count"] for r in plot_records]
+        pcts = [r["corpus_pct"] for r in plot_records]
+
+        fig, ax = plt.subplots(figsize=(11, max(8, plot_k * 0.32)), dpi=200)
+        bars = ax.barh(range(plot_k), counts, color="#2b5c8f", edgecolor="#1c3b5e", alpha=0.88)
+        ax.set_yticks(range(plot_k))
+        ax.set_yticklabels(labels, fontsize=8.5, family="monospace")
+        ax.set_xlabel("Corpus Frequency Count", fontsize=10, fontweight="bold")
+        cov_title = f"{top_records[plot_k - 1]['cumulative_pct']:.1f}%" if top_records else "0%"
+        ax.set_title(
+            f"{self.title_prefix}\nTop {plot_k} Cluster N-Grams and Aligned Phoneme Targets (Coverage: {cov_title})",
+            fontsize=11,
+            fontweight="bold",
+            pad=12,
+        )
+        ax.grid(axis="x", linestyle="--", alpha=0.35)
+
+        max_c = max(counts) if counts else 1
+        for bar, count, pct in zip(bars, counts, pcts):
+            ax.text(
+                count + max_c * 0.012,
+                bar.get_y() + bar.get_height() / 2,
+                f"{count:,} ({pct:.2f}%)",
+                va="center",
+                fontsize=7.5,
+                color="#333333",
+            )
+        ax.set_xlim(0, max_c * 1.18)
+
+        plt.tight_layout()
+        os.makedirs(os.path.dirname(self.out_top_ngrams_plot.get_path()), exist_ok=True)
+        fig.savefig(self.out_top_ngrams_plot.get_path())
+        plt.close(fig)
+        logging.info("Completed TopClusterNgramsAnalysisJob successfully.")

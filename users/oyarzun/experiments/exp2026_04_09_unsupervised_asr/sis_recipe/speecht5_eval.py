@@ -18,8 +18,15 @@ import logging
 import math
 import numpy as np
 
-import soundfile as sf
-import torch
+try:
+    import soundfile as sf
+except ImportError:
+    sf = None
+
+try:
+    import torch
+except ImportError:
+    torch = None
 
 from sisyphus import tk, Task
 

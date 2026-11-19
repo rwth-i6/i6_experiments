@@ -176,6 +176,49 @@ def forward_step(
 
     ctx = rf.get_run_ctx()
 
+    if hasattr(model, "forward_cross_attention"):
+        data = extern_data[input_data_key]
+        enc_indices = data.raw_tensor.long()
+        enc_lens = data.dims[1].dyn_size_ext.raw_tensor.to(device=enc_indices.device)
+        enc_time_dim = data.dims[1]
+
+        target = extern_data[target_data_key]
+        labels = target.raw_tensor
+        labels_lens = target.dims[1].dyn_size_ext.raw_tensor.to(device=labels.device)
+
+        # UNdreaMT SOS_ID = 3
+        sos_id = 3
+        input_labels = F.pad(labels, (1, 0), "constant", value=sos_id)
+        input_labels_lens = labels_lens + 1
+
+        _, att_weights = model.forward_cross_attention(
+            src_indices_bt=enc_indices,
+            src_lengths_b=enc_lens,
+            trg_labels_bt=input_labels,
+            trg_lengths_b=input_labels_lens,
+            src_lang="src" if input_modality == "audio" else "trg",
+            trg_lang="trg" if output_modality == "text" else "src",
+        )
+
+        layer_dim = Dim(att_weights.shape[1], name="dec_layer")
+        head_dim = Dim(att_weights.shape[2], name="att_head")
+        query_dim = _dyn_time_dim(input_labels_lens, "query_time")
+
+        att_weights_rf = rf.convert_to_tensor(
+            att_weights.float(), dims=[batch_dim, layer_dim, head_dim, query_dim, enc_time_dim]
+        )
+        ctx.mark_as_output(
+            att_weights_rf, "att_weights", dims=[batch_dim, layer_dim, head_dim, query_dim, enc_time_dim]
+        )
+
+        vocab_size = getattr(model, "trg_vocab_size", 50000) + 4
+        vocab_dim = Dim(vocab_size, name="vocab")
+        labels_rf = rf.convert_to_tensor(input_labels.int(), dims=[batch_dim, query_dim], sparse_dim=vocab_dim)
+        ctx.mark_as_output(labels_rf, "labels", dims=[batch_dim, query_dim])
+
+        _num_marked_seqs += int(labels.shape[0])
+        return
+
     target = extern_data[target_data_key]
     labels = target.raw_tensor
     labels_lens = target.dims[1].dyn_size_ext.raw_tensor.to(device=labels.device)

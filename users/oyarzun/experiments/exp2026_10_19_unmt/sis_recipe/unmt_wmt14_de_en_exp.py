@@ -42,7 +42,7 @@ from .data.wmt14_de_en import (
     DumpTextToReturnnHdfJob,
     NormalizeTokenizedTextJob,
 )
-from .bleu_eval import ComputeBleuJob, generic_bleu_score_recog_out
+from .bleu_eval import ComputeBleuJob, generic_bleu_score_recog_out, JoinScoresJob, SummarizeEpochCheckpointsJob
 from .eval_word_by_word_baseline import WordByWordCrossLingualEvalJob
 from .eval_sequence_difference import SequenceDifferenceEvalJob
 from .comet_eval import CometEvalJob, generic_comet_score_recog_out
@@ -114,6 +114,7 @@ def run_wmt14_de_en_unmt_pipeline(
     align_init_method: Optional[str] = None,
     gpu_mem: Optional[int] = None,
     en_w2v_window: Optional[int] = None,
+    retrieval_metrics: Optional[Sequence[str]] = None,
 ):
     assert de_code_type in ("word", "bpe", "diphone", "triphone"), f"Unsupported de_code_type: {de_code_type}"
     assert en_code_type in (
@@ -744,7 +745,7 @@ def run_wmt14_de_en_unmt_pipeline(
         tk.register_output(f"{prefix_name}/word2vec/de_isotropy_report.json", w2v_de_job.out_isotropy_report_json)
         tk.register_output(f"{prefix_name}/word2vec/de_isotropy_report.txt", w2v_de_job.out_isotropy_report_txt)
 
-        if is_averaged_ngram_en:
+        if is_avg_ngram_en:
             en_abtt_suffix = f"word_{ngram_name}_avg_{effective_en_vocab_size}"
         elif is_cluster_en:
             en_abtt_suffix = f"cluster_{effective_en_vocab_size}_{en_cluster_w2v_alias_suffix}"
@@ -900,7 +901,10 @@ def run_wmt14_de_en_unmt_pipeline(
     # 4. Baseline System: Word-by-Word Translation via Cross-Lingual Embeddings
     #    Evaluated with BLEU-4 on newstest2014 (de->en and en->de)
     # -------------------------------------------------------------------------
-    for metric in ("cosine", "csls"):
+    active_metrics = retrieval_metrics if retrieval_metrics is not None else ("cosine", "csls")
+    wbw_score_results = {}
+
+    for metric in active_metrics:
         # de -> en word-by-word baseline
         wbw_de2en_job = WordByWordCrossLingualEvalJob(
             src_embeddings_npy=align_job.out_mapped_src_emb_npy,
@@ -952,6 +956,7 @@ def run_wmt14_de_en_unmt_pipeline(
             tk.register_output(f"{prefix_name}/comet/de2en_{metric}/segments.tsv", comet_de2en.out_segment_scores_tsv)
 
         # Word-level BLEU if target is BPE or cluster
+        de2en_bleu_target = wbw_de2en_job.out_bleu
         if en_code_type == "bpe":
             debpe_wbw_de2en = DeBpeTextJob(input_file=wbw_de2en_job.out_raw_hypotheses_txt)
             debpe_wbw_de2en.add_alias(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/debpe")
@@ -964,6 +969,7 @@ def run_wmt14_de_en_unmt_pipeline(
             bleu_wbw_de2en_word.add_alias(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/bleu_word_level")
             tk.register_output(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/bleu_word_level", bleu_wbw_de2en_word.out_bleu)
             tk.register_output(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/hypotheses.word_level.txt", bleu_wbw_de2en_word.out_hyp_txt)
+            de2en_bleu_target = bleu_wbw_de2en_word.out_bleu
         elif is_cluster_en:
             decluster_wbw_de2en = MapClustersToWordsJob(
                 hyp_file=wbw_de2en_job.out_raw_hypotheses_txt,
@@ -979,6 +985,9 @@ def run_wmt14_de_en_unmt_pipeline(
             bleu_wbw_de2en_word.add_alias(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/bleu_word_level")
             tk.register_output(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/bleu_word_level", bleu_wbw_de2en_word.out_bleu)
             tk.register_output(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/hypotheses.word_level.txt", bleu_wbw_de2en_word.out_hyp_txt)
+            de2en_bleu_target = bleu_wbw_de2en_word.out_bleu
+
+        wbw_score_results[f"de2en_{metric}"] = de2en_bleu_target
 
         # en -> de word-by-word baseline
         wbw_en2de_job = WordByWordCrossLingualEvalJob(
@@ -1031,6 +1040,7 @@ def run_wmt14_de_en_unmt_pipeline(
             tk.register_output(f"{prefix_name}/comet/en2de_{metric}/segments.tsv", comet_en2de.out_segment_scores_tsv)
 
         # Word-level BLEU if target is BPE
+        en2de_bleu_target = wbw_en2de_job.out_bleu
         if de_code_type == "bpe":
             debpe_wbw_en2de = DeBpeTextJob(input_file=wbw_en2de_job.out_raw_hypotheses_txt)
             debpe_wbw_en2de.add_alias(f"{prefix_name}/baseline_word_by_word/en2de_{metric}/debpe")
@@ -1043,6 +1053,19 @@ def run_wmt14_de_en_unmt_pipeline(
             bleu_wbw_en2de_word.add_alias(f"{prefix_name}/baseline_word_by_word/en2de_{metric}/bleu_word_level")
             tk.register_output(f"{prefix_name}/baseline_word_by_word/en2de_{metric}/bleu_word_level", bleu_wbw_en2de_word.out_bleu)
             tk.register_output(f"{prefix_name}/baseline_word_by_word/en2de_{metric}/hypotheses.word_level.txt", bleu_wbw_en2de_word.out_hyp_txt)
+            en2de_bleu_target = bleu_wbw_en2de_word.out_bleu
+
+        wbw_score_results[f"en2de_{metric}"] = en2de_bleu_target
+
+    # Join baseline word-by-word BLEU scores (2 or 4 results depending on whether CSLS is included)
+    if wbw_score_results:
+        join_wbw_job = JoinScoresJob(
+            scores=wbw_score_results,
+            title=f"Baseline Word-by-Word BLEU ({train_name})",
+        )
+        join_wbw_job.add_alias(f"{prefix_name}/baseline_word_by_word/score_results")
+        tk.register_output(f"{prefix_name}/baseline_word_by_word/score_results.txt", join_wbw_job.out_summary_txt)
+        tk.register_output(f"{prefix_name}/baseline_word_by_word/score_results.json", join_wbw_job.out_summary_json)
 
     train_job = None
     pca_jobs = None
@@ -1263,12 +1286,14 @@ def run_wmt14_de_en_unmt_pipeline(
         )
 
         # Evaluate checkpoints on newstest2014 in both directions (de -> en and en -> de)
+        undreamt_epoch_scores = {}
         for eval_ep in eval_epochs:
             ckpt = get_checkpoint(
                 training_name=undreamt_train_name,
                 train_job=train_job,
                 get_specific_checkpoint=eval_ep,
             )
+            ep_scores = {}
 
             for direction_name, src_lang, trg_lang, test_ds, fwd_datastreams, vocab_key, src_file, ref_file in [
                 (
@@ -1344,6 +1369,7 @@ def run_wmt14_de_en_unmt_pipeline(
                 tk.register_output(f"{recog_prefix}/bleu", bleu_job.out_bleu)
                 tk.register_output(f"{recog_prefix}/bleu_report.txt", bleu_job.out_report)
                 tk.register_output(f"{recog_prefix}/hypotheses.txt", bleu_job.out_hyp_txt)
+                ep_scores[f"{direction_name}_bleu"] = bleu_job.out_bleu
 
                 if enable_comet:
                     comet_job = CometEvalJob(
@@ -1387,6 +1413,7 @@ def run_wmt14_de_en_unmt_pipeline(
                     tk.register_output(f"{recog_prefix}/bleu_word_level", bleu_word_job.out_bleu)
                     tk.register_output(f"{recog_prefix}/bleu_word_level_report.txt", bleu_word_job.out_report)
                     tk.register_output(f"{recog_prefix}/hypotheses.word_level.txt", bleu_word_job.out_hyp_txt)
+                    ep_scores[f"{direction_name}_word_bleu"] = bleu_word_job.out_bleu
 
                     if enable_comet:
                         word_src = test2014_job.out_src_tok if direction_name == "de2en" else test2014_job.out_trg_tok
@@ -1417,6 +1444,7 @@ def run_wmt14_de_en_unmt_pipeline(
                     tk.register_output(f"{recog_prefix}/bleu_word_level", bleu_word_job.out_bleu)
                     tk.register_output(f"{recog_prefix}/bleu_word_level_report.txt", bleu_word_job.out_report)
                     tk.register_output(f"{recog_prefix}/hypotheses.word_level.txt", bleu_word_job.out_hyp_txt)
+                    ep_scores[f"{direction_name}_word_bleu"] = bleu_word_job.out_bleu
 
                     if enable_comet:
                         word_src = test2014_job.out_src_tok
@@ -1430,6 +1458,25 @@ def run_wmt14_de_en_unmt_pipeline(
                         comet_word_job.add_alias(f"{recog_prefix}/comet_word_level")
                         tk.register_output(f"{recog_prefix}/comet_word_level", comet_word_job.out_comet)
                         tk.register_output(f"{recog_prefix}/comet_word_level_report.txt", comet_word_job.out_report)
+
+            if ep_scores:
+                ep_join_job = JoinScoresJob(
+                    scores=ep_scores,
+                    title=f"UNdreaMT Epoch {eval_ep} Evaluation Scores ({train_name})",
+                )
+                ep_join_job.add_alias(f"{undreamt_train_name}/recog_ep{eval_ep}/score_results")
+                tk.register_output(f"{undreamt_train_name}/recog_ep{eval_ep}/score_results.txt", ep_join_job.out_summary_txt)
+                tk.register_output(f"{undreamt_train_name}/recog_ep{eval_ep}/score_results.json", ep_join_job.out_summary_json)
+                undreamt_epoch_scores[eval_ep] = ep_scores
+
+        if undreamt_epoch_scores:
+            summary_epochs_job = SummarizeEpochCheckpointsJob(
+                epoch_scores=undreamt_epoch_scores,
+                title=f"UNdreaMT Checkpoint Evaluation Summary ({train_name})",
+            )
+            summary_epochs_job.add_alias(f"{undreamt_train_name}/results_all_epochs")
+            tk.register_output(f"{undreamt_train_name}/results_all_epochs.txt", summary_epochs_job.out_summary_txt)
+            tk.register_output(f"{undreamt_train_name}/results_all_epochs.json", summary_epochs_job.out_summary_json)
 
         # -------------------------------------------------------------------------
         # 6. Cross-Lingual Shared Encoder PCA Analysis (German vs. English)

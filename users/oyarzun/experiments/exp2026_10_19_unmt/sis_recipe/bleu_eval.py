@@ -141,7 +141,7 @@ def _load_text_or_dict(filepath: str) -> Tuple[Optional[Dict[str, str]], List[st
         except Exception as e:
             logging.warning(f"Failed to parse dict from {filepath}: {e}")
 
-    raw_lines = [line.strip() for line in content.splitlines()]
+    raw_lines = [line.strip() for line in content.splitlines() if line.strip()]
     if any(line.startswith("hypothesis:") for line in raw_lines):
         hyp_lines = [
             line[len("hypothesis:"):].strip()
@@ -156,6 +156,20 @@ def _load_text_or_dict(filepath: str) -> Tuple[Optional[Dict[str, str]], List[st
             if line.startswith("reference:")
         ]
         return None, ref_lines
+
+    # Detect if lines are formatted with sequence tags: "<tag> <text...>"
+    if raw_lines:
+        first_tokens = [line.split(None, 1)[0] for line in raw_lines]
+        if all("-" in tok or "/" in tok or tok.startswith(("dev", "line", "train", "test")) for tok in first_tokens):
+            norm_dict = {}
+            lines = []
+            for line in raw_lines:
+                parts = line.split(None, 1)
+                tag = parts[0]
+                text = parts[1] if len(parts) > 1 else ""
+                norm_dict[tag] = text
+                lines.append(text)
+            return norm_dict, lines
 
     lines = raw_lines
     return None, lines
@@ -328,3 +342,157 @@ def generic_bleu_score_recog_out(
         main_measure_value=bleu_job.out_bleu,
         report=bleu_job.out_report,
     )
+
+
+# =============================================================================
+# Score Joining & Evaluation Checkpoint Summary Jobs
+# =============================================================================
+
+class JoinScoresJob(Job):
+    """
+    Joins multiple evaluation scores (e.g. baseline word-by-word BLEU across directions
+    and retrieval metrics: de2en_csls, de2en_cosine, en2de_csls, en2de_cosine, or just the
+    2 cosine results if not using CSLS) into a single human-readable score table and JSON summary.
+    """
+    __sis_version__ = 1
+
+    def __init__(self, scores: Dict[str, Any], title: str = "Evaluation Scores Summary"):
+        super().__init__()
+        self.scores = scores
+        self.title = title
+        self.out_summary_txt = self.output_path("score_results.txt")
+        self.out_summary_json = self.output_path("score_results.json")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    @staticmethod
+    def _extract_val(v: Any) -> Any:
+        if hasattr(v, "get"):
+            v = v.get()
+        if hasattr(v, "get_path"):
+            v = v.get_path()
+        if isinstance(v, str) and os.path.exists(v):
+            if v.endswith(".json"):
+                try:
+                    with open(v, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    return data.get("bleu", data.get("score", data.get("per", data)))
+                except Exception:
+                    pass
+            else:
+                try:
+                    with open(v, "r", encoding="utf-8") as f:
+                        content = f.read().strip()
+                    return float(content)
+                except Exception:
+                    pass
+        if isinstance(v, (int, float)):
+            return round(float(v), 2)
+        return v
+
+    def run(self):
+        res = {}
+        for k, v in self.scores.items():
+            res[k] = self._extract_val(v)
+
+        max_key_len = max([len(k) for k in res.keys()] + [15])
+        with open(self.out_summary_txt.get_path(), "w", encoding="utf-8") as f:
+            width = max_key_len + 18
+            f.write("=" * width + "\n")
+            f.write(f" {self.title}\n")
+            f.write("=" * width + "\n")
+            f.write(f"  {'Metric / Task'.ljust(max_key_len)} | {'Score':>10}\n")
+            f.write("  " + "-" * max_key_len + "-+-----------" + "\n")
+            for k, val in res.items():
+                val_str = f"{val:.2f}" if isinstance(val, (int, float)) else str(val)
+                f.write(f"  {k.ljust(max_key_len)} | {val_str:>10}\n")
+            f.write("=" * width + "\n")
+
+        with open(self.out_summary_json.get_path(), "w", encoding="utf-8") as fj:
+            json.dump(res, fj, indent=2)
+
+
+class SummarizeEpochCheckpointsJob(Job):
+    """
+    Summarizes the evaluation checkpoints of a single UNdreaMT training ablation into one file,
+    similarly to ASR evaluation summaries.
+    Takes a dict mapping epoch/checkpoint (int or str) to a dict of {metric_name: score_val}.
+    Outputs:
+      - out_summary_txt: clean ASCII table displaying all checkpoints and their metrics side-by-side
+      - out_summary_json: JSON mapping each epoch to its evaluation metrics
+    """
+    __sis_version__ = 1
+
+    def __init__(
+        self,
+        epoch_scores: Dict[Union[int, str], Dict[str, Any]],
+        title: str = "UNdreaMT Checkpoint Evaluation Summary",
+        main_key: Optional[str] = None,
+    ):
+        super().__init__()
+        self.epoch_scores = epoch_scores
+        self.title = title
+        self.main_key = main_key
+        self.out_summary_txt = self.output_path("results_all_epochs.txt")
+        self.out_summary_json = self.output_path("results_all_epochs.json")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        res = {}
+        all_metric_keys = []
+        # Sort checkpoints numerically if possible
+        sorted_eps = sorted(
+            self.epoch_scores.keys(),
+            key=lambda x: (int(str(x).replace("epoch_", "").replace("ep", "")) if str(x).replace("epoch_", "").replace("ep", "").isdigit() else str(x))
+        )
+        for ep in sorted_eps:
+            scores_dict = self.epoch_scores[ep]
+            ep_str = f"epoch_{ep}" if str(ep).isdigit() else str(ep)
+            res[ep_str] = {}
+            for k, v in scores_dict.items():
+                val = JoinScoresJob._extract_val(v)
+                res[ep_str][k] = val
+                if k not in all_metric_keys:
+                    all_metric_keys.append(k)
+
+        col_widths = {k: max(len(k), 10) for k in all_metric_keys}
+        ep_col_len = max([len(ep) for ep in res.keys()] + [18])
+
+        header = f"  {'Checkpoint / Epoch'.ljust(ep_col_len)} | " + " | ".join(k.rjust(col_widths[k]) for k in all_metric_keys)
+        divider = "  " + "-" * ep_col_len + "-+-" + "-+-".join("-" * col_widths[k] for k in all_metric_keys)
+        total_width = len(header) + 2
+
+        with open(self.out_summary_txt.get_path(), "w", encoding="utf-8") as f:
+            f.write("=" * total_width + "\n")
+            f.write(f" {self.title}\n")
+            f.write("=" * total_width + "\n")
+            f.write(header + "\n")
+            f.write(divider + "\n")
+
+            best_ep = None
+            best_val = -1.0
+            eval_key = self.main_key or (all_metric_keys[0] if all_metric_keys else None)
+
+            for ep_str, scores in res.items():
+                row_vals = []
+                for k in all_metric_keys:
+                    v = scores.get(k, "-")
+                    v_str = f"{v:.2f}" if isinstance(v, (int, float)) else str(v)
+                    row_vals.append(v_str.rjust(col_widths[k]))
+                f.write(f"  {ep_str.ljust(ep_col_len)} | " + " | ".join(row_vals) + "\n")
+
+                if eval_key and isinstance(scores.get(eval_key), (int, float)):
+                    if scores[eval_key] > best_val:
+                        best_val = scores[eval_key]
+                        best_ep = ep_str
+
+            f.write("=" * total_width + "\n")
+            if best_ep is not None and eval_key:
+                f.write(f" Best Checkpoint: {best_ep} ({eval_key}: {best_val:.2f})\n")
+                f.write("=" * total_width + "\n")
+
+        with open(self.out_summary_json.get_path(), "w", encoding="utf-8") as fj:
+            json.dump(res, fj, indent=2)

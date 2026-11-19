@@ -111,6 +111,7 @@ class GlobalAttention(nn.Module):
         self.context_projection = nn.Linear(dim, dim, bias=False)
         self.query_projection = nn.Linear(dim, dim, bias=True)
         self.tanh = nn.Tanh()
+        self.last_weights: Optional[torch.Tensor] = None
 
     def forward(
         self,
@@ -135,6 +136,7 @@ class GlobalAttention(nn.Module):
             scores = scores.masked_fill(mask, -1e9)
 
         weights = F.softmax(scores, dim=-1)  # (batch, src_len)
+        self.last_weights = weights.detach()
         weighted_context = weights.unsqueeze(1).bmm(context_t).squeeze(1)  # (batch, dim)
         return self.tanh(self.context_projection(weighted_context) + self.query_projection(query))
 
@@ -331,6 +333,46 @@ class UNdreaMTRNNAttentionDecoder(nn.Module):
             outputs.append(prev_out)
         stacked_outputs = torch.stack(outputs, dim=0)  # (trg_len, batch, hidden_size)
         return generator(stacked_outputs)
+
+    def forward_with_attention(
+        self,
+        ids: torch.Tensor,
+        init_hidden: torch.Tensor,
+        context: torch.Tensor,
+        context_mask: torch.Tensor,
+        word_embeddings: CrossLingualWordEmbedding,
+        generator: nn.Module,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Teacher-forced forward pass across all target steps, returning both logprobs
+        and the captured GlobalAttention weight matrix of shape (batch, trg_len, src_len).
+        """
+        batch_size = ids.shape[1]
+        hidden = init_hidden
+        prev_out = torch.zeros(batch_size, self.hidden_size, device=ids.device, dtype=context.dtype)
+        outputs = []
+        att_weights_list = []
+        for step_ids in ids.split(1, dim=0):
+            prev_out, hidden = self.forward_step(
+                step_ids.squeeze(0),
+                hidden,
+                prev_out,
+                context,
+                context_mask,
+                word_embeddings,
+            )
+            outputs.append(prev_out)
+            if self.attention.last_weights is not None:
+                att_weights_list.append(self.attention.last_weights)
+
+        stacked_outputs = torch.stack(outputs, dim=0)
+        logprobs = generator(stacked_outputs)
+        if att_weights_list:
+            # (trg_len, batch, src_len) -> (batch, trg_len, src_len)
+            att_weights = torch.stack(att_weights_list, dim=0).permute(1, 0, 2)
+        else:
+            att_weights = torch.zeros(batch_size, ids.shape[0], context.shape[0], device=ids.device)
+        return logprobs, att_weights
 
 
 class LinearGenerator(nn.Module):
@@ -557,6 +599,33 @@ class UNdreaMTModel(nn.Module):
         self, indices_bt: torch.Tensor, lengths_b: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         return self.forward_trg_encoder(indices_bt, lengths_b)
+
+    def forward_cross_attention(
+        self,
+        src_indices_bt: torch.Tensor,
+        src_lengths_b: torch.Tensor,
+        trg_labels_bt: torch.Tensor,
+        trg_lengths_b: torch.Tensor,
+        src_lang: str = "src",
+        trg_lang: str = "trg",
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Runs teacher-forcing and returns (logprobs, att_weights_b11qk) formatted for CrossAttentionWeightsCallback:
+        att_weights shape: (batch, 1, 1, trg_len, src_len).
+        """
+        src_enc_emb, _, _, _, _ = self.get_lang_modules(src_lang)
+        _, trg_dec_emb, trg_decoder, trg_generator, _ = self.get_lang_modules(trg_lang)
+
+        src_ids_tb = src_indices_bt.long().transpose(0, 1).contiguous()
+        trg_ids_tb = trg_labels_bt.long().transpose(0, 1).contiguous()
+
+        enc_out, enc_hidden, enc_mask = self.encoder(src_ids_tb, src_lengths_b.long(), src_enc_emb)
+        logprobs, att_weights = trg_decoder.forward_with_attention(
+            trg_ids_tb, enc_hidden, enc_out, enc_mask, trg_dec_emb, trg_generator
+        )
+        # att_weights: (batch, trg_len, src_len) -> (batch, 1, 1, trg_len, src_len)
+        att_weights_b11qk = att_weights.unsqueeze(1).unsqueeze(2)
+        return logprobs, att_weights_b11qk
 
     def forward_seq2seq(
         self,

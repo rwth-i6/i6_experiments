@@ -45,7 +45,19 @@ def load_text_or_dict_file(filepath: str) -> Tuple[Optional[Dict[str, str]], Lis
         except Exception as e:
             logging.warning(f"Failed to parse dict from {filepath}: {e}")
 
-    lines = [line.strip() for line in content.splitlines()]
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    if lines:
+        first_tokens = [line.split(None, 1)[0] for line in lines]
+        if all("-" in tok or "/" in tok or tok.startswith(("dev", "line", "train", "test")) for tok in first_tokens):
+            norm_dict = {}
+            clean_lines = []
+            for line in lines:
+                parts = line.split(None, 1)
+                tag = parts[0]
+                text = parts[1] if len(parts) > 1 else ""
+                norm_dict[tag] = text
+                clean_lines.append(text)
+            return norm_dict, clean_lines
     return None, lines
 
 
@@ -342,6 +354,7 @@ class SequenceDifferenceEvalJob(Job):
         name: Optional[str] = "seq_diff",
         input_lang: Optional[str] = None,
         target_lang: Optional[str] = None,
+        input_seq_tags: Optional[tk.Path] = None,
     ):
         super().__init__()
         self.hypothesis_txt = hypothesis_txt
@@ -350,6 +363,7 @@ class SequenceDifferenceEvalJob(Job):
         self.name_tag = name
         self.input_lang = input_lang
         self.target_lang = target_lang
+        self.input_seq_tags = input_seq_tags
 
         # Outputs
         self.out_summary_json = self.output_path("sequence_difference_summary.json")
@@ -366,6 +380,14 @@ class SequenceDifferenceEvalJob(Job):
         hyp_dict, hyp_lines = load_text_or_dict_file(self.hypothesis_txt.get_path())
         ref_dict, ref_lines = load_text_or_dict_file(self.reference_txt.get_path())
         inp_dict, inp_lines = load_text_or_dict_file(self.input_txt.get_path()) if self.input_txt else (None, None)
+
+        if inp_dict is None and inp_lines is not None and self.input_seq_tags:
+            tag_path = self.input_seq_tags.get_path() if hasattr(self.input_seq_tags, "get_path") else str(self.input_seq_tags)
+            if os.path.exists(tag_path):
+                with open(tag_path, "r", encoding="utf-8") as ft:
+                    inp_tags = [l.strip() for l in ft if l.strip()]
+                if len(inp_tags) >= len(inp_lines):
+                    inp_dict = {inp_tags[i]: inp_lines[i] for i in range(len(inp_lines))}
 
         tags = None
         if hyp_dict is not None and ref_dict is not None:

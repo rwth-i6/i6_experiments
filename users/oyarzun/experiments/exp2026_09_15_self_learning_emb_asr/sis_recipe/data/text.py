@@ -27,6 +27,7 @@ class PhonemizeTextDataJob(Job):
         python_env: Optional[tk.Path] = None,
         seq_tag_file: Optional[tk.Path] = None,
         surround_w_sil: bool = True,
+        word_boundary_token: Optional[str] = None,
     ):
         super().__init__()
         self.text_file = text_file
@@ -41,6 +42,7 @@ class PhonemizeTextDataJob(Job):
         self.min_phoneme_occurrence = min_phoneme_occurrence
         self.phonemizer_engine = phonemizer_engine
         self.surround_w_sil = surround_w_sil
+        self.word_boundary_token = word_boundary_token
 
         self.out_lexicon_file = self.output_path("lexicon_filtered.lst")
         self.out_phoneme_text = self.output_path("text.phonemes.txt")
@@ -130,6 +132,7 @@ class PhonemizeTextDataJob(Job):
         surround: bool,
         seq_tags_file: str,
         lexicon: str,
+        word_boundary_token: Optional[str] = None,
     ):
         import sys
         sil = "<SIL>"
@@ -171,6 +174,8 @@ class PhonemizeTextDataJob(Job):
                 sample_sil_probs = np.random.random(len(words) - 1)
 
             for j, w in enumerate(words):
+                if word_boundary_token is not None and j > 0:
+                    phones.append(word_boundary_token)
                 phones.extend(wrd_to_phn[w])
                 if sample_sil_probs is not None and j < len(sample_sil_probs) and sample_sil_probs[j] < sil_prob:
                     phones.append(sil)
@@ -242,6 +247,7 @@ class PhonemizeTextDataJob(Job):
             surround=self.surround_w_sil,
             seq_tags_file=seq_tag_file,
             lexicon=self.out_lexicon_file.get_path(),
+            word_boundary_token=self.word_boundary_token,
         )
 
         shutil.move("lm.phones.filtered.txt", self.out_phoneme_text.get_path())
@@ -366,6 +372,7 @@ def get_phonemized_data(
     seq_tag_file: Optional[Path] = None,
     vocab_file: Optional[Path] = None,
     surround_w_sil: bool = True,
+    word_boundary_token: Optional[str] = None,
 ):
     prepare_text_job_training = PhonemizeTextDataJob(
         text_file=text_file,
@@ -378,9 +385,12 @@ def get_phonemized_data(
         seq_tag_file=seq_tag_file,
         min_phoneme_occurrence=1000,
         surround_w_sil=surround_w_sil,
+        word_boundary_token=word_boundary_token,
     )
+    sil_tag = "" if (sil_prob > 0.0 or surround_w_sil) else "_wo_sil"
+    wb_tag = f"_wb_{word_boundary_token.strip('<>')}" if word_boundary_token else ""
     text_file = prepare_text_job_training.out_phoneme_text
-    tk.register_output(f"data/{corpus_name}/text/phonemized/{dataset_name}.txt", text_file)
+    tk.register_output(f"data/{corpus_name}/text/phonemized{sil_tag}{wb_tag}/{dataset_name}.txt", text_file)
     lexicon_file = prepare_text_job_training.out_lexicon_file
     vocab_file = prepare_text_job_training.out_phoneme_vocab if vocab_file is None else vocab_file
     seq_tags_after_phonemize = prepare_text_job_training.out_seq_tags
@@ -413,6 +423,7 @@ def get_phonemized_data_with_text(
     seq_tag_file: Optional[Path] = None,
     vocab_file: Optional[Path] = None,
     surround_w_sil: bool = True,
+    word_boundary_token: Optional[str] = None,
 ):
     prepare_text_job_training = PhonemizeTextDataJob(
         text_file=text_file,
@@ -425,9 +436,12 @@ def get_phonemized_data_with_text(
         seq_tag_file=seq_tag_file,
         min_phoneme_occurrence=1000,
         surround_w_sil=surround_w_sil,
+        word_boundary_token=word_boundary_token,
     )
+    sil_tag = "" if (sil_prob > 0.0 or surround_w_sil) else "_wo_sil"
+    wb_tag = f"_wb_{word_boundary_token.strip('<>')}" if word_boundary_token else ""
     phoneme_text_out = prepare_text_job_training.out_phoneme_text
-    tk.register_output(f"data/{corpus_name}/text/phonemized/{dataset_name}.txt", phoneme_text_out)
+    tk.register_output(f"data/{corpus_name}/text/phonemized{sil_tag}{wb_tag}/{dataset_name}.txt", phoneme_text_out)
     lexicon_file = prepare_text_job_training.out_lexicon_file
     vocab_file = prepare_text_job_training.out_phoneme_vocab if vocab_file is None else vocab_file
     seq_tags_after_phonemize = prepare_text_job_training.out_seq_tags

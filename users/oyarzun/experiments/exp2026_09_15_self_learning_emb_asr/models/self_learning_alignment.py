@@ -105,6 +105,7 @@ def induce_dictionary_nn(
     Z: np.ndarray,
     retrieval_metric: str = "cosine",
     csls_k: int = 10,
+    compatibility_mask: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Induces a new dictionary D via nearest neighbor retrieval using dot-product similarity
@@ -115,6 +116,7 @@ def induce_dictionary_nn(
     :param Z: Target embeddings (P x d)
     :param retrieval_metric: 'cosine' or 'csls'
     :param csls_k: Number of neighbors for CSLS
+    :param compatibility_mask: Optional boolean mask (K x P) where True indicates structurally valid pairs
     :return: (D, similarities) where D is binary (K x P) and similarities is (K,)
     """
     K = X.shape[0]
@@ -130,6 +132,9 @@ def induce_dictionary_nn(
         sim_matrix = compute_csls_similarity(X_norm, Z_norm, k=csls_k)
     else:
         sim_matrix = X_mapped @ Z.T  # (K x P)
+
+    if compatibility_mask is not None:
+        sim_matrix = np.where(compatibility_mask, sim_matrix, -1e9)
 
     best_targets = np.argmax(sim_matrix, axis=1)  # (K,)
     best_sims = np.max(sim_matrix, axis=1)  # (K,)

@@ -8,7 +8,16 @@ from returnn_common.nn.naming import ReturnnConfigSerializer
 
 from i6_core.util import instanciate_delayed
 
-from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
+try:
+    from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
+except ModuleNotFoundError:
+    import sys
+    import types
+    _dummy_torch = types.ModuleType("torch")
+    _dummy_torch.nn = types.SimpleNamespace(Module=object)
+    sys.modules["torch"] = _dummy_torch
+    from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
+    del sys.modules["torch"]
 from i6_experiments.common.setups.serialization import ExternalImport, Import, PartialImport, NonhashedCode
 
 from ..models import PACKAGE

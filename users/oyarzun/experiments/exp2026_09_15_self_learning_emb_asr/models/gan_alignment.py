@@ -27,6 +27,81 @@ from .self_learning_alignment import (
 )
 
 
+def get_structural_signature(token: str) -> Tuple[int, ...]:
+    """
+    Maps an n-gram token to its canonical partition signature.
+    Examples:
+      '24_24_24' -> (0, 0, 0)
+      '24_24_5'  -> (0, 0, 1)
+      '5_24_24'  -> (0, 1, 1)
+      '24_5_24'  -> (0, 1, 0)
+      'V_DH_AH'  -> (0, 1, 2)
+    """
+    parts = token.strip().split("_")
+    seen: Dict[str, int] = {}
+    sig = []
+    for p in parts:
+        if p not in seen:
+            seen[p] = len(seen)
+        sig.append(seen[p])
+    return tuple(sig)
+
+
+def get_collapsed_length(token: str) -> int:
+    """Number of segments after collapsing consecutive duplicates."""
+    parts = token.strip().split("_")
+    return len([p for i, p in enumerate(parts) if i == 0 or p != parts[i - 1]])
+
+
+def compute_structural_compatibility_mask(
+    audio_vocab: Dict[int, str],
+    text_vocab: Dict[int, str],
+    K: int,
+    P: int,
+    mode: str = "collapsed_length",
+) -> np.ndarray:
+    """
+    Computes a binary compatibility mask M (K x P) between audio cluster n-grams and text phoneme n-grams.
+    
+    Modes:
+      - 'collapsed_length' (default): Tokens s and t are compatible if their collapsed lengths match.
+        For example: len(collapse('24_24_24')) == 1, whereas len(collapse('V_DH_AH')) == 3 -> Incompatible!
+      - 'strict_signature': Tokens s and t are compatible if their canonical partition signatures match.
+    """
+    mask = np.ones((K, P), dtype=bool)
+    if not audio_vocab or not text_vocab:
+        return mask
+
+    s_coll = np.array([get_collapsed_length(audio_vocab.get(i, f"s_{i}")) for i in range(K)])
+    t_coll = np.array([get_collapsed_length(text_vocab.get(j, f"t_{j}")) for j in range(P)])
+    s_sigs = [get_structural_signature(audio_vocab.get(i, f"s_{i}")) for i in range(K)]
+    t_sigs = [get_structural_signature(text_vocab.get(j, f"t_{j}")) for j in range(P)]
+
+    for i in range(K):
+        if mode == "strict_signature":
+            sig_i = s_sigs[i]
+            row_matches = np.array([sig_i == t_sigs[j] for j in range(P)], dtype=bool)
+        elif mode == "collapsed_length":
+            row_matches = (t_coll == s_coll[i])
+        else:
+            raise ValueError(f"Unknown structural compatibility mode: {mode}")
+
+        # Fallback if no target strictly matches: choose targets with minimum collapsed length distance
+        if not np.any(row_matches):
+            min_diff = np.min(np.abs(t_coll - s_coll[i]))
+            row_matches = (np.abs(t_coll - s_coll[i]) == min_diff)
+
+        mask[i, :] = row_matches
+
+    num_compat = int(np.sum(mask))
+    total_pairs = K * P
+    logging.info(
+        f"Structural Compatibility Mask ({mode}): {num_compat}/{total_pairs} pairs allowed "
+        f"({100.0 * num_compat / total_pairs:.2f}%), {total_pairs - num_compat} forbidden."
+    )
+    return mask
+
+
 def induce_mutual_nn_dictionary(
     X: np.ndarray,
     W: np.ndarray,
@@ -36,15 +111,18 @@ def induce_mutual_nn_dictionary(
     source_freqs: Optional[np.ndarray] = None,
     target_freqs: Optional[np.ndarray] = None,
     top_freq_ratio: float = 1.0,
+    compatibility_mask: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, int]:
     """
     Builds a synthetic parallel dictionary retaining mutual nearest neighbors (MNN)
-    under CSLS or cosine similarity, optionally restricted to the most frequent items.
+    under CSLS or cosine similarity, optionally restricted to the most frequent items
+    and filtered by structural compatibility.
     Falls back to directional nearest-neighbor dictionary if too few mutual nearest neighbors exist.
 
     :param X: Source audio embeddings (K x d), normalized
     :param W: Mapping matrix (d x d)
     :param Z: Target text embeddings (P x d), normalized
+    :param compatibility_mask: Optional boolean mask (K x P)
     :return: (D, num_mutual_pairs) where D is (K x P)
     """
     K = X.shape[0]
@@ -57,6 +135,9 @@ def induce_mutual_nn_dictionary(
         sim_matrix = compute_csls_similarity(X_norm, Z_norm, k=csls_k)
     else:
         sim_matrix = X_norm @ Z_norm.T
+
+    if compatibility_mask is not None:
+        sim_matrix = np.where(compatibility_mask, sim_matrix, -1e9)
 
     # Optional frequency filtering for candidate dictionary pairs
     valid_s = np.ones(K, dtype=bool)
@@ -84,6 +165,8 @@ def induce_mutual_nn_dictionary(
             continue
         t_idx = int(best_t_for_s[s_idx])
         if not valid_t[t_idx]:
+            continue
+        if compatibility_mask is not None and not compatibility_mask[s_idx, t_idx]:
             continue
         if int(best_s_for_t[t_idx]) == s_idx:
             D_mnn[s_idx, t_idx] = 1.0
@@ -163,6 +246,10 @@ def run_gan_alignment(
     retrieval_metric: str = "csls",
     csls_k: int = 10,
     seed: int = 42,
+    compatibility_mask: Optional[np.ndarray] = None,
+    structural_constraint: Optional[str] = None,
+    lambda_struct: float = 0.5,
+    struct_margin: float = 0.0,
 ) -> Dict:
     """
     Executes Domain-Adversarial Training (GAN) followed by CSLS Procrustes Refinement
@@ -248,9 +335,24 @@ def run_gan_alignment(
                 W_mat = mapping.weight.data
                 mapping.weight.data.copy_((1.0 + ortho_beta) * W_mat - ortho_beta * W_mat.mm(W_mat.transpose(0, 1)).mm(W_mat))
 
+    comp_mask_tensor = (
+        torch.from_numpy(compatibility_mask).to(device)
+        if compatibility_mask is not None
+        else None
+    )
+    apply_mask = (
+        compatibility_mask is not None
+        and structural_constraint in ("masked_csls", "reg_gan_and_masked_csls")
+    )
+
     # Evaluate initial identity mapping
     W_init = _get_W_numpy()
-    _, init_sims = induce_dictionary_nn(X, W_init, Z, retrieval_metric=retrieval_metric, csls_k=csls_k)
+    _, init_sims = induce_dictionary_nn(
+        X, W_init, Z,
+        retrieval_metric=retrieval_metric,
+        csls_k=csls_k,
+        compatibility_mask=compatibility_mask if apply_mask else None,
+    )
     best_adv_csls = float(np.mean(init_sims))
     best_W_adv = W_init.copy()
     best_adv_epoch = 0
@@ -263,7 +365,8 @@ def run_gan_alignment(
     logging.info(
         f"Starting GAN Cross-Modal Alignment on {device}: K={K}, P={P}, d={d}, "
         f"epochs={n_epochs}, steps/epoch={steps_per_epoch}, dis_steps={dis_steps}, lr={lr}, "
-        f"disc={disc_num_layers}x{disc_hidden_dim} ReLU"
+        f"disc={disc_num_layers}x{disc_hidden_dim} ReLU, "
+        f"structural_constraint={structural_constraint}"
     )
 
     for epoch in range(1, n_epochs + 1):
@@ -316,6 +419,20 @@ def run_gan_alignment(
             opt_map.zero_grad()
             logits_g = discriminator(gen_in)
             loss_g = F.binary_cross_entropy_with_logits(logits_g, y_gen)
+
+            # Subablation v5.9.4.2: Structural Hinge Repulsion for incompatible pairs (Method A1)
+            if structural_constraint == "reg_gan_and_masked_csls" and comp_mask_tensor is not None and lambda_struct > 0.0:
+                s_batch_comp = comp_mask_tensor[s_idx][:, t_idx]  # (batch_size x batch_size)
+                forbidden_batch = ~s_batch_comp
+                if forbidden_batch.any():
+                    s_norm = F.normalize(s_mapped, p=2, dim=-1)
+                    t_norm = F.normalize(t_emb, p=2, dim=-1)
+                    batch_cos = torch.mm(s_norm, t_norm.t())  # (batch_size x batch_size)
+                    viol = F.relu(batch_cos[forbidden_batch] - struct_margin)
+                    if viol.numel() > 0:
+                        loss_rep = torch.mean(viol ** 2)
+                        loss_g = loss_g + lambda_struct * loss_rep
+
             loss_g.backward()
             opt_map.step()
 
@@ -331,7 +448,12 @@ def run_gan_alignment(
 
         # Unsupervised validation criterion: Mean CSLS similarity of induced dictionary
         W_curr = _get_W_numpy()
-        _, sims_curr = induce_dictionary_nn(X, W_curr, Z, retrieval_metric=retrieval_metric, csls_k=csls_k)
+        _, sims_curr = induce_dictionary_nn(
+            X, W_curr, Z,
+            retrieval_metric=retrieval_metric,
+            csls_k=csls_k,
+            compatibility_mask=compatibility_mask if apply_mask else None,
+        )
         curr_csls = float(np.mean(sims_curr))
         adv_csls_history.append(curr_csls)
 
@@ -351,7 +473,13 @@ def run_gan_alignment(
     W = (U_0 @ Vt_0).astype(np.float32)
 
     # 4. Refinement Procedure (Chung et al. 2018 Sec 3.2: Mutual Nearest Neighbors + Procrustes SVD with CSLS)
-    D, sims = induce_dictionary_nn(X, W, Z, retrieval_metric=retrieval_metric, csls_k=csls_k)
+    mask_for_refinement = compatibility_mask if apply_mask else None
+    D, sims = induce_dictionary_nn(
+        X, W, Z,
+        retrieval_metric=retrieval_metric,
+        csls_k=csls_k,
+        compatibility_mask=mask_for_refinement,
+    )
     prev_avg_sim = float(np.mean(sims))
     refinement_history = [prev_avg_sim]
     mnn_counts_history = []
@@ -366,6 +494,7 @@ def run_gan_alignment(
                 csls_k=csls_k,
                 source_freqs=source_freqs,
                 target_freqs=target_freqs,
+                compatibility_mask=mask_for_refinement,
             )
             mnn_counts_history.append(int(mnn_cnt))
             # Use mutual nearest neighbors if enough anchor pairs are found; else directional CSLS NN
@@ -374,7 +503,12 @@ def run_gan_alignment(
             D_procrustes = D
 
         W_cand = compute_optimal_orthogonal_mapping(X, Z, D_procrustes)
-        D_cand, sims_cand = induce_dictionary_nn(X, W_cand, Z, retrieval_metric=retrieval_metric, csls_k=csls_k)
+        D_cand, sims_cand = induce_dictionary_nn(
+            X, W_cand, Z,
+            retrieval_metric=retrieval_metric,
+            csls_k=csls_k,
+            compatibility_mask=mask_for_refinement,
+        )
         curr_avg_sim = float(np.mean(sims_cand))
         delta = curr_avg_sim - prev_avg_sim
 
@@ -448,7 +582,11 @@ class GANEmbeddingAlignmentJob(Job):
         retrieval_metric: str = "csls",
         csls_k: int = 10,
         seed: int = 42,
-        _version: int = 1,
+        structural_constraint: Optional[str] = None,
+        lambda_struct: float = 0.5,
+        struct_margin: float = 0.0,
+        compatibility_mode: str = "collapsed_length",
+        _version: int = 2,
     ):
         super().__init__()
         self._version = _version
@@ -474,6 +612,10 @@ class GANEmbeddingAlignmentJob(Job):
         self.retrieval_metric = retrieval_metric
         self.csls_k = csls_k
         self.seed = seed
+        self.structural_constraint = structural_constraint
+        self.lambda_struct = lambda_struct
+        self.struct_margin = struct_margin
+        self.compatibility_mode = compatibility_mode
 
         # Outputs (identical interface to SelfLearningEmbeddingAlignmentJob + GAN artifacts)
         self.out_mapping_matrix_npy = self.output_path("W_star.npy")
@@ -510,6 +652,21 @@ class GANEmbeddingAlignmentJob(Job):
             except Exception as e:
                 logging.warning(f"Could not load text counts: {e}")
 
+        audio_vocab_path = self.audio_vocab_file.get_path() if self.audio_vocab_file is not None else None
+        text_vocab_path = self.text_vocab_file.get_path() if self.text_vocab_file is not None else None
+        audio_vocab = load_vocab_dict(audio_vocab_path)
+        text_vocab = load_vocab_dict(text_vocab_path)
+
+        compatibility_mask = None
+        if self.structural_constraint in ("masked_csls", "reg_gan_and_masked_csls"):
+            compatibility_mask = compute_structural_compatibility_mask(
+                audio_vocab=audio_vocab,
+                text_vocab=text_vocab,
+                K=X_raw.shape[0],
+                P=Z_raw.shape[0],
+                mode=self.compatibility_mode,
+            )
+
         res = run_gan_alignment(
             X_raw=X_raw,
             Z_raw=Z_raw,
@@ -531,6 +688,10 @@ class GANEmbeddingAlignmentJob(Job):
             retrieval_metric=self.retrieval_metric,
             csls_k=self.csls_k,
             seed=self.seed,
+            compatibility_mask=compatibility_mask,
+            structural_constraint=self.structural_constraint,
+            lambda_struct=self.lambda_struct,
+            struct_margin=self.struct_margin,
         )
 
         np.save(self.out_mapping_matrix_npy.get_path(), res["W"])
@@ -554,11 +715,6 @@ class GANEmbeddingAlignmentJob(Job):
         except Exception as e:
             logging.warning(f"Could not render GAN training curves plot: {e}")
 
-        audio_vocab_path = self.audio_vocab_file.get_path() if self.audio_vocab_file is not None else None
-        text_vocab_path = self.text_vocab_file.get_path() if self.text_vocab_file is not None else None
-        audio_vocab = load_vocab_dict(audio_vocab_path)
-        text_vocab = load_vocab_dict(text_vocab_path)
-
         mapping_named = {}
         for s_idx, t_idx in enumerate(res["cluster_to_phoneme_map"]):
             s_name = audio_vocab.get(s_idx, f"cluster_{s_idx}")
@@ -572,12 +728,19 @@ class GANEmbeddingAlignmentJob(Job):
                 "alignment_method": "gan",
                 "retrieval_metric": self.retrieval_metric,
                 "csls_k": self.csls_k,
+                "structural_constraint": self.structural_constraint,
+                "lambda_struct": self.lambda_struct,
+                "compatibility_mode": self.compatibility_mode,
             }, f, indent=2)
 
         with open(self.out_alignment_report.get_path(), "w") as f:
             json.dump({
                 "init_method": "gan_domain_adversarial",
                 "paper_reference": "Chung et al. (2018) arXiv:1805.07467",
+                "structural_constraint": self.structural_constraint,
+                "lambda_struct": self.lambda_struct,
+                "struct_margin": self.struct_margin,
+                "compatibility_mode": self.compatibility_mode,
                 "disc_hidden_dim": self.disc_hidden_dim,
                 "disc_num_layers": self.disc_num_layers,
                 "lr": self.lr,

@@ -6,6 +6,11 @@ import importlib.util
 from .distribution_analysis import (
     TextNgramDistributionAnalysisJob,
     SpeechClusterDistributionAnalysisJob,
+    TopClusterNgramsAnalysisJob,
+)
+from .representation_tests import (
+    ConsecutiveRepresentationTestJob,
+    ClusterPhoneCompositionTestJob,
 )
 
 _sibling_analysis_py = os.path.join(os.path.dirname(os.path.dirname(__file__)), "analysis.py")

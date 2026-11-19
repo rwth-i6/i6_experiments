@@ -105,6 +105,7 @@ def get_phonemized_text_corpus(
     vocab_file: Optional[Path] = None,
     sil_prob: float = 0.25,
     surround_w_sil: bool = True,
+    word_boundary_token: Optional[str] = None,
 ):
     text_data, seq_tags = get_text(data_name)
     if lexicon_file is None:
@@ -119,5 +120,6 @@ def get_phonemized_text_corpus(
         vocab_file=vocab_file,
         sil_prob=sil_prob,
         surround_w_sil=surround_w_sil,
+        word_boundary_token=word_boundary_token,
     )
 
