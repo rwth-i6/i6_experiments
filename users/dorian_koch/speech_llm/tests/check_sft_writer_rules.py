@@ -244,6 +244,15 @@ def check_round6() -> list[str]:
          for x in ("It was released 1984.", "It cost 1250 euros.")]
     if t != ["It was released nineteen eighty-four.", "It cost one thousand two hundred and fifty euros."]:
         bad.append(f"years / amounts: {t}")
+    t = sd.repair({"turns": [{"speaker": "user", "lang": "zh", "text": "我要2瓶水，2月再说，一共12个。"}]})["turns"][0]["text"]
+    if t != "我要两瓶水，二月再说，一共十二个。":
+        bad.append(f"两 before a measure word: {t!r}")
+    import random as _r
+
+    rows = {"wildchat": [{"id": "a", "text": "Write me a sissy fetish roleplay script please"},
+                         {"id": "b", "text": "How do I descale my kettle without vinegar?"}]}  # fmt: skip
+    if any(sd._help("en", _r.Random(k), rows)["source_id"] == "a" for k in range(10)):
+        bad.append("a sexual WildChat request became a help seed")
     o = sd.repair({"system_prompt": "If asked, say you are Haru i six Instruct.", "turns": []})
     if o["system_prompt"] != f"If asked, say you are {sd.PRODUCT['name']}.":
         bad.append(f"the spoken name was left in the system prompt: {o['system_prompt']!r}")
@@ -286,6 +295,32 @@ def check_review_loop() -> list[str]:
     return bad
 
 
+def check_anchors() -> list[str]:
+    """Writer v10: every dialogue's user is a persona (all scenarios, all languages) with the persona's own name
+    replaced; skills topics come from a real request; long tasks fit the persona."""
+    bad = []
+    rows = {"personas": [{"id": f"p{k}", "text": f"Gary Dann{k} is a meticulous mechanic who loves woodworking {k}."}
+                         for k in range(5)],
+            "wildchat": [{"id": f"w{k}", "text": f"How do I descale my kettle number {k} without vinegar?"}
+                         for k in range(5)],
+            "wikipedia": [{"id": f"k{k}", "title": f"Topic {k}", "text": "A passage. " * 20} for k in range(5)]}  # fmt: skip
+    for sc in sd.SCENARIOS:
+        if set(sd.SCENARIO_SOURCES.get(sc, [])) != set(sd.SCENARIO_SOURCES.get(sc, [])) | {"personas"}:
+            bad.append(f"{sc} does not read personas")
+        for lg in sd.LANGS:
+            for s in sd.make_seeds(sc, lg, 3, 0, rows):
+                msg = sd.writer_messages(s)[1]["content"]
+                if "meticulous mechanic" not in msg:
+                    bad.append(f"{sc}/{lg}: no persona in the writer prompt")
+                if "Gary Dann" in msg:
+                    bad.append(f"{sc}/{lg}: the persona's own name reached the writer")
+                if sc == "skills" and "descale my kettle" not in msg:
+                    bad.append(f"skills/{lg}: topic not anchored in a real request")
+                if sc == "longtask" and "fits the user's life" not in msg:
+                    bad.append(f"longtask/{lg}: task not tied to the persona")
+    return bad
+
+
 def _patched(fn, **over):
     old = {k: getattr(sd, k) for k in over}
     try:
@@ -305,6 +340,8 @@ MUTANTS = {
     "system-prompt markup allowed": (check_round6, dict(_SP_MARKUP=__import__("re").compile(r"(?!x)x"))),
     "pinyin names allowed": (check_round6, dict(_PY_WORD=__import__("re").compile(r"(?!x)x"))),
     "spoken name kept in the prompt": (check_round6, dict(_SPOKEN_NAME=__import__("re").compile(r"(?!x)x"))),
+    "二 before measure words": (check_round6, dict(_ZH_MEASURE=set())),
+    "sexual requests kept": (check_round6, dict(_NSFW=__import__("re").compile(r"(?!x)x"))),
     "garbled text allowed": (check_round6, dict(_garbled=lambda x: False)),
     "reactions to unheard words allowed": (check_round6, dict(_cut_leak=lambda *a: None)),
     "German ordinals read as cardinals": (check_round6, dict(_NUM_DE=sd._NUM)),
@@ -317,10 +354,13 @@ MUTANTS = {
     "traditional characters kept": (check_repair, dict(_CJK=__import__("re").compile(r"(?!x)x"))),
     "zh digits kept": (check_structure_repair, dict(_ZH_NUM=__import__("re").compile(r"(?!x)x"))),
     "other scripts left untagged": (check_structure_repair, dict(_SCRIPT_RUN={})),
+    "no persona section": (check_anchors, dict(_persona_text=lambda seed: "")),
+    "persona names kept": (check_anchors, dict(_PERSONA_NAME=__import__("re").compile(r"(?!x)x"))),
 }
 
 if __name__ == "__main__":
-    fails = check_identity() + check_tutor() + check_repair() + check_structure_repair() + check_round6() + check_review_loop()
+    fails = (check_identity() + check_tutor() + check_repair() + check_structure_repair() + check_round6()
+             + check_review_loop() + check_anchors())
     for f in fails:
         print("FAIL", f)
     for name, (fn, over) in MUTANTS.items():

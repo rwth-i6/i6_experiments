@@ -72,7 +72,7 @@ LOCALES = {
 SCENARIO_VERSIONS = {"service": 3, "grounded": 3, "help": 3, "chitchat": 3, "skills": 3, "tutor": 3, "longtask": 3,
                      "assistant": 2}  # fmt: skip
 #: the writer prompt / validation (every scenario): hashed into SftWriteDialogues
-WRITER_VERSION = 9
+WRITER_VERSION = 10
 #: system-prompt detail levels (PersonaPlex: prompts "at varying detail levels") and their draw weights
 LEVELS = {
     "short": "one or two sentences: who the assistant is and only the facts it needs",
@@ -153,8 +153,24 @@ def _grounded(lang, rng, rows):
     return {"source_id": row["id"], "title": row["title"], "brief": brief, "turns": rng.randint(6, 10)}
 
 
+#: sexual requests WildChat's toxic flag missed (judge rounds 8-9: a fetish role-play written out twice, although the
+#: brief says to replace such requests): such a row is skipped for the next draw
+_NSFW = re.compile(r"(?i)\b(sex\w*|porn\w*|nsfw|erotic\w*|fetish\w*|sissy|nude\w*|naked|horny|bdsm|hentai|slut\w*|"
+                   r"nackt\w*|erotik\w*|fetisch\w*)\b|секс|порн|эрот|голая|голый|色情|性爱|做爱|裸体|成人小说")
+
+
+def _clean_request(rng, pool):
+    """A random WildChat row, redrawn (up to 50 times) while it matches ``_NSFW``."""
+    row = pool[rng.randrange(len(pool))]
+    for _ in range(50):
+        if not _NSFW.search(row["text"]):
+            break
+        row = pool[rng.randrange(len(pool))]
+    return row
+
+
 def _help(lang, rng, rows):
-    row = rows["wildchat"][rng.randrange(len(rows["wildchat"]))]
+    row = _clean_request(rng, rows["wildchat"])
     brief = (f"A general voice assistant (its system prompt is the general one: nothing about this conversation's "
              f"topic). The user's first request is based on this real typed request to a chatbot "
              f"(rewrite it as something a person would SAY to a voice assistant; if it cannot be done by voice, e.g. "
@@ -187,9 +203,10 @@ ASSISTANT_TRAITS = ["warm and curious", "calm and thoughtful", "cheerful and a b
 def _chitchat(lang, rng, rows):
     topic, traits = rng.choice(CHITCHAT_TOPICS), rng.choice(ASSISTANT_TRAITS)
     loc = rng.choice(LOCALES[lang])
-    if lang == "en" and rows.get("personas"):
+    if rows.get("personas"):  # every language: the persona is adapted to the locale (``_persona_text``)
         per = rows["personas"][rng.randrange(len(rows["personas"]))]
-        user = f"The user (their name is the one under PEOPLE, not any name in this description): {per['text']}"
+        user = (f"The user (their name is the one under PEOPLE, not any name in this description; adapt details tied "
+                f"to another country to someone living in {loc}): {_persona_text_clean(per['text'])}")  # fmt: skip
         src = per["id"]
     else:
         # the gender is the cast's (round 6 judge: a drawn "woman" here against a male cast user); the draw stays so
@@ -235,9 +252,16 @@ SKILLS = {
 
 def _skills(lang, rng, rows):
     skill = rng.choice(sorted(SKILLS))
+    topic, src = "Everyday topic of your choice.", None
+    if rows.get("wildchat"):  # a real request as the topic's anchor ("of your choice" collapses onto a few topics)
+        row = _clean_request(rng, rows["wildchat"])
+        topic = (f"Topic: something everyday, loosely inspired by (not copied from) this real request a person typed "
+                 f"to a chatbot: {row['text']!r}; if it does not suit the skill or a voice conversation, pick a related "
+                 f"everyday topic that suits the user.")  # fmt: skip
+        src = row["id"]
     brief = (f"A general voice assistant (its system prompt is the general one: nothing about this conversation's "
-             f"topic). Everyday topic of your choice. {SKILLS[skill]}")  # fmt: skip
-    return {"skill": skill, "brief": brief, "turns": rng.randint(4, 8)}
+             f"topic). {topic} {SKILLS[skill]}")  # fmt: skip
+    return {"skill": skill, "source_id": src, "brief": brief, "turns": rng.randint(4, 8)}
 
 
 TUTOR_ACTIVITIES = {
@@ -285,7 +309,9 @@ LONG_TASKS = ["planning a three-day city trip", "cooking a dish step by step whi
 
 def _longtask(lang, rng, rows):
     task = rng.choice(LONG_TASKS)
-    brief = (f"A practical voice assistant helps with {task}. The system prompt only describes the assistant; the "
+    what = (f"a multi-step task that fits the user's life (see WHO THE USER IS), of the kind of {task} but specific "
+            f"to this person" if rows.get("personas") else task)  # fmt: skip
+    brief = (f"A practical voice assistant helps with {what}. The system prompt only describes the assistant; the "
              f"user's situation and constraints (dates, budget, people, preferences, equipment, what they already "
              f"have) come up during the conversation, some only when the assistant asks, some changed later by the "
              f"user. They work through it step by step; the assistant keeps track of what the user said and decided, "
@@ -323,8 +349,10 @@ def _assistant(lang, rng, rows):
 SCENARIOS = {"service": _service, "grounded": _grounded, "help": _help, "chitchat": _chitchat, "skills": _skills,
              "tutor": _tutor, "longtask": _longtask, "assistant": _assistant}  # fmt: skip
 #: source rows each scenario reads (SftSeeds' ``sources`` keys)
-SCENARIO_SOURCES = {"grounded": ["wikipedia"], "help": ["wildchat"], "chitchat": ["personas"],
-                    "assistant": ["wildchat", "personas"]}  # fmt: skip
+#: every scenario reads ``personas``: each dialogue's user is a persona (``make_seeds``, ``_persona_text``)
+SCENARIO_SOURCES = {"service": ["personas"], "grounded": ["wikipedia", "personas"], "help": ["wildchat", "personas"],
+                    "chitchat": ["personas"], "skills": ["wildchat", "personas"], "tutor": ["personas"],
+                    "longtask": ["personas"], "assistant": ["wildchat", "personas"]}  # fmt: skip
 
 #: Interruptions: the user cuts the assistant off mid-sentence (``chatterbox_v2_core.CUT`` marks the spot; the TTS
 #: stops the assistant there and overlaps the user's turn). Per dialogue: how many (weights), and what the user does.
@@ -354,6 +382,10 @@ def make_seeds(scenario: str, lang: str, n: int, seed: int, rows: dict) -> list[
         kw = {"l2": [x for x in LANGS if x != lang][(k + seed) % (len(LANGS) - 1)]} if scenario == "tutor" else {}
         s.update(SCENARIOS[scenario](lang, rng, rows, **kw))
         s["cast"] = draw_cast(lang, random.Random(f"{scenario}/{lang}/{seed}/{k}/cast"))
+        if rows.get("personas") and not s.get("persona_id"):  # who the user is: own random stream
+            pr = random.Random(f"{scenario}/{lang}/{seed}/{k}/persona")
+            per = rows["personas"][pr.randrange(len(rows["personas"]))]
+            s["persona"], s["persona_id"] = _persona_text_clean(per["text"]), per["id"]
         ex = random.Random(f"{scenario}/{lang}/{seed}/{k}/extra")
         if s["policy"] == "switch":  # in which of their turns the user switches (counting from 1)
             s["switch_at"] = ex.randint(2, max(2, (s["turns"] + 1) // 2))  # any user turn but the first
@@ -442,6 +474,18 @@ INTERRUPTIONS
 """
 
 
+def _persona_text(seed: dict) -> str:
+    if not seed.get("persona"):
+        return ""
+    return f"""
+WHO THE USER IS
+- {seed["persona"]}
+- This shapes the user's situation, what they want and how they talk (occupation, interests, character), within the
+  scenario. Their name is the one above, not any name here; details tied to another country are adapted to where
+  the user lives (the scenario's place, else a place where the conversation's language is spoken).
+"""
+
+
 def n_turns(seed: dict) -> int:
     """The seed's turn count with the parity its order needs (it ends with the assistant): traces of the thinking
     writer spent long on "about 13 turns, starting with the user, ending with the assistant"."""
@@ -467,7 +511,7 @@ SYSTEM PROMPT (the assistant's instructions, in {LANGS[seed["prompt_lang"]]}, ad
 
 PEOPLE
 {_cast_text(seed)}
-
+{_persona_text(seed)}
 USER DETAILS
 - The user gives details the assistant cannot know (names, numbers, dates, their situation, preferences); now and
   then the user changes one later (optional). At least two later assistant turns depend on them.
@@ -967,10 +1011,14 @@ def zh_number(n: int) -> str:
 
 
 _ZH_NUM = re.compile(r"(\d+(?:\.\d+)?)(%|年)?")
+#: measure words / units after which a lone 2 is read 两 (judge round 9: 二公里, 二瓶, 二厘米, 二点)
+_ZH_MEASURE = set("个只条张本件位次天周点瓶杯片块公厘米斤分钟小岁口套双台辆家门节间份颗棵根把首部篇种样遍趟页")
 
 
 def _zh_num_sub(m) -> str:
     x, suf = m.group(1), m.group(2) or ""
+    if x == "2" and not suf and m.string[m.end() : m.end() + 1] in _ZH_MEASURE:  # 两瓶 / 两点, not 二瓶
+        return "两"
     if suf == "年" and len(x) == 4 and x.isdigit():  # years digit by digit: 一九八〇年
         return "".join("〇一二三四五六七八九"[int(c)] for c in x) + "年"
     whole, _, frac = x.partition(".")
@@ -1171,6 +1219,15 @@ def _wildchat_rows(df, lang):
     return out
 
 
+#: a Nemotron persona opens with the person's full name ("Gary Dann is a meticulous ..."): replaced, the cast names
+#: the people
+_PERSONA_NAME = re.compile(r"^(?!(?:A|An|The)\b)[A-Z][\w'’.-]+(?: [A-Z][\w'’.-]+){1,2}(?= )")
+
+
+def _persona_text_clean(text: str) -> str:
+    return _PERSONA_NAME.sub("This person", text.strip(), count=1)
+
+
 def _personas_rows(df, lang):
     return [{"id": str(r.uuid), "text": r.persona} for r in df.itertuples()]
 
@@ -1364,21 +1421,38 @@ VD_ENERGY = ["lively and expressive", "friendly and animated", "calm but express
 VD_PACE = {"assistant": ["at a moderate, steady pace"],
            "user": ["slowly", "at a moderate pace", "at a relaxed pace", "fairly quickly", "quickly"]}  # fmt: skip
 VD_PITCH = ["low", "medium-low", "medium", "medium-high", "high"]
+#: a light regional colour for some user voices (the assistant speaks the standard variety)
+VD_REGION = {
+    "en": ["from the north of England", "from Scotland", "from the American South", "from New York", "from California",
+           "from Australia", "from Ireland", "from the American Midwest", "from London", "from Canada"],
+    "de": ["from Bavaria", "from Hamburg", "from Berlin", "from Saxony", "from the Rhineland", "from Swabia",
+           "from Austria", "from Switzerland", "from the Ruhr area", "from Lower Saxony"],
+    "zh": ["from Beijing", "from Shanghai", "from Sichuan", "from Guangdong", "from Northeast China", "from Taiwan",
+           "from Hunan", "from Shandong", "from Hangzhou", "from Xi'an"],
+    "ru": ["from Moscow", "from Saint Petersburg", "from Siberia", "from the Urals", "from the south of Russia",
+           "from the Volga region", "from Kazan", "from the Far East", "from Rostov", "from Novosibirsk"],
+}  # fmt: skip
 
 
-def voice_descriptions(lang: str, role: str, gender: str, n: int, seed: int = 0) -> list[str]:
+def voice_descriptions(lang: str, role: str, gender: str, n: int, seed: int = 0, region: float = 0.0) -> list[str]:
     """``n`` distinct voice descriptions for designed ``gender`` voices of ``role`` speaking ``lang`` natively: age,
     pitch, timbre, energy, pace (the assistant's always moderate and steady), always conversational intonation and a
-    clean close-microphone recording (the voice prompt's recording conditions carry into every clone)."""
+    clean close-microphone recording (the voice prompt's recording conditions carry into every clone). ``region``:
+    the share of user voices with a light regional accent (``VD_REGION``; drawn after the other attributes, so
+    ``region=0`` keeps the earlier descriptions)."""
     rng = random.Random(f"vd/{lang}/{role}/{gender}/{seed}")
     ln = LANGS[lang].split(" (")[0]
     out, seen = [], set()
     while len(out) < n:
         age = rng.randint(20, 68) if role == "user" else rng.randint(24, 55)
-        d = (f"A {age}-year-old {'woman' if gender == 'female' else 'man'}, a native {ln} speaker, with a "
-             f"{rng.choice(VD_PITCH)} pitched, {rng.choice(VD_TIMBRE)} voice. Speaks {rng.choice(VD_PACE[role])} in "
-             f"a {rng.choice(VD_ENERGY)} way, with natural, varied conversational intonation. Clear close-microphone "
-             f"recording, no background noise, no music.")  # fmt: skip
+        pitch, timbre, pace, energy = (rng.choice(VD_PITCH), rng.choice(VD_TIMBRE), rng.choice(VD_PACE[role]),
+                                       rng.choice(VD_ENERGY))  # fmt: skip
+        reg = ""
+        if region and role == "user" and rng.random() < region:
+            reg = f" {rng.choice(VD_REGION[lang])}, with a light regional accent"
+        d = (f"A {age}-year-old {'woman' if gender == 'female' else 'man'}, a native {ln} speaker{reg}, with a "
+             f"{pitch} pitched, {timbre} voice. Speaks {pace} in a {energy} way, with natural, varied conversational "
+             f"intonation. Clear close-microphone recording, no background noise, no music.")  # fmt: skip
         if d not in seen:
             seen.add(d)
             out.append(d)
@@ -1587,7 +1661,7 @@ class SftSeeds(Job):
 
     def __init__(self, *, scenario: str, lang: str, n: int, seed: int = 0, sources: dict | None = None):
         assert scenario in SCENARIOS and lang in LANGS
-        need = set(SCENARIO_SOURCES.get(scenario, [])) - ({"personas"} if lang != "en" else set())
+        need = set(SCENARIO_SOURCES.get(scenario, []))  # personas: the English pool serves every language
         assert need <= set(sources or {}), f"{scenario} needs sources {need}"
         self.scenario, self.lang, self.n, self.seed = scenario, lang, n, seed
         self.sources = {k: v for k, v in (sources or {}).items() if k in need}
