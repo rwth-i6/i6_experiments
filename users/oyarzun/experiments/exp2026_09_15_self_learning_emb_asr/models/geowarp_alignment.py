@@ -273,24 +273,41 @@ def compute_geowarp_initialization(
     best_W0 = np.eye(d, dtype=np.float32)
     candidate_scores = {}
 
-    logging.info(f"GeoWarP Initialization: Evaluating {len(candidates)} geometric candidates...")
-    for name, W_cand in candidates:
+    import gc
+
+    # Fast & memory-efficient candidate screening: evaluate on representative anchor subset if dataset is large
+    eval_subsample_size = min(4000, K)
+    if K > eval_subsample_size:
+        eval_indices = np.argsort(-w_X)[:eval_subsample_size]
+        X_eval_sub = X[eval_indices]
+        mask_sub = compatibility_mask[eval_indices] if compatibility_mask is not None else None
+    else:
+        X_eval_sub = X
+        mask_sub = compatibility_mask
+
+    logging.info(
+        f"GeoWarP Initialization: Evaluating {len(candidates)} geometric candidates "
+        f"(lookahead on {X_eval_sub.shape[0]} source tokens)..."
+    )
+    for idx_cand, (name, W_cand) in enumerate(candidates, 1):
         W_eval = W_cand.copy()
-        # 2-step fast lookahead
+        # 2-step fast lookahead using index-based mappings to minimize memory footprint
         for _ in range(2):
-            D_tmp, _ = induce_dictionary_nn(
-                X, W_eval, Z,
+            best_targets, _ = induce_dictionary_nn(
+                X_eval_sub, W_eval, Z,
                 retrieval_metric=retrieval_metric,
                 csls_k=csls_k,
-                compatibility_mask=compatibility_mask,
+                compatibility_mask=mask_sub,
+                return_dense=False,
             )
-            W_eval = compute_optimal_orthogonal_mapping(X, Z, D_tmp)
+            W_eval = compute_optimal_orthogonal_mapping(X_eval_sub, Z, best_targets)
 
         _, sims = induce_dictionary_nn(
-            X, W_eval, Z,
+            X_eval_sub, W_eval, Z,
             retrieval_metric=retrieval_metric,
             csls_k=csls_k,
-            compatibility_mask=compatibility_mask,
+            compatibility_mask=mask_sub,
+            return_dense=False,
         )
         score = float(np.mean(sims))
         candidate_scores[name] = score
@@ -298,6 +315,11 @@ def compute_geowarp_initialization(
             best_score = score
             best_name = name
             best_W0 = W_cand.copy()
+
+        if idx_cand % 10 == 0:
+            gc.collect()
+
+    gc.collect()
 
     logging.info(
         f"GeoWarP Selected Initialization: '{best_name}' with lookahead {retrieval_metric.upper()} = {best_score:.6f}"
@@ -538,9 +560,13 @@ def run_geowarp_alignment(
             retrieval_metric=retrieval_metric,
             csls_k=csls_k,
             compatibility_mask=active_mask,
+            return_dense=False,
         )
         curr_csls = float(np.mean(sims_curr))
         wp_csls_history.append(curr_csls)
+
+        # Release intermediate arrays
+        del P_np, P_for_svd, cost_np, cost_t, P_t
 
         if curr_csls > best_wp_csls:
             best_wp_csls = curr_csls
@@ -706,7 +732,7 @@ class GeoWarPEmbeddingAlignmentJob(Job):
         self.out_gan_loss_plot = self.out_geowarp_loss_plot
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", mini_task=True)
+        yield Task("run", rqmt={"cpu": 4, "mem": 16, "time": 4})
 
     def run(self):
         logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
