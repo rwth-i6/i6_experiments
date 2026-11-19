@@ -403,3 +403,11 @@ contracted, expanded and best-of-three LM wordings share identical original AM
 texts, first-pass costs and original-AM-word rewards. No new AM searches or
 test-set runs are scheduled. Report: `output/reports/asr-lm/contraction-rescoring.md`.
 See [CONTRACTION_RESCORING.md](experiments/open_asr/CONTRACTION_RESCORING.md).
+
+## Granite possessive reconstruction (opt-in)
+
+Run `./sis m config/possessive_reconstruction.py` to compare native Granite,
+native Granite with a fixed text rule, the frozen Granite two-pass result, and
+Speech-Qwen reconstruction at three score margins on the two development sets.
+The graph adds two Speech-Qwen scoring jobs and a CPU report. See
+[POSSESSIVE_RECONSTRUCTION.md](experiments/open_asr/POSSESSIVE_RECONSTRUCTION.md).
