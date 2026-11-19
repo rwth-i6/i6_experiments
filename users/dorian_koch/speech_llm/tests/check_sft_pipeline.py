@@ -2,7 +2,7 @@
 
   * cells are independent: bumping one scenario's version, growing one cell or adding a scenario re-hashes only those
     cells' jobs (seeds, writer, cast, TTS, stats, merge); a mix weight moves no cell job, only the report and the
-    training mix;
+    training mix; a new tag prompt (``TAG_VERSION``) moves every cell that draws requests, and only those;
   * shards are deterministic: shard ``k`` of a 32-seed cell is the same job and the same seeds as shard ``k`` of a
     64-seed one (``shard_ranges``, ``make_seeds(start=)``);
   * the mix weights apply: a cell's weight is its scenario's x its language's, normalised; zero drops the cell; the
@@ -58,7 +58,8 @@ VOICES = dict(n_assistant=4, n_user=6, n_parler=3, parler_share=0.3)
 def _build(**over):
     kw = dict(name="guard", rows=_rows(), env=ENV, cell_seeds=32, shard_seeds=16, seed=100,
               writer=dict(model="m", review=1), tts=dict(tts_model="qwen3", code_switch="segments"),
-              voices=VOICES, scenario_weights=SC_W, lang_weights=LG_W)  # fmt: skip
+              voices=VOICES, scenario_weights=SC_W, lang_weights=LG_W, tagger=dict(model="m"),
+              fallback={"de": "en"})  # fmt: skip
     kw.update(over)
     return sp.build_sft_corpus(**kw)
 
@@ -173,6 +174,15 @@ def check_independence() -> list[str]:
     moved = sorted(c for c in a if a[c] != b[c])
     if moved != sorted(c for c in a if c[0] == "tutor"):
         bad.append(f"a tutor version bump moved {moved}")
+    tv = sp.TAG_VERSION
+    try:
+        sp.TAG_VERSION += 1
+        t = _cell_ids(_build())
+    finally:
+        sp.TAG_VERSION = tv
+    moved = sorted(c for c in a if a[c] != t[c])
+    if moved != sorted(c for c in a if c[0] in sd.REQUEST_SCENARIOS):
+        bad.append(f"a TAG_VERSION bump moved {len(moved)} cells, want every request-drawing cell (not grounded)")
     g = _cell_ids(_build(cell_sizes={("tutor", "de"): 64}))
     moved = sorted(c for c in a if a[c] != g[c])
     if moved != [("tutor", "de")]:
@@ -196,12 +206,13 @@ def _fake_rows():
         {"id": f"p{i}", "text": f"A {20 + i % 50}-year-old teacher who likes walking and cooking {i}."}
         for i in range(50)
     ]
+    flags = {"needs_document": False, "needs_business_facts": False, "unsafe": False, "not_speakable": False}
     out = {"personas": per}
     for lg in sd.LANGS:
         out[f"wikipedia_{lg}"] = [{"id": f"w{i}", "title": f"T{i}", "text": f"passage {i} " * 30} for i in range(50)]
-        out[f"wildchat_{lg}"] = [
-            {"id": f"c{i}", "text": f"how do I cook rice number {rng.randrange(999)}"} for i in range(50)
-        ]
+        out[f"tagged_{lg}"] = [{"id": f"c{lg}{i}", "lang": lg, "text": f"how do I cook rice number {rng.randrange(999)}",
+                                "gist": f"cooking rice {i}", "flags": flags,
+                                "weights": {k: rng.choice([0.0, 0.5, 1.0]) for k in sd.SCENARIOS}} for i in range(50)]  # fmt: skip
     return out
 
 
@@ -212,7 +223,7 @@ def check_shards() -> list[str]:
     fr = _fake_rows()
     for sc in sd.SCENARIOS:
         for lg in ("en", "zh"):
-            rows = {"personas": fr["personas"], "wikipedia": fr[f"wikipedia_{lg}"], "wildchat": fr[f"wildchat_{lg}"]}
+            rows = {"personas": fr["personas"], "wikipedia": fr[f"wikipedia_{lg}"], "tagged": fr[f"tagged_{lg}"]}
             whole = sd.make_seeds(sc, lg, 12, 100, rows)
             parts = sd.make_seeds(sc, lg, 6, 100, rows) + sd.make_seeds(sc, lg, 6, 100, rows, start=6)
             if json.dumps(whole, sort_keys=True) != json.dumps(parts, sort_keys=True):

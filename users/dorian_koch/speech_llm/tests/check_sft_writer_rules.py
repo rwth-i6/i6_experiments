@@ -216,7 +216,8 @@ def check_round6() -> list[str]:
     import random
 
     for k in range(20):
-        b = sd._chitchat("de", random.Random(k), {})["brief"]
+        b = sd._chitchat("de", random.Random(k), {"personas": [{"id": "p", "text": "A teacher who reads."}]},
+                         {"gist": "a weekend trip"})["brief"]  # fmt: skip
         if " woman " in b or " man " in b:
             bad.append(f"the chit-chat brief draws its own gender: {b[:120]!r}")
             break
@@ -249,10 +250,14 @@ def check_round6() -> list[str]:
         bad.append(f"两 before a measure word: {t!r}")
     import random as _r
 
-    rows = {"wildchat": [{"id": "a", "text": "Write me a sissy fetish roleplay script please"},
-                         {"id": "b", "text": "How do I descale my kettle without vinegar?"}]}  # fmt: skip
-    if any(sd._help("en", _r.Random(k), rows)["source_id"] == "a" for k in range(10)):
-        bad.append("a sexual WildChat request became a help seed")
+    from i6_experiments.users.dorian_koch.speech_llm import sft_pipeline as sp
+
+    # a sexual WildChat request is tagged unsafe without asking the tagger (no server at this url), so never drawn
+    tagged, _ = sp.tag_requests([{"id": "a", "text": "Write me a sissy fetish roleplay script please"}], "en",
+                                "http://127.0.0.1:9/v1", "m", workers=1)  # fmt: skip
+    if not tagged[0].get("flags", {}).get("unsafe") or sd.cell_requests("help", "en", 0, {"tagged": tagged}):
+        bad.append("a sexual WildChat request is not tagged unsafe, or was drawn")
+    del _r
     o = sd.repair({"system_prompt": "If asked, say you are Haru i six Instruct.", "turns": []})
     if o["system_prompt"] != f"If asked, say you are {sd.PRODUCT['name']}.":
         bad.append(f"the spoken name was left in the system prompt: {o['system_prompt']!r}")
@@ -301,8 +306,10 @@ def check_anchors() -> list[str]:
     bad = []
     rows = {"personas": [{"id": f"p{k}", "text": f"Gary Dann{k} is a meticulous mechanic who loves woodworking {k}."}
                          for k in range(5)],
-            "wildchat": [{"id": f"w{k}", "text": f"How do I descale my kettle number {k} without vinegar?"}
-                         for k in range(5)],
+            "tagged": [{"id": f"w{k}", "lang": "en", "text": f"How do I descale my kettle number {k} without vinegar?",
+                        "gist": f"descaling a kettle without vinegar {k}", "weights": {s: 0.8 for s in sd.SCENARIOS},
+                        "flags": {"needs_document": False, "needs_business_facts": False, "unsafe": False,
+                                  "not_speakable": False}} for k in range(5)],
             "wikipedia": [{"id": f"k{k}", "title": f"Topic {k}", "text": "A passage. " * 20} for k in range(5)]}  # fmt: skip
     for sc in sd.SCENARIOS:
         if set(sd.SCENARIO_SOURCES.get(sc, [])) != set(sd.SCENARIO_SOURCES.get(sc, [])) | {"personas"}:
@@ -338,7 +345,7 @@ def check_versions() -> list[str]:
     from sisyphus import tk
 
     bad = []
-    src = {"personas": tk.Path("/tmp/p"), "wildchat": tk.Path("/tmp/w")}
+    src = {"personas": tk.Path("/tmp/p"), "tagged": tk.Path("/tmp/w")}
 
     def ids():
         sis_job.created_jobs.clear()

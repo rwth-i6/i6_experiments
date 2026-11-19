@@ -3,7 +3,8 @@ independent chain per (scenario, language) cell, sharded, a shared voice stage, 
 
   voices (shared):  SftVoiceTexts -> SftDesignVoices (Qwen3-TTS VoiceDesign, every language)  -> SftVoicePool
                                   -> SftParlerVoices (Parler-TTS, English user voices)       /
-  cell x shard k:   SftSeeds(start=k*S, n=S) -> SftWriteDialogues -> SftCastVoices -> ChatterboxInferenceV2
+  language:         SftTagRequests: each WildChat request's weight per scenario type, gist, flags
+  cell x shard k:   SftSeeds(start=k*S, n=S; the cell's weighted request draw) -> SftWriteDialogues -> SftCastVoices -> ChatterboxInferenceV2
                     -> SftShardStats (hard invariants raise); the writer and the TTS are GPU jobs over a group of
                     shards (``job_groups``: shards of one cell; one output per shard), so the model loads once
   cell:             HfMergeShards (links): the cell's dataset
@@ -34,6 +35,7 @@ from sisyphus import Job, Task, tk
 from . import sft_dialogues as sd
 
 __all__ = [
+    "SftTagRequests",
     "SftVoiceTexts",
     "SftParlerVoices",
     "SftVoicePool",
@@ -350,6 +352,154 @@ def build_voice_pool(*, personas: tk.Path, env: dict, langs: list[str], n_assist
         sources.append(SftParlerVoices(parler_python=env["parler"], annotate_python=env["annotate"],
                                        texts=texts.out_texts, n_per_gender=n_parler, seed=seed).out_dir)  # fmt: skip
     return SftVoicePool(sources=sources)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# request tags: each WildChat request gets a weight per scenario type, a gist and flags; cells draw from them
+
+
+#: bump when the tag prompt, schema or model change: every cell that draws requests re-hashes
+TAG_VERSION = 1
+#: the scenario types as the tagger reads them (the plan's Scenarios table)
+TAG_DEFS = {
+    "service": "the user phones a business or public office (shop, bank, hotel, clinic, airline, landlord, utility, "
+    "authority...) and the assistant is that organisation's agent, with the organisation's facts in its system "
+    "prompt: bookings, orders, accounts, complaints, appointments, prices, policies",
+    "grounded": "the assistant is given a reference passage (an encyclopedia article) in its system prompt and the user "
+    "talks about that factual topic (a place, person, event, work, science) with it",
+    "help": "a general voice assistant gives a short spoken answer from general knowledge to an everyday request or "
+    "question, the user follows up once or twice",
+    "chitchat": "casual conversation with a companion: the user talks about their life, plans, feelings, interests or "
+    "opinions; the assistant listens, asks follow-ups and chats",
+    "skills": "a conversation that tests conversational skills: the request is ambiguous and needs a clarifying "
+    "question, rests on a false premise, asks for something the assistant must decline, asks about the assistant "
+    "itself, or asks for facts the assistant cannot know",
+    "tutor": "FOREIGN-LANGUAGE learning only: the user learns or practises a language (translating words or "
+    "sentences, vocabulary, grammar, pronunciation, correcting their sentences, composing a short text together or "
+    "rehearsing a situation in the foreign language). Tutoring in any other subject (mathematics, science, "
+    "programming, history, school homework, exam preparation outside languages) is NOT this type and gets 0, unless "
+    "the message itself is about learning or translating a language",
+    "longtask": "a long multi-step task done together over many turns: planning (trip, event, budget, study or training "
+    "plan), step-by-step guidance, drafting something together while tracking the user's constraints",
+    "assistant": "a real deployed general voice assistant: anything a person would plausibly SAY out loud to such an "
+    "assistant (questions, help, small talk, planning, language questions)",
+}
+TAG_FLAGS = ("needs_document", "needs_business_facts", "unsafe", "not_speakable")
+TAG_SYSTEM = (
+    "You annotate real first messages that people typed to a chatbot. They will seed spoken conversations with a "
+    "voice assistant, written for training data. For the message, rate how well it could serve as the basis (topic or "
+    "situation) of a spoken conversation of each type below, each independently from 0 to 1 (0 = cannot be adapted, "
+    "0.5 = works with some adaptation, 1 = a natural fit). The message is only a seed: the conversation may adapt it "
+    "into something a person would say. Several types can fit equally well.\n\nTYPES:\n"
+    + "\n".join(f"- {k}: {v}" for k, v in TAG_DEFS.items())
+    + "\n\nAlso give: gist = one short English phrase (at most 15 words) naming the topic or situation as it could "
+    "come up in a spoken conversation (keep culture-specific names and places; no personal names, numbers or account "
+    "details from the message); and flags: needs_document (it depends on a text, file, image or link the voice "
+    "assistant would not have), needs_business_facts (only a specific company's own data could answer it), unsafe "
+    "(sexual content, hate, harassment, or real harm), not_speakable (code, formulas, tables, long text generation, "
+    "spam, tests or gibberish that cannot become a spoken request)."
+)
+TAG_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "gist": {"type": "string"},
+        "weights": {"type": "object", "properties": {k: {"type": "number"} for k in sd.SCENARIOS},
+                    "required": list(sd.SCENARIOS), "additionalProperties": False},
+        "flags": {"type": "object", "properties": {k: {"type": "boolean"} for k in TAG_FLAGS},
+                  "required": list(TAG_FLAGS), "additionalProperties": False},
+    },
+    "required": ["gist", "weights", "flags"],
+    "additionalProperties": False,
+}  # fmt: skip
+
+
+def tag_messages(text: str, lang: str) -> list[dict]:
+    return [{"role": "system", "content": TAG_SYSTEM},
+            {"role": "user", "content": f"MESSAGE ({sd.LANGS[lang]}):\n{text}"}]  # fmt: skip
+
+
+def tag_row(row: dict, lang: str, answer: dict | None) -> dict:
+    """One tagged request: ``answer`` (the tagger's JSON) with every weight clamped to [0, 1]; a request ``_NSFW``
+    matches is unsafe without asking (``answer`` None)."""
+    if answer is None:
+        return {**row, "lang": lang, "gist": "", "weights": {k: 0.0 for k in sd.SCENARIOS},
+                "flags": {f: f == "unsafe" for f in TAG_FLAGS}}  # fmt: skip
+    return {**row, "lang": lang, "gist": " ".join(str(answer["gist"]).split()),
+            "weights": {k: min(1.0, max(0.0, float(answer["weights"][k]))) for k in sd.SCENARIOS},
+            "flags": {f: bool(answer["flags"][f]) for f in TAG_FLAGS}}  # fmt: skip
+
+
+def tag_requests(rows: list[dict], lang: str, url: str, model: str, workers: int = 192) -> tuple[list[dict], dict]:
+    """Every row tagged (temperature 0, JSON schema, up to 3 tries; an unparseable answer stays ``error``), in order."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from openai import OpenAI
+
+    from .common import json_schema_format
+
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url, timeout=600)
+
+    def one(row):
+        if sd._NSFW.search(row["text"]):
+            return tag_row(row, lang, None)
+        err = None
+        for t in range(3):
+            try:
+                c = client.chat.completions.create(model=model, temperature=0.0, max_tokens=400, seed=t,
+                                                   messages=tag_messages(row["text"], lang),
+                                                   extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                                                   **json_schema_format(TAG_SCHEMA, "tags"))  # fmt: skip
+                return tag_row(row, lang, json.loads(c.choices[0].message.content))
+            except Exception as e:  # malformed output or a request error: asked again
+                err = f"{type(e).__name__}"
+        return {**row, "lang": lang, "error": err}
+
+    t0 = time.time()
+    with ThreadPoolExecutor(workers) as ex:
+        out = list(ex.map(one, rows))
+    ok = [r for r in out if not r.get("error")]
+    stats = {"rows": len(out), "errors": len(out) - len(ok), "wall_s": round(time.time() - t0, 1),
+             "eligible": sum(sd.request_eligible(r) for r in ok),
+             "share_w_ge_05": {k: round(sum(r["weights"][k] >= 0.5 for r in ok if sd.request_eligible(r))
+                                        / max(1, sum(sd.request_eligible(r) for r in ok)), 3) for k in sd.SCENARIOS},
+             "flags": {f: sum(r["flags"][f] for r in ok) for f in TAG_FLAGS}}  # fmt: skip
+    return out, stats
+
+
+class SftTagRequests(Job):
+    """:func:`tag_requests` over ``rows`` (``SftSourceRows`` WildChat output) of ``lang``, every ``shard[1]``-th row from
+    ``shard[0]`` -> ``tags.jsonl`` (the rows + ``lang``, ``gist``, ``weights``, ``flags``), ``stats.json``. Fails when
+    more than 2% of the rows stay untagged. ``TAG_VERSION`` is hashed."""
+
+    def __init__(self, *, rows: tk.Path, lang: str, shard: tuple[int, int] = (0, 1),
+                 model: str = "google/gemma-4-31B-it", vllm_args: list[str] | None = None):  # fmt: skip
+        self.rows, self.lang, self.shard, self.model, self.vllm_args = rows, lang, tuple(shard), model, vllm_args
+        self.out_tags = self.output_path("tags.jsonl")
+        self.out_stats = self.output_path("stats.json")
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 2}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        return super().hash({**parsed_args, "tag_version": TAG_VERSION})
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        from .common import vllm_server
+
+        k, n = self.shard
+        rows = [json.loads(x) for x in open(self.rows.get(), encoding="utf-8")][k::n]
+        with vllm_server(self.model, max_model_len=8192, extra_args=self.vllm_args) as url:
+            out, stats = tag_requests(rows, self.lang, url, self.model)
+        with open(self.out_stats.get(), "w") as f:
+            json.dump(stats, f, indent=1)
+        if stats["errors"] > 0.02 * max(1, stats["rows"]):
+            raise RuntimeError(f"SftTagRequests: {stats['errors']} of {stats['rows']} rows untagged")
+        with open(self.out_tags.get(), "w", encoding="utf-8") as f:
+            for r in out:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        print(f"[SftTagRequests] {self.lang} {self.shard}: {stats}", flush=True)
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -719,6 +869,8 @@ class SftDataReport(Job):
 @dataclass
 class SftCorpus:
     pool: SftVoicePool
+    #: lang -> SftTagRequests
+    tags: dict = field(default_factory=dict)
     #: (scenario, lang) -> per shard ``{"seeds", "write", "cast", "tts", "stats"}`` jobs and ``part`` (its index in
     #: the group's writer / TTS outputs)
     shards: dict = field(default_factory=dict)
@@ -744,16 +896,23 @@ def job_groups(shards: list[tuple[str, str, int]], group: str = "cell", per_job:
 
 def build_sft_corpus(*, name: str, rows: dict, env: dict, cell_seeds: int, shard_seeds: int, seed: int,
                      writer: dict, tts: dict, voices: dict, scenario_weights: dict, lang_weights: dict,
-                     group: str = "cell", shards_per_job: int = 1, cell_sizes: dict | None = None,
+                     tagger: dict, fallback: dict | None = None, scenario_smoothing: float = sd.SCENARIO_SMOOTHING,
+                     group: str = "cell", shards_per_job: int = 1,
+                     job_hours: dict | None = None,
+                     cell_sizes: dict | None = None,
                      scenarios: list[str] | None = None, langs: list[str] | None = None) -> SftCorpus:  # fmt: skip
     """Every (scenario, language) cell: ``cell_seeds`` seeds (``cell_sizes`` overrides per ``(scenario, lang)``) in
     shards of ``shard_seeds``, each its own seeds -> cast -> stats chain, written and spoken in GPU jobs over
-    :func:`job_groups` (``group``, ``shards_per_job``; one output per shard); the shared voice pool (``voices``:
+    :func:`job_groups` (``group``, ``shards_per_job``; one output per shard; ``job_hours``: their SLURM time,
+    ``{"write", "tts"}``, not hashed: a short request backfills); the shared voice pool (``voices``:
     :func:`build_voice_pool`'s arguments + ``parler_share``); the report and the mix from the weights.
 
     ``rows``: ``{(source, lang): SftSourceRows.out_rows}`` (personas: ``("personas", "en")`` serves every language);
     ``env``: interpreters ``chatterbox``, ``annotate``, ``parakeet``, ``qwen3_tts``, ``parler`` and ``ffmpeg``;
-    ``writer`` / ``tts``: ``SftWriteDialogues`` / ``ChatterboxInferenceV2`` settings."""
+    ``writer`` / ``tts``: ``SftWriteDialogues`` / ``ChatterboxInferenceV2`` settings; ``tagger``: ``SftTagRequests``
+    settings (one job per language over its WildChat rows); ``fallback``: ``{lang: other lang}``, a cell's request draw
+    continues into the other language's pool (German: its usable pool is small); ``scenario_smoothing``: the uniform
+    share mixed into each request's scenario distribution (``sft_dialogues.request_prob``)."""
     from ..jobs.hf import HfMergeShards
     from .tts import ChatterboxInferenceV2
 
@@ -762,14 +921,23 @@ def build_sft_corpus(*, name: str, rows: dict, env: dict, cell_seeds: int, shard
     pool = build_voice_pool(personas=rows[("personas", "en")], env=env, langs=langs, **voices)
     out = SftCorpus(pool=pool)
     max_err = dict(tts.get("max_err") or {"*": 0.1})
+    tag_langs = sorted(set(langs) | set((fallback or {}).values()))
+    tags = {lg: SftTagRequests(rows=rows[("wildchat", lg)], lang=lg, **tagger) for lg in tag_langs}
+    if job_hours and "tag" in job_hours:
+        for t in tags.values():
+            t.rqmt = {**t.rqmt, "time": job_hours["tag"]}
     seeds = {}  # (scenario, lang, k) -> SftSeeds
     for sc in scenarios:
         for lg in langs:
-            src = {s: rows[(s, lg)] for s in ("wikipedia", "wildchat") if (s, lg) in rows}
-            src["personas"] = rows[("personas", "en")]
+            src = {"tagged": tags[lg].out_tags, "personas": rows[("personas", "en")]}
+            if (s_w := rows.get(("wikipedia", lg))) is not None:
+                src["wikipedia"] = s_w
+            if (fallback or {}).get(lg):
+                src["tagged_fallback"] = tags[fallback[lg]].out_tags
             for start, n in shard_ranges((cell_sizes or {}).get((sc, lg), cell_seeds), shard_seeds):
                 seeds[(sc, lg, start // shard_seeds)] = sd.SftSeeds(scenario=sc, lang=lg, n=n, start=start, seed=seed,
-                                                                    sources=src)  # fmt: skip
+                                                                    sources=src, scenario_smoothing=scenario_smoothing)  # fmt: skip
+    out.tags = tags
     shard_jobs = {}
     for grp in job_groups(list(seeds), group, shards_per_job):
         write = sd.SftWriteDialogues(seeds=[seeds[s].out_seeds for s in grp], per_input=True, **writer)
@@ -780,6 +948,9 @@ def build_sft_corpus(*, name: str, rows: dict, env: dict, cell_seeds: int, shard
                                        ffmpeg_path=env["ffmpeg"], in_hfs=[c.out_hf for c in casts],
                                        in_prefixes=[f"{sc}_{lg}_{k:03d}_" for sc, lg, k in grp],
                                        speaker_dir=pool.out_dir, keep_columns=TTS_KEEP, **tts)  # fmt: skip
+        if job_hours:
+            write.rqmt = {**write.rqmt, "time": job_hours["write"]}
+            speech.rqmt = {**speech.rqmt, "time": job_hours["tts"]}
         for i, (sc, lg, k) in enumerate(grp):
             stats = SftShardStats(cell={"scenario": sc, "lang": lg, "shard": k}, seeds=seeds[(sc, lg, k)].out_seeds,
                                   write_stats=write.out_stats_parts[i], cast=casts[i].out_hf, tts=speech.out_hfs[i],

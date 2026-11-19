@@ -69,8 +69,8 @@ LOCALES = {
     "ru": ["Russia"],
 }
 #: bump a scenario's entry when its seeds or writer brief change: only that scenario's jobs re-hash
-SCENARIO_VERSIONS = {"service": 3, "grounded": 3, "help": 4, "chitchat": 3, "skills": 4, "tutor": 4, "longtask": 3,
-                     "assistant": 3}  # fmt: skip (2026-11-19 writer v11: fixed general prompt, tutor situations)
+SCENARIO_VERSIONS = {"service": 4, "grounded": 3, "help": 5, "chitchat": 4, "skills": 5, "tutor": 5, "longtask": 4,
+                     "assistant": 4}  # fmt: skip (v12 draw: content from tagged WildChat requests, lists retired)
 #: the writer prompt / validation (every scenario): hashed into SftWriteDialogues
 WRITER_VERSION = 11
 #: system-prompt detail levels (PersonaPlex: prompts "at varying detail levels") and their draw weights
@@ -101,50 +101,39 @@ def draw_language_setup(lang: str, rng: random.Random) -> dict:
 
 
 # ---------------------------------------------------------------------------------------------------------------
-# scenarios: seeds(lang, rng, rows) -> one seed's scenario fields (+ "brief", the writer's scenario paragraph)
+# scenarios: seeds(lang, rng, rows, req) -> one seed's scenario fields (+ "brief", the writer's scenario paragraph).
+# ``req``: the cell's drawn WildChat request (``draw_request``: ``text``, an English ``gist``, scenario ``weights``);
+# None for grounded (a Wikipedia passage) and for a service seed past the cell's suitable requests.
 
-SERVICE_DOMAINS = {
-    "restaurant": ("a restaurant's reservation and information line", ["a table reservation", "a question about the menu and allergens", "moving a booking", "a complaint about a delivery order"]),
-    "bank": ("a retail bank's customer service", ["a disputed card charge", "a lost card", "a question about fees", "opening a savings account"]),
-    "telecom": ("a mobile carrier's support line", ["a confusing bill", "changing the plan", "no signal at home", "cancelling a contract"]),
-    "hotel": ("a hotel's front desk", ["changing a reservation", "a late checkout", "a noisy room", "a billing question"]),
-    "online_shop": ("an online shop's customer service", ["where an order is", "returning an item", "a damaged delivery", "a wrong size"]),
-    "utility": ("an energy supplier's customer service", ["a high bill", "moving to a new address", "a power outage", "a meter reading"]),
-    "tech_support": ("a software company's tech support", ["cannot log in", "the app keeps crashing", "upgrading the subscription", "lost data"]),
-    "doctor": ("a medical practice's reception", ["booking an appointment", "a prescription refill", "test results availability", "rescheduling"]),
-    "car_rental": ("a car rental company", ["extending a rental", "a scratch on the car", "picking up at a different branch", "the deposit"]),
-    "airline": ("an airline's service line", ["a delayed flight", "changing a seat", "lost luggage", "adding a bag"]),
-    "gym": ("a fitness studio's front desk", ["cancelling a membership", "class schedule", "pausing during an injury", "a guest pass"]),
-    "pharmacy": ("a pharmacy", ["whether a medicine is in stock", "opening hours on a holiday", "a prescription pickup", "a question about a product"]),
-    "transit": ("a public transport information line", ["the best connection", "a ticket price", "a disruption", "a lost item on a bus"]),
-    "insurance": ("an insurance company's service line", ["reporting water damage", "what a policy covers", "changing the payment plan", "a claim status"]),
-    "cinema": ("a cinema's booking line", ["booking tickets", "changing seats", "accessibility", "a refund for a cancelled screening"]),
-    "landlord": ("a property management office", ["a broken heater", "the rent increase", "moving out", "a noise complaint about neighbours"]),
-}  # fmt: skip
+#: how a brief names a drawn request
+_FROM_REQ = "adapted from a real request a person typed to a chatbot"
 
 
-def _service(lang, rng, rows):
+def _service(lang, rng, rows, req=None):
     from .personaplex_service_data import PROBE_CATEGORIES
 
-    dom = rng.choice(sorted(SERVICE_DOMAINS))
-    role, kinds = SERVICE_DOMAINS[dom]
-    kind, probe = rng.choice(kinds), rng.choice(sorted(PROBE_CATEGORIES))
+    probe = rng.choice(sorted(PROBE_CATEGORIES))
     p = PROBE_CATEGORIES[probe]
     loc = rng.choice(LOCALES[lang])
-    brief = (f"The assistant answers the phone for {role} in {loc}. Invent the business realistically for {loc} (a "
+    matter = (f"{_FROM_REQ} (turn it into a matter one would phone a business or office about): {req['gist']}" if req
+              else "something this caller would really phone a business or office about, given who they are (see WHO "
+              "THE USER IS)")  # fmt: skip
+    brief = (f"The assistant answers the phone for the kind of business or public office in {loc} that would handle "
+             f"this caller's matter (choose a fitting one). Invent the business realistically for {loc} (a "
              f"local-sounding name, address area, opening hours, prices in the local currency, 3-6 concrete facts and "
              f"policies relevant to the call) and put ALL of it in the system prompt. The caller's own details (name, "
              f"booking or account number, dates, what exactly happened, what they want) are NOT in the system prompt: "
              f"the caller gives them, the assistant asks for what is missing and uses them (repeats a number back, "
-             f"applies a policy to the caller's dates, works out the caller's price). The caller's matter: {kind}. "
+             f"applies a policy to the caller's dates, works out the caller's price). The caller's matter, {matter}. "
              f"During the call the caller {p['ask']}. At least once the caller asks for something specific that is "
              f"not in the system prompt; the assistant says it does not have that information and offers what it "
              f"can. "
              f"Expected: {p['expected'].replace('({noun})', '(from the system prompt)')}")  # fmt: skip
-    return {"domain": dom, "matter": kind, "probe": probe, "locale": loc, "brief": brief, "turns": rng.randint(8, 12)}
+    return {"matter": req["gist"] if req else None, "matter_from": "request" if req else "persona", "probe": probe,
+            "locale": loc, "brief": brief, "turns": rng.randint(8, 12)}  # fmt: skip
 
 
-def _grounded(lang, rng, rows):
+def _grounded(lang, rng, rows, req=None):
     row = rows["wikipedia"][rng.randrange(len(rows["wikipedia"]))]
     brief = (f"The assistant is a friendly knowledgeable companion. The system prompt includes the passage below "
              f"(you may shorten it slightly, keep its facts). The user is curious about the topic ({row['title']}); "
@@ -159,75 +148,36 @@ _NSFW = re.compile(r"(?i)\b(sex\w*|porn\w*|nsfw|erotic\w*|fetish\w*|sissy|nude\w
                    r"nackt\w*|erotik\w*|fetisch\w*)\b|секс|порн|эрот|голая|голый|色情|性爱|做爱|裸体|成人小说")
 
 
-def _clean_request(rng, pool):
-    """A random WildChat row, redrawn (up to 50 times) while it matches ``_NSFW``."""
-    row = pool[rng.randrange(len(pool))]
-    for _ in range(50):
-        if not _NSFW.search(row["text"]):
-            break
-        row = pool[rng.randrange(len(pool))]
-    return row
-
-
-def _help(lang, rng, rows):
-    row = _clean_request(rng, rows["wildchat"])
+def _help(lang, rng, rows, req):
     brief = (f"A general voice assistant (its system prompt is the general one: nothing about this conversation's "
              f"topic). The user's first request is based on this real typed request to a chatbot "
-             f"(rewrite it as something a person would SAY to a voice assistant; if it cannot be done by voice, e.g. "
+             f"(rewrite it as something a person would SAY to a voice assistant, in the user's own language; if it "
+             f"cannot be done by voice, e.g. "
              f"code, a long document, an image, turn it into a related spoken request; if it is spam, a test message "
              f"or makes no sense, or is sexual, hateful or meant to cause harm, ignore it and invent a typical everyday spoken "
-             f"request instead): {row['text']!r}. "
+             f"request instead): {req['text']!r}. "
              f"The assistant "
              f"answers concisely from general knowledge, says when it is not sure, and the user follows up once or "
              f"twice.")  # fmt: skip
-    return {"source_id": row["id"], "request": row["text"], "brief": brief, "turns": rng.randint(4, 8)}
+    return {"brief": brief, "turns": rng.randint(4, 8)}
 
 
-CHITCHAT_TOPICS = ["plans for the weekend", "a film or series they just watched", "cooking dinner tonight", "stress at work",
-                   "an upcoming trip", "their pet", "a sports match", "a book they are reading", "the weather lately",
-                   "a new neighbour", "studying for exams", "a hobby they started", "music they like", "a family visit",
-                   "moving to a new flat", "a new phone", "getting fit", "something funny that happened today",
-                   "an upcoming holiday or festival", "missing an old friend"]  # fmt: skip
-#: the user's interests in chit-chat without a persona row (round 6 judge: Russian users were all into fishing and
-#: chess when the writer picked)
-INTERESTS = ["hiking", "baking", "board games", "photography", "gardening", "jazz", "running", "knitting", "chess",
-             "cycling", "old films", "astronomy", "pottery", "football", "birdwatching", "cooking spicy food", "yoga",
-             "learning languages", "history podcasts", "fishing", "dancing", "volunteering at an animal shelter",
-             "fixing old bikes", "sci-fi novels", "swimming", "painting", "playing guitar", "travel vlogs", "camping",
-             "video games", "crosswords", "tea", "climbing", "sewing", "classical music", "woodworking",
-             "local politics", "mushroom picking", "theatre", "skiing"]  # fmt: skip
 ASSISTANT_TRAITS = ["warm and curious", "calm and thoughtful", "cheerful and a bit playful", "dry humour, kind",
                     "enthusiastic", "gentle and encouraging"]  # fmt: skip
 
 
-def _chitchat(lang, rng, rows):
-    topic, traits = rng.choice(CHITCHAT_TOPICS), rng.choice(ASSISTANT_TRAITS)
+def _chitchat(lang, rng, rows, req):
+    traits = rng.choice(ASSISTANT_TRAITS)
     loc = rng.choice(LOCALES[lang])
-    if rows.get("personas"):  # every language: the persona is adapted to the locale (``_persona_text``)
-        per = rows["personas"][rng.randrange(len(rows["personas"]))]
-        user = (f"The user (their name is the one under PEOPLE, not any name in this description; adapt details tied "
-                f"to another country to someone living in {loc}): {_persona_text_clean(per['text'])}")  # fmt: skip
-        src = per["id"]
-    else:
-        # the gender is the cast's (round 6 judge: a drawn "woman" here against a male cast user); the draw stays so
-        # the later draws keep their values
-        age, _ = rng.randint(18, 75), rng.choice(["woman", "man"])
-        hobbies = rng.sample(INTERESTS, 2)
-        user = (f"The user is {age} years old, living in {loc}, into {hobbies[0]} and {hobbies[1]}; invent a "
-                f"fitting occupation and situation.")  # fmt: skip
-        src = None
+    per = rows["personas"][rng.randrange(len(rows["personas"]))]  # adapted to the locale (``_persona_text``)
+    user = (f"The user (their name is the one under PEOPLE, not any name in this description; adapt details tied "
+            f"to another country to someone living in {loc}): {_persona_text_clean(per['text'])}")  # fmt: skip
     brief = (f"Casual conversation with a companion assistant whose personality is {traits}; put that personality in "
-             f"the system prompt. {user} They talk about {topic}. The assistant listens, asks natural "
+             f"the system prompt. {user} They talk about something around this, as it fits this user's life "
+             f"({_FROM_REQ}): {req['gist']}. The assistant listens, asks natural "
              f"follow-up questions, shares light opinions, remembers what the user said earlier in the conversation, "
              f"and never claims human experiences it cannot have.")  # fmt: skip
-    return {
-        "topic": topic,
-        "traits": traits,
-        "locale": loc,
-        "persona_id": src,
-        "brief": brief,
-        "turns": rng.randint(8, 12),
-    }
+    return {"traits": traits, "locale": loc, "persona_id": per["id"], "brief": brief, "turns": rng.randint(8, 12)}
 
 
 SKILLS = {
@@ -250,18 +200,15 @@ SKILLS = {
 }
 
 
-def _skills(lang, rng, rows):
+def _skills(lang, rng, rows, req):
     skill = rng.choice(sorted(SKILLS))
-    topic, src = "Everyday topic of your choice.", None
-    if rows.get("wildchat"):  # a real request as the topic's anchor ("of your choice" collapses onto a few topics)
-        row = _clean_request(rng, rows["wildchat"])
-        topic = (f"Topic: something everyday, loosely inspired by (not copied from) this real request a person typed "
-                 f"to a chatbot: {row['text']!r}; if it does not suit the skill or a voice conversation, pick a related "
-                 f"everyday topic that suits the user.")  # fmt: skip
-        src = row["id"]
+    # a real request as the topic's anchor ("of your choice" collapses onto a few topics)
+    topic = (f"Topic: something everyday, loosely inspired by (not copied from) this real request a person typed "
+             f"to a chatbot: {req['text']!r}; if it does not suit the skill or a voice conversation, pick a related "
+             f"everyday topic that suits the user.")  # fmt: skip
     brief = (f"A general voice assistant (its system prompt is the general one: nothing about this conversation's "
              f"topic). {topic} {SKILLS[skill]}")  # fmt: skip
-    return {"skill": skill, "source_id": src, "brief": brief, "turns": rng.randint(4, 8)}
+    return {"skill": skill, "brief": brief, "turns": rng.randint(4, 8)}
 
 
 TUTOR_ACTIVITIES = {
@@ -281,7 +228,7 @@ TUTOR_ACTIVITIES = {
 CEFR = ["A1", "A2", "B1", "B2", "C1"]
 
 
-def _tutor(lang, rng, rows, l2=None):
+def _tutor(lang, rng, rows, req=None, l2=None):
     l2 = l2 or rng.choice([x for x in LANGS if x != lang])
     act, lvl = rng.choice(sorted(TUTOR_ACTIVITIES)), rng.choice(CEFR)
     l1n, l2n = LANGS[lang].split(" (")[0], LANGS[l2].split(" (")[0]
@@ -289,34 +236,28 @@ def _tutor(lang, rng, rows, l2=None):
             else "single words and very short phrases")  # fmt: skip
     role = (f" In the role-play the tutor's in-role lines are in {l2n}; it steps out of the role in {l1n}."
             if act == "roleplay" else "")  # fmt: skip
+    topic = (f" The words, sentences or situation practised relate to this topic, adapted to the learner's life and "
+             f"level ({_FROM_REQ}): {req['gist']}." if req else "")  # fmt: skip
     brief = (f"A language tutor. The learner's native language is {l1n}; they are learning {l2n} at level {lvl}. "
              f"The tutor talks to the learner in {l1n} (explanations, questions, feedback): asked in {l1n} how to say "
              f"something, it answers in {l1n} and says only the asked words in {l2n}. {l2n} is used for exactly what "
              f"is practised, at this level {more}.{role} Put the learner's languages, level and the session's "
              f"activity (and any material, e.g. the role-play situation) in the system prompt; the level code ({lvl}) is "
              f"never said aloud. "
-             f"{TUTOR_ACTIVITIES[act].format(l1=l1n, l2=l2n)} The learner speaks {l1n} and tries {l2n}.")  # fmt: skip
+             f"{TUTOR_ACTIVITIES[act].format(l1=l1n, l2=l2n)} The learner speaks {l1n} and tries {l2n}.{topic}")  # fmt: skip
     return {"l2": l2, "activity": act, "cefr": lvl, "brief": brief, "turns": rng.randint(8, 14),
             "prompt_lang": lang if rng.random() < 0.7 else "en" if lang != "en" else l2, "policy": "tutor"}  # fmt: skip
 
 
-LONG_TASKS = ["planning a three-day city trip", "cooking a dish step by step while the user cooks along",
-              "planning a birthday party", "setting up a monthly budget", "preparing for an exam over the next weeks",
-              "assembling a piece of furniture step by step", "planning a small vegetable garden",
-              "a training plan for a first 10 km run", "a checklist for moving to a new apartment",
-              "writing a short speech for a friend's wedding", "choosing a used car", "planning a family dinner menu"]  # fmt: skip
-
-
-def _longtask(lang, rng, rows):
-    task = rng.choice(LONG_TASKS)
-    what = (f"a multi-step task that fits the user's life (see WHO THE USER IS), of the kind of {task} but specific "
-            f"to this person" if rows.get("personas") else task)  # fmt: skip
-    brief = (f"A practical voice assistant helps with {what}. The system prompt only describes the assistant; the "
+def _longtask(lang, rng, rows, req):
+    brief = (f"A practical voice assistant helps with a multi-step task that fits the user's life (see WHO THE USER "
+             f"IS), based on this ({_FROM_REQ}) and specific to this person: {req['gist']}. The system prompt only "
+             f"describes the assistant; the "
              f"user's situation and constraints (dates, budget, people, preferences, equipment, what they already "
              f"have) come up during the conversation, some only when the assistant asks, some changed later by the "
              f"user. They work through it step by step; the assistant keeps track of what the user said and decided, "
              f"refers back to it, and summarises briefly at the end (only what was said and decided).")  # fmt: skip
-    return {"task": task, "brief": brief, "turns": rng.randint(14, 20)}
+    return {"brief": brief, "turns": rng.randint(14, 20)}
 
 
 #: what a production assistant conversation is about underneath: the other scenarios' briefs
@@ -391,9 +332,10 @@ ASSISTANT_TOPICS = {"help": 0.35, "chitchat": 0.2, "skills": 0.2, "longtask": 0.
 ASSISTANT_OPENS = 0.9
 
 
-def _assistant(lang, rng, rows):
-    sub = _pick(rng, ASSISTANT_TOPICS)
-    inner = SCENARIOS[sub](lang, rng, rows)
+def _assistant(lang, rng, rows, req):
+    # the topic underneath: ASSISTANT_TOPICS x the request's weight for it (+0.05: every topic stays possible)
+    sub = _pick(rng, {k: v * (0.05 + req["weights"][k]) for k, v in ASSISTANT_TOPICS.items()})
+    inner = SCENARIOS[sub](lang, rng, rows, req)
     opens = "assistant" if rng.random() < ASSISTANT_OPENS else "user"
     start = ("The conversation opens with the assistant's short greeting asking how it can help (without its name); "
              "then the user says what they want." if opens == "assistant" else "The user speaks first.")
@@ -410,11 +352,84 @@ def _assistant(lang, rng, rows):
 
 SCENARIOS = {"service": _service, "grounded": _grounded, "help": _help, "chitchat": _chitchat, "skills": _skills,
              "tutor": _tutor, "longtask": _longtask, "assistant": _assistant}  # fmt: skip
-#: source rows each scenario reads (SftSeeds' ``sources`` keys)
-#: every scenario reads ``personas``: each dialogue's user is a persona (``make_seeds``, ``_persona_text``)
-SCENARIO_SOURCES = {"service": ["personas"], "grounded": ["wikipedia", "personas"], "help": ["wildchat", "personas"],
-                    "chitchat": ["personas"], "skills": ["wildchat", "personas"], "tutor": ["personas"],
-                    "longtask": ["personas"], "assistant": ["wildchat", "personas"]}  # fmt: skip
+#: source rows each scenario reads (SftSeeds' ``sources`` keys): every scenario reads ``personas`` (each dialogue's
+#: user is a persona, ``make_seeds``); ``tagged``: ``SftTagRequests`` output (+ ``tagged_fallback``, optional: another
+#: language's pool the cell continues into after its own, ``cell_requests``)
+SCENARIO_SOURCES = {sc: ["tagged", "personas"] for sc in SCENARIOS} | {"grounded": ["wikipedia", "personas"]}
+REQUEST_SCENARIOS = [sc for sc in SCENARIOS if "tagged" in SCENARIO_SOURCES[sc]]
+
+# ---------------------------------------------------------------------------------------------------------------
+# the request draw: each cell draws its own requests from the tagged pool (no assignment of requests to cells, so one
+# cell's size or share never moves another's draw; a request can serve several scenarios)
+
+#: service requests are rare in WildChat (3.4% of requests with weight >= 0.5, 2026-11-19 tag sample): a service seed
+#: takes a request of at least this weight, and past the cell's suitable ones the caller's matter comes from the persona
+SERVICE_MIN_WEIGHT = 0.3
+
+
+def request_eligible(r: dict) -> bool:
+    """A tagged request that can seed a dialogue (unsafe or unspeakable ones are a content filter, as ``_NSFW``)."""
+    return not r.get("error") and not r["flags"]["unsafe"] and not r["flags"]["not_speakable"]
+
+
+#: the tagger's scenario labels are best-effort: each request's weights, normalised to a distribution over the
+#: scenarios, are mixed with this share of the uniform one, so every request keeps a chance in every scenario
+SCENARIO_SMOOTHING = 0.01
+
+
+def request_prob(r: dict, scenario: str, smoothing: float) -> float:
+    """p'(scenario | request) = (1 - smoothing) * p + smoothing / #scenarios, p = the weights normalised."""
+    tot = sum(float(v) for v in r["weights"].values())
+    p = float(r["weights"][scenario]) / tot if tot > 0 else 0.0
+    return (1.0 - smoothing) * p + smoothing / len(SCENARIOS)
+
+
+def request_order(tagged: list[dict], scenario: str, key: str, min_w: float = 0.0,
+                  smoothing: float = SCENARIO_SMOOTHING) -> list[dict]:  # fmt: skip
+    """A weighted random order without replacement over :func:`request_prob` (Efraimidis-Spirakis, key
+    ``u ** (1 / p)``; ``u`` from a hash of (``key``, request id), so the order does not depend on the pool's row
+    order); a request not :func:`request_eligible`, with probability 0 or with a raw weight under ``min_w`` never
+    comes."""
+    import hashlib
+
+    ks = []
+    for r in tagged:
+        if not request_eligible(r) or float(r["weights"][scenario]) < min_w:
+            continue
+        p = request_prob(r, scenario, smoothing)
+        if p > 0:
+            u = (int(hashlib.sha1(f"{key}/{r['id']}".encode()).hexdigest()[:15], 16) + 0.5) / 16**15
+            ks.append((-(u ** (1.0 / p)), r["id"], r))
+    return [r for *_, r in sorted(ks, key=lambda x: (x[0], x[1]))]
+
+
+def cell_requests(scenario: str, lang: str, seed: int, rows: dict, smoothing: float = SCENARIO_SMOOTHING) -> list[dict]:
+    """The cell's request sequence: its own pool's order (``tagged``), then the fallback pool's (``tagged_fallback``:
+    German, whose usable pool is small, continues into the English one; the writer localises the request), each pool's
+    requests rated 0 for the scenario (drawn only by ``smoothing``) after both pools' rated ones; service only from
+    :data:`SERVICE_MIN_WEIGHT`."""
+    mw = SERVICE_MIN_WEIGHT if scenario == "service" else 0.0
+    key = f"draw/{scenario}/{lang}/{seed}"
+    own = request_order(rows.get("tagged") or [], scenario, key, mw, smoothing)
+    other = request_order(rows.get("tagged_fallback") or [], scenario, f"{key}/fallback", mw, smoothing)
+
+    def head(seq):  # up to the last request rated > 0: the tail is only there by smoothing
+        rated = [i for i, r in enumerate(seq) if float(r["weights"][scenario]) > 0]
+        return rated[-1] + 1 if rated else 0
+
+    a, b = head(own), head(other)
+    # the fallback's rated requests come before the own pool's zero-rated tail (a German cell that drew its whole
+    # pool would otherwise be mostly requests rated 0 for the scenario); without a fallback the order is unchanged
+    return own[:a] + other[:b] + own[a:] + other[b:]
+
+
+def draw_request(seq: list[dict], scenario: str, k: int) -> dict | None:
+    """Seed ``k``'s request: ``seq[k]``, then further passes over the same order (a request repeats only after every
+    eligible one was used); service has no second pass (None: the matter comes from the persona)."""
+    if scenario == "service":
+        return seq[k] if k < len(seq) else None
+    return seq[k % len(seq)] if seq else None
+
 
 #: Interruptions: the user cuts the assistant off mid-sentence (``chatterbox_v2_core.CUT`` marks the spot; the TTS
 #: stops the assistant there and overlaps the user's turn). Per dialogue: how many (weights), and what the user does.
@@ -430,12 +445,16 @@ INTERRUPT_KINDS = {
 }
 
 
-def make_seeds(scenario: str, lang: str, n: int, seed: int, rows: dict, start: int = 0) -> list[dict]:
+def make_seeds(scenario: str, lang: str, n: int, seed: int, rows: dict, start: int = 0,
+               smoothing: float = SCENARIO_SMOOTHING) -> list[dict]:  # fmt: skip
     """``n`` seeds of ``scenario`` for users speaking ``lang``, indices ``start`` .. ``start + n - 1``: seed ``k`` is
-    deterministic in (``seed``, ``k``) alone, so a shard of a cell is the same whatever the cell's size; ``cast``: the
-    people's names and genders (own random stream)."""
+    deterministic in (``seed``, ``k``) and the cell's request order (:func:`cell_requests`) alone, so a shard of a cell
+    is the same whatever the cell's size; ``cast``: the people's names and genders (own random stream)."""
     from .sft_names import draw_cast
 
+    seq = cell_requests(scenario, lang, seed, rows, smoothing) if scenario in REQUEST_SCENARIOS else []
+    if scenario in REQUEST_SCENARIOS and scenario != "service" and not seq:
+        raise ValueError(f"{scenario}/{lang}: no eligible request in the tagged pool")
     out = []
     for k in range(start, start + n):
         rng = random.Random(f"{scenario}/{lang}/{seed}/{k}")
@@ -443,7 +462,10 @@ def make_seeds(scenario: str, lang: str, n: int, seed: int, rows: dict, start: i
              "level": _pick(rng, LEVEL_WEIGHTS)}  # fmt: skip
         # tutoring: the target languages in rotation (a random draw left some unseen in a small pilot)
         kw = {"l2": [x for x in LANGS if x != lang][(k + seed) % (len(LANGS) - 1)]} if scenario == "tutor" else {}
-        s.update(SCENARIOS[scenario](lang, rng, rows, **kw))
+        req = draw_request(seq, scenario, k) if scenario in REQUEST_SCENARIOS else None
+        s.update(SCENARIOS[scenario](lang, rng, rows, req, **kw))
+        if req is not None:  # traceable: which request, from which pool, how it was weighted
+            s["request"] = {"id": req["id"], "lang": req["lang"], "gist": req["gist"], "weights": req["weights"]}
         s["cast"] = draw_cast(lang, random.Random(f"{scenario}/{lang}/{seed}/{k}/cast"))
         if rows.get("personas") and not s.get("persona_id"):  # who the user is: own random stream
             pr = random.Random(f"{scenario}/{lang}/{seed}/{k}/persona")
@@ -1739,29 +1761,36 @@ class SftSeeds(Job):
     scenario's version is hashed."""
 
     def __init__(self, *, scenario: str, lang: str, n: int, seed: int = 0, sources: dict | None = None,
-                 start: int = 0):  # fmt: skip
+                 start: int = 0, scenario_smoothing: float = SCENARIO_SMOOTHING):  # fmt: skip
         assert scenario in SCENARIOS and lang in LANGS
         need = set(SCENARIO_SOURCES.get(scenario, []))  # personas: the English pool serves every language
         assert need <= set(sources or {}), f"{scenario} needs sources {need}"
         self.scenario, self.lang, self.n, self.seed, self.start = scenario, lang, n, seed, start
-        self.sources = {k: v for k, v in (sources or {}).items() if k in need}
+        self.scenario_smoothing = scenario_smoothing
+        self.sources = {k: v for k, v in (sources or {}).items() if k in need or (k == "tagged_fallback" and "tagged" in need)}
         self.scenario_version = SCENARIO_VERSIONS[scenario]
         self.out_seeds = self.output_path("seeds.jsonl")
 
     @classmethod
     def hash(cls, parsed_args):  # Sisyphus hashes the constructor's arguments only: the version goes in here
         d = {**parsed_args, "scenario_version": SCENARIO_VERSIONS[parsed_args["scenario"]]}
+        need = set(SCENARIO_SOURCES[d["scenario"]]) | ({"tagged_fallback"} if "tagged" in SCENARIO_SOURCES[d["scenario"]] else set())
+        d["sources"] = {k: v for k, v in (d.get("sources") or {}).items() if k in need}  # only what the cell reads
         if d.get("start") == 0:  # absent at 0: the seeds from before sharding keep their hashes
             d.pop("start")
+        if d["scenario"] not in REQUEST_SCENARIOS:  # no request draw (grounded): no effect, no hash
+            d.pop("scenario_smoothing", None)
         return super().hash(d)
 
     def tasks(self):
         yield Task("run", mini_task=True)
 
     def run(self):
-        rows = {k: [json.loads(x) for x in open(v.get(), encoding="utf-8")] for k, v in self.sources.items()}
+        rows = {k: [json.loads(x) for p in (v if isinstance(v, list) else [v]) for x in open(p.get(), encoding="utf-8")]
+                for k, v in self.sources.items()}  # fmt: skip
         with open(self.out_seeds.get(), "w", encoding="utf-8") as f:
-            for s in make_seeds(self.scenario, self.lang, self.n, self.seed, rows, start=self.start):
+            for s in make_seeds(self.scenario, self.lang, self.n, self.seed, rows, start=self.start,
+                                smoothing=self.scenario_smoothing):  # fmt: skip
                 f.write(json.dumps(s, ensure_ascii=False) + "\n")
 
 
