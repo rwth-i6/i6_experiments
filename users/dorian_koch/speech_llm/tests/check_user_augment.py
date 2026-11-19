@@ -12,7 +12,10 @@ variants rest on: the reverb IS denoiser's RevEcho (fed the same random numbers 
 facebookresearch/denoiser at a pinned commit), and conditioning on "some effect fired" keeps the paper's
 joint distribution of effects. Section 11 (2026-09-24): the converter clip ``UserAugmentCfg.clip_peak`` -- None
 bit-identical to the pre-knob source, 1.0 clips the FINAL waveform (mutants that skip it or clip right
-after the gain fail), the ingest's draw records, and the recipe/launcher wiring (RULE_AUG_CLIP).
+after the gain fail), the ingest's draw records, and the recipe/launcher wiring (RULE_AUG_CLIP). Section 12
+(2026-11-19): the telephone line and the libopus codec round trip -- off is bit-identical to the source before them,
+narrowband leaves no energy above 4 kHz, the codec changes the waveform but keeps the speech, draws are seeded;
+mutants (line ignored, filter without the resample, codec a no-op, coins drawn when off) fail.
 
   CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/.../tests/check_user_augment.py
 """
@@ -286,7 +289,7 @@ for fields_ in (
         st = {}
         y_new = tdc.apply_augment(va, vb, SR, d_new, new_cfg, noise_pool=POOL, stats=st)
         y_old = pre.apply_augment(va, vb, SR, d_old, old_cfg, noise_pool=POOL)
-        same &= dataclasses.asdict(d_new) == dataclasses.asdict(d_old) and np.array_equal(y_new, y_old) and st == {}
+        same &= d_new.record() == dataclasses.asdict(d_old) and np.array_equal(y_new, y_old) and st == {}
         z_new = tdc.augment_user_stream(va, vb, SR, np.random.default_rng(s), new_cfg, POOL)
         z_old = pre.augment_user_stream(va, vb, SR, np.random.default_rng(s), old_cfg, POOL)
         same &= np.array_equal(z_new, z_old)
@@ -396,7 +399,7 @@ _aug = {"gain_prob": 1.0, "gain_min_db": 5.0, "echo_reverb_prob": 0.3}  # loud d
 _, _, m0 = pme.user_stream_variants(
     va, vb, encode=_encode, cfg={"variants": 3, "seed": 0, "augment": _aug}, item_id="g"
 )
-fields0 = {f.name for f in dataclasses.fields(tdc.AugmentDraw)}
+fields0 = {f.name for f in dataclasses.fields(pre.AugmentDraw)}  # the records of before the telephone/codec
 check(
     "clip_peak" not in m0 and all(set(d) == fields0 for c in "ab" for d in m0[c]),
     "ingest without clip_peak: draw records exactly as before (AugmentDraw fields only)",
@@ -485,6 +488,214 @@ check(
     == {k: v for k, v in _pi["user_augment"].items() if k != "augment"},
     "PODCAST_INGEST frozen (no clip); PODCAST_INGEST_2026_09_24 = it + clip_peak 1.0, nothing else",
 )
+
+
+# --- 12. Telephone line and low-bitrate codec (UserAugmentCfg.telephone_prob / codec_prob; 2026-11-19) ---------
+# Clean synthetic user voices also train the low-quality conditions: a phone line (8 kHz narrowband, a share 16 kHz
+# wideband) and a libopus round trip at 6-16 kb/s, after the microphone chain. Checked: [a] both at 0 are
+# bit-identical to the source before them (draws, outputs, rng use, clean_prob, records); [b] narrowband at prob 1
+# leaves ~no energy above 4 kHz and keeps the 500-3000 Hz speech band, wideband stops at 8 kHz; [c] the codec
+# changes the waveform but keeps the speech (frame-energy envelope, alignment) at about the drawn bitrate; [d] seeded;
+# [e] wiring (recipe keys, launcher, RL streaming refuses it, ingest records); [f] mutants fail [a]-[c].
+print("[12] telephone line + codec")
+PRE_TELCO_COMMIT = "a77e938a"  # full_duplex: last train_data_common.py before telephone/codec
+_telco_src = subprocess.run(
+    ["git", "-C", str(FD), "show", f"{PRE_TELCO_COMMIT}:./moshi_family/train_data_common.py"],
+    capture_output=True,
+    text=True,
+    check=True,
+).stdout
+pre_t = sys.modules["train_data_common_pre_telco"] = types.ModuleType("train_data_common_pre_telco")
+exec(compile(_telco_src, "<train_data_common @ pre-telco>", "exec"), pre_t.__dict__)
+check(
+    not hasattr(pre_t.UserAugmentCfg(), "telephone_prob"),
+    f"the reference really is the pre-telco source ({PRE_TELCO_COMMIT})",
+)
+_CHAIN = ("sample_augment", "apply_augment", "augment_user_stream", "telephone_band", "opus_roundtrip")
+
+
+def chain(**subs):
+    """The augmentation functions of train_data_common, with ``subs[name] = [(old, new), ...]`` swapped into the REAL
+    source of ``name``; every function of the chain is re-bound in one namespace, so callers see the mutant."""
+    g = dict(vars(tdc))
+    for name in _CHAIN:
+        src = textwrap.dedent(inspect.getsource(getattr(tdc, name)))
+        for old, new in subs.get(name, ()):
+            assert old in src, f"mutation anchor not found: {old!r}"
+            src = src.replace(old, new)
+        exec(compile(src, f"<chain {name}>", "exec"), g)
+    return g
+
+
+def band_share(y, lo, hi=None):
+    """Share of the signal's energy between lo and hi Hz (power spectrum of the whole clip)."""
+    p = np.abs(np.fft.rfft(y.astype(np.float64))) ** 2
+    f = np.fft.rfftfreq(y.size, 1 / SR)
+    return float(p[(f >= lo) & (f < (hi or f[-1] + 1))].sum() / p.sum())
+
+
+def energy(y):
+    return float(np.sum(y.astype(np.float64) ** 2))
+
+
+def frame_db(y, ms=20):
+    n = SR * ms // 1000
+    return 10 * np.log10(np.mean(y[: y.size // n * n].reshape(-1, n).astype(np.float64) ** 2, axis=1) + 1e-10)
+
+
+OFF_CFGS = (
+    dict(),
+    dict(gain_prob=0.5, noise_prob=0.3, echo_reverb_prob=0.3),
+    dict(gain_prob=1.0, noise_prob=1.0, echo_reverb_prob=1.0, clip_peak=1.0),
+)
+TEL = tdc.UserAugmentCfg(telephone_prob=1.0, telephone_wideband_share=0.0)
+TEL_WB = tdc.UserAugmentCfg(telephone_prob=1.0, telephone_wideband_share=1.0)
+COD = tdc.UserAugmentCfg(codec_prob=1.0)
+ALL = tdc.UserAugmentCfg(gain_prob=0.5, noise_prob=0.3, echo_reverb_prob=0.3, clip_peak=1.0, telephone_prob=0.5,
+                         codec_prob=0.5)  # fmt: skip
+_in_hi = band_share(va, 4000.0)
+print(f"  input energy share above 4 kHz: {_in_hi:.2e}")
+_y0 = tdc.augment_user_stream(va, vb, SR, np.random.default_rng(0), TEL, POOL)
+print(f"  narrowband output share above 4 kHz: {band_share(_y0, 4000.0):.2e}")
+_bitrates = {}
+
+
+def telco_checks(ns):
+    """[a]-[d] against the functions in ``ns`` -> list of failures."""
+    bad = []
+    # [a] off == before: the same draws, rng use, outputs; clean_prob; draw records
+    for fields_ in OFF_CFGS:
+        new_cfg, old_cfg = tdc.UserAugmentCfg(**fields_), pre_t.UserAugmentCfg(**fields_)
+        if new_cfg.clean_prob() != old_cfg.clean_prob() or new_cfg.enabled() != old_cfg.enabled():
+            bad.append(f"{fields_}: clean_prob/enabled differ from {PRE_TELCO_COMMIT}")
+        for s in range(8):
+            r_new, r_old = np.random.default_rng(s), np.random.default_rng(s)
+            if not old_cfg.enabled():
+                if ns["augment_user_stream"](va, vb, SR, r_new, new_cfg, POOL) is not va:
+                    bad.append("all off: not the same array")
+                continue
+            d_new, d_old = ns["sample_augment"](r_new, new_cfg), pre_t.sample_augment(r_old, old_cfg)
+            if d_new.record() != dataclasses.asdict(d_old) or r_new.random() != r_old.random():
+                bad.append(f"{fields_} seed {s}: draw or rng use differs from {PRE_TELCO_COMMIT}")
+                break
+            z_new = ns["augment_user_stream"](va, vb, SR, np.random.default_rng(s), new_cfg, POOL)
+            z_old = pre_t.augment_user_stream(va, vb, SR, np.random.default_rng(s), old_cfg, POOL)
+            if not np.array_equal(z_new, z_old):
+                bad.append(f"{fields_} seed {s}: output differs from {PRE_TELCO_COMMIT}")
+                break
+    # [b] narrowband: nothing above 4 kHz, the speech band kept; wideband: nothing above 8 kHz, 4-6 kHz kept
+    for s in range(4):
+        y = ns["augment_user_stream"](va, vb, SR, np.random.default_rng(s), TEL, POOL)
+        hi = band_share(y, 4000.0)
+        if not hi < 1e-6:
+            bad.append(f"narrowband seed {s}: energy share above 4 kHz {hi:.2e} (input {_in_hi:.2e})")
+        kept = band_share(y, 500.0, 3000.0) * energy(y) / (band_share(va, 500.0, 3000.0) * energy(va))
+        if not 0.7 < kept < 1.3:
+            bad.append(f"narrowband seed {s}: 500-3000 Hz energy x{kept:.2f} of the input's (speech band not kept)")
+        w = ns["augment_user_stream"](va, vb, SR, np.random.default_rng(s), TEL_WB, POOL)
+        if not (band_share(w, 8000.0) < 1e-6 and band_share(w, 4000.0, 6000.0) > 0.3 * band_share(va, 4000.0, 6000.0)):
+            bad.append(
+                f"wideband seed {s}: above 8 kHz {band_share(w, 8000.0):.2e}, 4-6 kHz {band_share(w, 4000.0, 6000.0):.2e}"
+            )
+    shares = [ns["sample_augment"](np.random.default_rng([1, i]), tdc.UserAugmentCfg(telephone_prob=1.0)).telephone_sr
+              for i in range(2000)]  # fmt: skip
+    if not abs(np.mean([x == 16000 for x in shares]) - 0.25) < 0.03:
+        bad.append(f"wideband share {np.mean([x == 16000 for x in shares]):.3f}, want 0.25")
+    # [c] codec: a different waveform, the same speech
+    for s in range(3):
+        d = ns["sample_augment"](np.random.default_rng(s), COD)
+        y = ns["apply_augment"](va, vb, SR, d, COD)
+        err = 10 * np.log10(np.sum(va.astype(np.float64) ** 2) / (np.sum((y - va).astype(np.float64) ** 2) + 1e-20))
+        ea, ey = frame_db(va), frame_db(y)
+        loud = ea > ea.max() - 40
+        env = float(np.corrcoef(ea[loud], ey[loud])[0, 1])
+        xc = scipy.signal.correlate(y.astype(np.float64), va.astype(np.float64), mode="full", method="fft")
+        lag = int(np.argmax(xc)) - (va.size - 1)
+        if not (err < 25.0 and env > 0.95 and abs(lag) <= SR // 1000 and y.shape == va.shape):
+            bad.append(f"codec seed {s} at {d.codec_kbps:.1f} kb/s: SNR {err:.1f} dB, envelope r {env:.3f}, lag {lag}")
+        _bitrates[s] = (d.codec_kbps, err, env, lag)
+    # [d] seeded
+    a1, a2, a3 = (ns["augment_user_stream"](va, vb, SR, np.random.default_rng(k), ALL, POOL) for k in (5, 5, 6))
+    if not (np.array_equal(a1, a2) and not np.array_equal(a1, a3)):
+        bad.append("same seed does not reproduce, or another seed gives the same output")
+    return bad
+
+
+bad = telco_checks(chain())
+check(not bad, "telephone/codec: off == pre-telco, narrowband < 4 kHz, codec keeps speech, seeded", "; ".join(bad))
+for s, (kbps, err, env, lag) in _bitrates.items():
+    print(f"  codec draw {s}: {kbps:.1f} kb/s, waveform SNR {err:.1f} dB, frame-energy r {env:.3f}, lag {lag}")
+
+# the codec's real bitrate on speech ~ the drawn one (libsndfile's level -> bitrate mapping)
+import soundfile  # noqa: E402
+
+_sizes = []
+_write = soundfile.write
+
+
+def _spy(file, data, samplerate, **kw):
+    _write(file, data, samplerate, **kw)
+    _sizes.append((file.tell(), data.shape[0] / samplerate))
+
+
+soundfile.write = _spy
+try:
+    for kbps in (6.0, 12.0, 16.0):
+        tdc.opus_roundtrip(va, SR, kbps)
+finally:
+    soundfile.write = _write
+_rates = [b * 8 / sec / 1000 for b, sec in _sizes]
+check(
+    all(0.5 * k < r < 1.6 * k for k, r in zip((6.0, 12.0, 16.0), _rates)),
+    "libopus at 6 / 12 / 16 kb/s asked -> " + " / ".join(f"{r:.1f}" for r in _rates) + " kb/s measured on speech",
+)
+
+# [e] wiring
+check(
+    AudioAugment().to_hparams() == {}
+    and AudioAugment(telephone_prob=0.2, codec_prob=0.1).to_hparams()
+    == {"aug_telephone_prob": 0.2, "aug_codec_prob": 0.1},
+    "AudioAugment: telephone/codec unset emit nothing, set emit exactly aug_telephone_prob / aug_codec_prob",
+)
+check(
+    'cfg.get("aug_telephone_prob", 0.0)' in _launcher
+    and 'cfg.get("aug_codec_prob", 0.0)' in _launcher
+    and "telephone_prob=aug_telephone_prob" in _launcher
+    and "codec_prob=aug_codec_prob" in _launcher,
+    "base-Moshi launcher reads aug_telephone_prob / aug_codec_prob and passes them to UserAugmentCfg",
+)
+from moshi_family.rl import partner_channel  # noqa: E402
+
+for k in ("telephone_prob", "codec_prob"):
+    try:
+        partner_channel.validate_spec({"mimi_roundtrip": True, "augment": {k: 0.3}})
+        check(False, f"RL partner channel refuses {k} (StreamingAugment would drop it)")
+    except AssertionError:
+        check(True, f"RL partner channel refuses {k} (StreamingAugment would drop it)")
+_, _, m2 = pme.user_stream_variants(
+    va, vb, encode=_encode, cfg={"variants": 4, "seed": 0, "augment": {"telephone_prob": 1.0, "codec_prob": 1.0}},
+    item_id="g",
+)  # fmt: skip
+check(
+    all({"telephone_sr", "telephone_lo_hz", "telephone_hi_hz", "codec_kbps"} <= set(d) for c in "ab" for d in m2[c]),
+    "ingest records carry the telephone / codec draw when it fired",
+)
+
+# [f] mutants of the real source
+_MUTANTS = {
+    "the line ignored": dict(apply_augment=[("if draw.telephone_sr is not None:", "if False:")]),
+    "band-pass without the resample": dict(
+        telephone_band=[("y = _resample(np.asarray(x, dtype=np.float64), sr, line_sr)", "y = np.asarray(x, dtype=np.float64); line_sr = sr")]
+    ),
+    "codec a no-op": dict(apply_augment=[("out = opus_roundtrip(out, sr, draw.codec_kbps)", "pass")]),
+    "coins drawn when off": dict(
+        sample_augment=[("if cfg.telephone_prob > 0.0 and rng.random()", "if rng.random()"),
+                        ("if cfg.codec_prob > 0.0 and rng.random()", "if rng.random()")]
+    ),
+}  # fmt: skip
+for label, subs in _MUTANTS.items():
+    got = telco_checks(chain(**subs))
+    check(bool(got), f"can fail: mutant '{label}' is caught", got[0] if got else "NOT CAUGHT")
 
 print()
 if failures:
