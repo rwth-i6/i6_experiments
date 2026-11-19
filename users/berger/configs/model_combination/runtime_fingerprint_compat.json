@@ -245,6 +245,43 @@
           "original": "        yield Task(\"run\", mini_task=True)\n"
         }
       ]
+    },
+    "model_pipelines/common/parakeet_tdt_experiments.py": {
+      "reason": "The RASR source pin is hashed by the build dependency. Preserve the runtime fingerprint for native and other jobs independent of that build.",
+      "original_sha256": "1701c779bdc8f6f42f5fa1837aa22e798263fcd196008848549ee5c8a7fa8562",
+      "compatible_sha256": "fee9b6f918d3956fe38881c5ad48f6467dc84e3d9535b40392f066549c0d6188",
+      "reverse_edits": [
+        {
+          "start": 13,
+          "end": 14,
+          "original": "RASR_COMMIT = 'd4aa61a12fa4f33e873512678a4d204a90329748'\n"
+        },
+        {
+          "start": 64,
+          "end": 68,
+          "original": "    def __init__(self, rows, onnx_gate, probe, *, version):\n"
+        },
+        {
+          "start": 69,
+          "end": 70,
+          "original": ""
+        },
+        {
+          "start": 101,
+          "end": 102,
+          "original": "            rasr_commit=RASR_COMMIT, onnx=onnx, probe=probe, rows=rows), indent=2)+'\\n')\n"
+        },
+        {
+          "start": 119,
+          "end": 121,
+          "original": "                               dynamic_qwen_tuned, hf_benchmark, qwen_speech, rnnt_llm)\n"
+        },
+        {
+          "start": 189,
+          "end": 190,
+          "original": "        report = TdtDevReportJob(rows, export.out_gate, probe.out_probe, version=version)\n"
+        }
+      ]
     }
   }
 }

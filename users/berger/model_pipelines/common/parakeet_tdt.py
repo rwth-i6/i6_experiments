@@ -28,7 +28,7 @@ def load_model(repo, device):
     fe = processor.feature_extractor
     if (config.vocab_size != BLANK + 1 or config.blank_token_id != BLANK
             or tuple(config.durations) != DURATIONS or model.generation_config.decoder_start_token_id != BLANK
-            or model.generation_config.eos_token_id != EOS
+            or model.generation_config.eos_token_id not in (EOS, None)
             or fe.sampling_rate != 16000 or config.encoder_config.subsampling_factor * fe.hop_length != 1280):
         raise ValueError('Parakeet checkpoint inventory, starting token or frame shift differs')
     return model, processor
@@ -276,7 +276,7 @@ class ParakeetTdtRecogJob(Job):
                     result = trace_result(search.recognize_segment(features), vocabulary, model, processor, len(features))
                 torch.cuda.synchronize()
                 elapsed += time.perf_counter() - start
-                audio_seconds += duration
+                audio_seconds += len(waveform) / 16000
                 if self.probe_size is not None:
                     raw = model.generate(**inputs, return_dict_in_generate=True)
                     expected = decode_tokens(model, processor, raw.sequences[0].tolist())

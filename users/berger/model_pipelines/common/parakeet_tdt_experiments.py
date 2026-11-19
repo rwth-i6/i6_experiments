@@ -11,10 +11,10 @@ from . import parakeet_tdt as tdt
 
 MODEL = 'nvidia/parakeet-tdt-0.6b-v3'
 REVISION = '541d1f99c6b0c3cd0b11a95167540bb8edefd82b'
-RASR_COMMIT = 'd4aa61a12fa4f33e873512678a4d204a90329748'
+RASR_COMMIT = 'b0e610cb24c0fa54e1f21ad3e46c92f8f42162cc'
 
 
-def recognition_config(export, *, beam, kind, scale=0.):
+def recognition_config(export, *, beam, kind, scale=0., eos=tdt.EOS):
     from i6_core.rasr.config import RasrConfig
 
     config = RasrConfig()
@@ -38,7 +38,11 @@ def recognition_config(export, *, beam, kind, scale=0.):
     search.type = ('lexiconfree-rnnt-timesync-beam-search' if kind == 'am'
                    else 'llm-rnnt-timesync-beam-search')
     search.blank_label_index = tdt.BLANK
-    search.sentence_end_label_index = tdt.EOS
+    if eos is not None:
+        search.sentence_end_label_index = eos
+        # The transducer preset does not score SENTENCE_END. Stock v3 predicts
+        # EOS in the joint network, so allowing a free EOS truncates hypotheses.
+        scorer.extra_transition_types = 'sentence-end'
     search.sentence_end_fall_back = True
     search.collapse_repeated_labels = False
     search.max_labels_per_timeframe = 10
@@ -58,8 +62,12 @@ def recognition_config(export, *, beam, kind, scale=0.):
 
 
 class TdtDevReportJob(Job):
-    def __init__(self, rows, onnx_gate, probe, *, version):
+    # Previously serialized report jobs predate the explicit build revision.
+    rasr_commit = 'd4aa61a12fa4f33e873512678a4d204a90329748'
+
+    def __init__(self, rows, onnx_gate, probe, *, version, rasr_commit):
         self.rows, self.onnx_gate, self.probe, self.version = rows, onnx_gate, probe, version
+        self.rasr_commit = rasr_commit
         self.out_report = self.output_path('report.md')
         self.out_summary = self.output_path('summary.json')
 
@@ -91,7 +99,7 @@ class TdtDevReportJob(Job):
                          f"{score['ins']} / {score['del']} / {score['sub']} | {timing} |")
         Path(self.out_report.get_path()).write_text('\n'.join(lines)+'\n')
         Path(self.out_summary.get_path()).write_text(json.dumps(dict(model=MODEL, revision=REVISION,
-            rasr_commit=RASR_COMMIT, onnx=onnx, probe=probe, rows=rows), indent=2)+'\n')
+            rasr_commit=self.rasr_commit, onnx=onnx, probe=probe, rows=rows), indent=2)+'\n')
 
 
 def run(output_root):
@@ -109,7 +117,8 @@ def run(output_root):
 
     protocol, _, digest = frozen_protocol(output_root)
     version = analysis_version(tdt, parakeet_tdt_experiments, benchmark_scoring, dynamic_llm,
-                               dynamic_qwen_tuned, hf_benchmark, qwen_speech, rnnt_llm)
+                               dynamic_qwen_tuned, hf_benchmark, qwen_speech, rnnt_llm,
+                               compatible_modules=(parakeet_tdt_experiments,))
     scoring_version = analysis_version(benchmark_scoring)
     prefix = f'parakeet-tdt/{digest[:16]}'
     selected = protocol['selected']
@@ -133,7 +142,7 @@ def run(output_root):
         text = DownloadHuggingFaceRepoJob(text_repo, revision=text_revision, allow_patterns=patterns)
         text.add_alias('text-qwen')
         repo = download.out_repo_dir
-        export = tdt.ExportParakeetTdtJob(repo, gate_dataset, version=version)
+        export = tdt.ExportParakeetTdtJob(repo, gate_dataset, version=analysis_version(tdt, hf_benchmark))
         export.add_alias('onnx-export')
         tk.register_output('onnx-parity.json', export.out_gate)
         tk.register_output('vocab.txt', export.out_vocab)
@@ -178,7 +187,7 @@ def run(output_root):
                 tk.register_output('runtime.json', job.out_runtime)
                 rows.append(dict(dataset=dataset, condition=name, score=score.out_summary, runtime=job.out_runtime))
     with ExperimentContext(prefix):
-        report = TdtDevReportJob(rows, export.out_gate, probe.out_probe, version=version)
+        report = TdtDevReportJob(rows, export.out_gate, probe.out_probe, version=version, rasr_commit=RASR_COMMIT)
         report.add_alias('report')
         tk.register_output('report.md', report.out_report)
         tk.register_output('summary.json', report.out_summary)

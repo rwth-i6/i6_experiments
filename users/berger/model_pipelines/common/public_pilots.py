@@ -18,12 +18,15 @@ def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def analysis_version(*modules):
+def analysis_version(*modules, compatible_modules=()):
+    """Hash runtime sources, with opt-in reviewed compatibility for build configs."""
     from . import hf_scoring
+    from i6_experiments.users.berger.configs.model_combination.bootstrap import source_bytes
 
     paths = [Path(m.__file__) for m in modules] + [Path(hf_scoring.__file__)]
     paths += sorted(Path(hf_scoring.__file__).with_name('hf_normalizer').glob('*.py'))
-    return hashlib.sha256(b'\0'.join(p.read_bytes() for p in paths)).hexdigest()
+    compatible_paths = {Path(m.__file__) for m in compatible_modules}
+    return hashlib.sha256(b'\0'.join(source_bytes(p) if p in compatible_paths else p.read_bytes() for p in paths)).hexdigest()
 
 
 def completed(path):

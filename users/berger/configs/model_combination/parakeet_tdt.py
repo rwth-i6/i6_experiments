@@ -1,4 +1,9 @@
-"""Parakeet TDT v3 native and RASR fusion development benchmarks."""
+"""Parakeet TDT v3 native and RASR fusion development benchmarks.
+
+If time permits, try the English-only Parakeet TDT 0.6B v2 checkpoint.
+Compare standalone and n-best oracle WER on LibriSpeech dev-other and
+Loquacious dev.short before deciding whether to switch the fusion runs.
+"""
 
 
 def py():
