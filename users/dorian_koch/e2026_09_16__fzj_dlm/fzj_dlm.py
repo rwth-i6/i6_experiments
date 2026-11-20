@@ -154,7 +154,7 @@ WINNER_PLUS_TTS_RESUMED_LR = 1e-5
 # ⚠ Its text branch still advances to LM partitions 38-47 exactly as the +TTS arm does, so the two
 # see the SAME injected text -- the only difference is the audio.
 WINNER_CONT_NO_TTS = True
-# The cold-start ablation (user, 2026-09-21): the ORIGINAL +TTS finetune's exact call (fresh optimizer via
+# The cold-start ablation: the ORIGINAL +TTS finetune's exact call (fresh optimizer via
 # import_model_train_epoch1, nEp10, peak LR 5e-4 schedule) with `with_tts=False`. Completes the 2x2:
 # {TTS, no TTS} x {cold optimizer, resumed optimizer}.
 WINNER_COLD_NO_TTS = True
@@ -378,7 +378,7 @@ def py():
         )
 
     if "deText+deAudio-long" in _german_stages:
-        # deText+deAudio trained 4x longer (user, 2026-09-22): nEp10 saw only ~13% of the injection text
+        # deText+deAudio trained 4x longer: nEp10 saw only ~13% of the injection text
         # (10 x 1/75) and its dev_de curve was flat from ep6 without overfitting. Two audio doses:
         # repeat 1 = 40 German-audio passes (same total as the nEp10 run), repeat 2 = 80 passes.
         # ⚠ Two things change with nep: text coverage AND specaugment, whose step-keyed ramp
