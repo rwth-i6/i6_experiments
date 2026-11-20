@@ -955,6 +955,65 @@ MOSHIRAG_LIB_ADAPTER = FinetuneAdapter(
 )
 
 
+def _render_haru_lib_config(job: "SpeechFinetune", batch_size: int, max_steps: int, *, hf_repo_id: str) -> str:
+    """Render the Haru-4B instruction-SFT config (``moshi_family.haru.finetune_launcher``): a rank ``job.lora_rank``
+    LoRA on the released backbone, Haru's reader of the SFT dialogue corpus (``train_data``: the corpus mix of
+    ``sft_pipeline.mix_train_data``) and the Haru SFT anchor's loss. Upstream released no training recipe, so every
+    knob comes from ``job.hparams`` and the required ones have no default here: ``voice_dir`` (the voice pool, a
+    ``tk.Path``), ``lr``, ``warmup_steps``, ``grad_accum``, ``audio_weight``, ``text_pad_weight``, the text layout
+    (``text_segment_gap`` / ``text_at`` / ``text_offset``: ``rl_spec.components.HARU_TEXT_LAYOUT``), ``lead_in_frames``,
+    ``max_s``, ``save_every``; optional ``micro_batch``, ``lr_schedule``, ``weight_decay``, ``grad_clip``, ``lora_scaling``,
+    ``word_overlap``, ``eval_every``, ``heldout_every``, ``heldout_seed``, the user-stream augmentation
+    (``aug_{gain,noise,echo_reverb,telephone,codec}_prob``, ``aug_clip_peak``, ``aug_noise_dir`` a ``tk.Path``) and the
+    run-side ``gradient_checkpointing`` / ``log_every``."""
+    hp = dict(getattr(job, "hparams", None) or {})
+    need = ("voice_dir", "lr", "warmup_steps", "grad_accum", "audio_weight", "text_pad_weight", "text_segment_gap",
+            "text_at", "text_offset", "lead_in_frames", "max_s", "save_every")  # fmt: skip
+    missing = [k for k in need if k not in hp]
+    assert not missing, f"Haru lib: hparams lacks {missing}"
+    known = set(need) | {"micro_batch", "lr_schedule", "weight_decay", "grad_clip", "lora_scaling", "word_overlap",
+                         "eval_every", "heldout_every", "heldout_seed", "aug_gain_prob", "aug_noise_prob",
+                         "aug_echo_reverb_prob", "aug_telephone_prob", "aug_codec_prob", "aug_clip_peak",
+                         "aug_noise_dir", "gradient_checkpointing", "log_every"}  # fmt: skip
+    unknown = sorted(set(hp) - known)
+    assert not unknown, f"Haru lib: unknown hparams {unknown}"
+    assert (hp.get("aug_noise_prob") or 0) == 0 or hp.get("aug_noise_dir") is not None, "aug_noise_prob needs aug_noise_dir"
+
+    def val(k):
+        v = hp[k]
+        if hasattr(v, "get_path"):
+            return f'"{v.get_path()}"'
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        if isinstance(v, str):
+            return f'"{v}"'
+        if v is None:
+            return "null"
+        return _yaml_float(v) if isinstance(v, float) else str(v)
+
+    lines = [f'hf_repo_id: "{hf_repo_id}"', _train_data_yaml(job, supports_mix=True), f'out_dir: "{job.out_rundir.get()}"',
+             f"max_steps: {max_steps}", f"lora_rank: {job.lora_rank}", f"seed: {getattr(job, 'seed', 0)}",
+             "fp32_master_weights: true", "resume_data_position: true", "stable_softmax: true"]  # fmt: skip
+    lines += [f"{k}: {val(k)}" for k in sorted(hp)]
+    return "# Haru-4B instruction SFT config (moshi_family.haru.finetune_launcher schema)\n" + "\n".join(lines) + "\n"
+
+
+# Haru-4B on the OWNED moshi_family lib: instruction SFT of the released checkpoint (a LoRA on the Qwen3.5 backbone,
+# head and codec frozen) via ``moshi_family.haru.finetune_launcher`` on the shared ``train_loop``. Saves
+# ``HaruDuplex.save_checkpoint``'s layout, which the Haru eval backend (``haru_family_backend_spec(lora_rank=...)``)
+# overlays. New ``name`` -> fresh hash.
+HARU_LIB_ADAPTER = FinetuneAdapter(
+    name="haru_lib",
+    batch_size=8,
+    overlay_kind="lora",
+    base_model="higurashi-ai/Haru-4B",
+    weights_name="lora.safetensors",
+    render_config=partial(_render_haru_lib_config, hf_repo_id="higurashi-ai/Haru-4B"),
+    launcher_module="moshi_family.haru.finetune_launcher",
+    pythonpath_package="moshi_family",
+)
+
+
 # MoshiRAG finetuning lives on MOSHIRAG_LIB_ADAPTER above (the vendored moshi_family.moshirag
 # stack). A second, fork-based MOSHIRAG_ADAPTER used to sit here pointing at a launcher stub that
 # only raised: the released moshi-rag fork is inference-only, so its training seams (the ARC-Encoder

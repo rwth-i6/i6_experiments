@@ -32,6 +32,7 @@ from .finetune_adapters import (  # noqa: F401 -- re-exported: callers and job p
     AUDEX_STAGE1_FAST_TRAIN_PERF,
     FAST_TRAIN_PRESETS,
     FinetuneAdapter,
+    HARU_LIB_ADAPTER,
     LAUNCHER_FIX_KEYS,
     LAUNCHER_FIX_PRESETS,
     MOSHIRAG_FAST_HPARAMS,
