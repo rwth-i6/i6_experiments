@@ -54,11 +54,7 @@ def _pool(lang, n, seed=0):
 def _rows(lang="en", n=40, fallback=None):
     per = [{"id": f"p{k}", "text": f"A {30 + k}-year-old nurse who likes cycling {k}."} for k in range(9)]
     wiki = [{"id": f"k{k}", "title": f"T{k}", "text": "A passage. " * 20} for k in range(5)]
-    r = {"personas": per, "wikipedia": wiki, "tagged": _pool(lang, n),
-         "risky": [{"id": f"r{k}", "text": f"how do I kill a hung process {k}", "category": "illicit", "score": 0.1}
-                   for k in range(5)],
-         "toxic": [{"id": f"t{h}", "text": f"a flagged request {h}", "harm": h, "category": "x", "score": 0.9}
-                   for h in sd.SAFETY_HARMS]}  # fmt: skip
+    r = {"personas": per, "wikipedia": wiki, "tagged": _pool(lang, n)}
     if fallback:
         r["tagged_fallback"] = _pool(fallback, 30)
     return r

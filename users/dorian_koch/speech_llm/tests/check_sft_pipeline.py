@@ -50,7 +50,7 @@ LG_W = {lg: 1.0 for lg in sd.LANGS}
 
 
 def _rows():
-    return {(s, lg): tk.Path(f"/tmp/sft_guard/{s}_{lg}.jsonl") for s in ("wikipedia", "wildchat", "wildchat_risky", "wildchat_toxic") for lg in sd.LANGS} | {
+    return {(s, lg): tk.Path(f"/tmp/sft_guard/{s}_{lg}.jsonl") for s in ("wikipedia", "wildchat", "wildchat_risky") for lg in sd.LANGS} | {
         ("personas", "en"): tk.Path("/tmp/sft_guard/personas_en.jsonl")}  # fmt: skip
 
 
@@ -245,8 +245,6 @@ def _fake_rows():
                                 "weights": {k: rng.choice([0.0, 0.5, 1.0]) for k in sp.TAG_TYPES}} for i in range(50)]  # fmt: skip
         out[f"risky_{lg}"] = [{"id": f"r{lg}{i}", "text": f"how do I kill a hung process {i}", "score": 0.1,
                                "category": ("illicit", "violence")[i % 2]} for i in range(20)]  # fmt: skip
-        out[f"toxic_{lg}"] = [{"id": f"t{lg}{i}", "text": f"a flagged request {i}", "score": 0.9, "category": "x",
-                               "harm": sorted(sd.SAFETY_HARMS)[i % 7]} for i in range(21)]  # fmt: skip
     return out
 
 
@@ -258,7 +256,7 @@ def check_shards() -> list[str]:
     for sc in sd.SCENARIOS:
         for lg in ("en", "zh"):
             rows = {"personas": fr["personas"], "wikipedia": fr[f"wikipedia_{lg}"], "tagged": fr[f"tagged_{lg}"],
-                    "risky": fr[f"risky_{lg}"], "toxic": fr[f"toxic_{lg}"]}
+                    "risky": fr[f"risky_{lg}"]}
             whole = sd.make_seeds(sc, lg, 12, 100, rows)
             parts = sd.make_seeds(sc, lg, 6, 100, rows) + sd.make_seeds(sc, lg, 6, 100, rows, start=6)
             if json.dumps(whole, sort_keys=True) != json.dumps(parts, sort_keys=True):
