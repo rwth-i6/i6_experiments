@@ -24,6 +24,7 @@ Run from the setup root:
     CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_sft_writer_rules.py
 """
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -509,6 +510,47 @@ def check_safety() -> list[str]:
     return bad
 
 
+def check_retry_feedback() -> list[str]:
+    """The writer's retry names what was rejected (trial 2, v13: told only "a loaded name", the writer picked the same
+    Chinese name again in most retries): drives ``write_dialogues`` with a stand-in server that always answers a
+    dialogue whose invented name is loaded, and reads the second request's feedback."""
+    import types
+
+    import openai
+
+    rows = {"personas": [{"id": "p", "text": "A nurse who likes cycling."}],
+            "tagged": [{"id": f"w{k}", "lang": "en", "text": f"How do I fix bike number {k}?", "gist": f"bike {k}",
+                        "weights": {x: 0.8 for x in sd.SCENARIOS}, "flags": {f: False for f in ("needs_document",
+                        "needs_business_facts", "unsafe", "not_speakable")}} for k in range(4)]}  # fmt: skip
+    seed = {**sd.make_seeds("chitchat", "en", 1, 1, rows)[0], "identity": "custom", "turns": 2, "opens": "user",
+            "interruptions": [], "policy": "same", "prompt_lang": "en"}  # fmt: skip
+    obj = _dlg("You are Alice, the voice assistant of Brightline Labs.", lang="en", name="Alice", op="Brightline Labs")
+    sent = []
+
+    class _Client:
+        def __init__(self, *a, **k):
+            self.chat = types.SimpleNamespace(completions=types.SimpleNamespace(create=self.create))
+
+        def create(self, *, messages, **k):
+            sent.append(messages)
+            msg = types.SimpleNamespace(content=json.dumps(obj), reasoning_content="")
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=msg)])
+
+    real = openai.OpenAI
+    openai.OpenAI = _Client
+    try:
+        _, stats = sd.write_dialogues([seed], "http://stand-in", "m", 0.8, max_tries=2, workers=1)
+    finally:
+        openai.OpenAI = real
+    bad = []
+    if len(sent) != 2 or not any("loaded name" in r for r in stats["reasons"]):
+        return [f"the stand-in run did not hit the loaded-name check: {stats['reasons']}"]
+    fb = sent[1][-1]["content"]
+    if "Alice" not in fb or "Brightline Labs" not in fb:
+        bad.append(f"the retry does not name the rejected name and operator: {fb[:160]!r}")
+    return bad
+
+
 def check_versions() -> list[str]:
     """A bumped SCENARIO_VERSIONS / WRITER_VERSION re-hashes SftSeeds / SftWriteDialogues (2026-11-19: they were
     attributes only, which Sisyphus does not hash, so the v11 bump left the stale v10 writer job in the queue)."""
@@ -585,6 +627,7 @@ MUTANTS = {
     "loaded names allowed": (check_language_and_identity, dict(_LOADED_NAME=__import__("re").compile(r"(?!x)x"))),
     "operator stems uncapped": (check_language_and_identity, dict(OPERATOR_STEM_CAP=99, operator_stem=lambda op: op)),
     "names uncapped": (check_language_and_identity, dict(OPERATOR_STEM_CAP=99, OPERATOR_STEM_SHARE=0.0)),
+    "vague retry feedback": (check_retry_feedback, dict(_retry_hint=lambda why, obj: "")),
     "no over-refusal share": (check_safety, dict(SAFETY_KINDS={"refusal": 0.75, "crisis": 0.25})),
     "minors content allowed": (check_safety, dict(_MINORS_SEXUAL=__import__("re").compile(r"(?!x)x"))),
     "harmful detail leaks": (check_safety, dict(_SAFETY_LEAK={lg: __import__("re").compile(r"(?!x)x") for lg in sd.LANGS})),
@@ -595,7 +638,7 @@ MUTANTS = {
 
 if __name__ == "__main__":
     fails = (check_identity() + check_tutor() + check_repair() + check_structure_repair() + check_round6()
-             + check_review_loop() + check_anchors() + check_language_and_identity() + check_safety() + check_versions())
+             + check_review_loop() + check_anchors() + check_language_and_identity() + check_safety() + check_retry_feedback() + check_versions())
     for f in fails:
         print("FAIL", f)
     for name, (fn, over) in MUTANTS.items():
