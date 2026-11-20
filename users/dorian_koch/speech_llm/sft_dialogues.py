@@ -86,7 +86,7 @@ SCENARIO_VERSIONS = {
     "safety": 1,
 }  # fmt: skip (+1 each: the assistant's identity drawn per seed, ``IDENTITY_WEIGHTS``)
 #: the writer prompt / validation (every scenario): hashed into SftWriteDialogues
-WRITER_VERSION = 13
+WRITER_VERSION = 14
 #: who the system prompt says the assistant is (one fixed identity in every dialogue would teach a fixed context, not
 #: to follow the prompt): ``none`` the prompt names no assistant (it is ``PRODUCT``, learned), ``haru``
 #: the prompt names ``PRODUCT``, ``custom`` a name and operator the writer invents for the setting
@@ -1912,6 +1912,15 @@ def _writer_body(thinking: bool, reasoning_effort: str | None) -> dict:
     return body
 
 
+def _retry_hint(why: str, obj: dict) -> str:
+    """The rejected name or operator, named in the feedback (trial 2, v13: told only that the name was loaded, the
+    writer picked the same Chinese name again in most retries; 44% kept in Chinese)."""
+    if "invented assistant name" in why or "invented operator" in why or "frequent invented" in why:
+        return (f" (it used the name {obj.get('assistant_name')!r} and the operator {obj.get('assistant_operator')!r}: "
+                f"invent different, neutral ones)")
+    return ""
+
+
 def write_dialogues(seeds: list[dict], url: str, model: str, temperature: float, max_tries: int,
                     workers: int = 64, thinking: bool = False, max_tokens: int = 12288,
                     reasoning_effort: str | None = None, review: int = 0,
@@ -2005,8 +2014,9 @@ def write_dialogues(seeds: list[dict], url: str, model: str, temperature: float,
             if obj is not None and k + 1 < max_tries:  # the next try sees what was wrong (one round of feedback)
                 msgs = writer_messages(seed) + [
                     {"role": "assistant", "content": json.dumps(obj, ensure_ascii=False)},
-                    {"role": "user", "content": f"This was rejected by the checks: {why}. Write the whole "
-                                                f"conversation again, fixing that and keeping every other rule."},
+                    {"role": "user", "content": f"This was rejected by the checks: {why}{_retry_hint(why, obj)}. "
+                                                f"Write the whole conversation again, fixing that and keeping every "
+                                                f"other rule."},
                 ]  # fmt: skip
             if thinking and len(stats["traces"]) < 40:  # the reasoning of rejected attempts, to see where it trips
                 stats["traces"].append({"id": seed["id"], "try": k + 1, "why": why, "reasoning": rc})
