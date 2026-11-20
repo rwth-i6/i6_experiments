@@ -20,7 +20,8 @@ def save_linked(merged: Dataset, parts: list[Dataset], out_path: str) -> bool:
     split) and ``dataset_info.json`` (datasets' own serialisation, ``arrow_dataset.Dataset.save_to_disk``) -- except
     that its ``data-*.arrow`` files are relative symlinks to the parts' own arrow files instead of a re-written copy,
     so ``load_from_disk`` reads the identical rows, features and fingerprint (guard ``check_zero_copy_merge.py``).
-    User 2026-10-16: the merge copies were 1.8 TiB of duplicates; "new behaviour exactly matches old behaviour".
+    Why: copying every part into the merged dataset duplicated terabytes of arrow data; linking keeps the output
+    identical to the copy at no extra space.
 
     Returns False -- and writes nothing -- whenever that equality is not guaranteed; the caller then runs the old
     ``save_to_disk`` copy: a part with an indices mapping, a part whose table is not exactly its own saved arrow files,
