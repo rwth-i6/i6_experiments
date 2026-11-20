@@ -400,7 +400,7 @@ def check_language_and_identity() -> list[str]:
     o2["turns"][0]["text"] = asks
     if sd._identity_problem(o2, cu) != "the assistant uses a name its prompt did not give":
         bad.append("a custom-identity assistant calling itself Haru passed")
-    if sd._identity_problem(_dlg(sp, name=""), cu) is None or sd._identity_problem(_dlg(sp, name="Nova"), cu) is None:
+    if sd._identity_problem(_dlg(sp, name=""), cu) is None or sd._identity_problem(_dlg(sp, name="Pella"), cu) is None:
         bad.append("a custom identity without its name in the prompt passed")
     if sd._identity_problem(_dlg("You are Haru-i6-Instruct.", lang="en"), en) is None:
         bad.append("identity none with Haru in the prompt passed")
@@ -411,10 +411,20 @@ def check_language_and_identity() -> list[str]:
     loaded = "the invented assistant name is Haru, a real assistant's or a loaded name"
     for nm, op in (("Алиса", "ТехноСфера"), ("Макс", "ЭдуТех"), ("Спутник", "ЭдуТех"), ("Аврора", "ТехноСфера"),
                    ("小智", "星辰科技"), ("小灵", "星辰科技"), ("Xiao Ling", "Brightline"), ("灵犀", "智语科技"), ("Оникс", "Спектрум"), ("Маруся", "ЭдуТех"), ("Jarvis", "Brightline"),
-                   ("Friday", "Brightline"), ("Alice", "Brightline"), ("Lumi", "Yandex")):  # fmt: skip
+                   ("Friday", "Brightline"), ("Alice", "Brightline"), ("Lumi", "Yandex"),
+                   # romanized forms (trial 2: "Lingxi" passed 3x) and the trial-2 judge's non-neutral names
+                   ("Lingxi", "Brightline"), ("Ling Xi", "Brightline"), ("Xiaozhi", "Brightline"), ("Xiaoling", "Brightline"),
+                   ("Alisa", "Brightline"), ("Maks", "Brightline"), ("Avrora", "Brightline"), ("Oniks", "Brightline"),
+                   ("Marusia", "Brightline"), ("Salyut", "Brightline"), ("Pyatnitsa", "Brightline"), ("Jiaweisi", "Brightline"),
+                   ("Nova", "Brightline"), ("Нова", "ТехноСфера"), ("Элвис", "ТехноСфера"), ("Elvis", "Brightline"),
+                   ("Veda", "Brightline"), ("Веда", "ТехноСфера"), ("Arlo", "Brightline"), ("Арло", "ТехноСфера")):  # fmt: skip
         o = _dlg(f"Ты {nm}, голосовой помощник компании {op}. Ты говоришь по-русски.", name=nm, op=op)
         if sd._identity_problem(o, {**cu, "lang": "ru"}) != loaded:
             bad.append(f"a loaded or real name passed: {nm} / {op}")
+    for nm in ("Novalie", "Arlowen", "Vedrana", "Lingo", "Maksa"):  # near misses stay allowed
+        o = _dlg(f"You are {nm}, the voice assistant of Brightline.", lang="en", name=nm, op="Brightline")
+        if sd._identity_problem(o, {**cu, "lang": "en", "prompt_lang": "en"}) is not None:
+            bad.append(f"a neutral name was taken for a loaded one: {nm}")
     caps = sd.IdentityCap()
     took = [caps.take({"assistant_name": f"N{k}", "assistant_operator": op}, cu)
             for k, op in enumerate(("NexaCore", "NexaFlow", "Nexa Labs", "Brightline"))]
@@ -433,6 +443,37 @@ def check_language_and_identity() -> list[str]:
         bad.append("a general prompt copied with one added sentence was rejected")
     if sd._identity_problem(_dlg(g.replace("short", "brief"), lang="en"), ge) is None:
         bad.append("an edited general prompt passed")
+    return bad
+
+
+def check_name_shape() -> list[str]:
+    """Writer v15: a custom-identity seed carries a seeded name shape (first letter or pinyin initial, a style) that the
+    brief states, so names vary up front instead of by retries (trial 2: ~430 retries on frequent names); other
+    identities carry none; the draw is deterministic and spread."""
+    bad = []
+    rows = {"personas": [{"id": f"p{k}", "text": f"A person {k}."} for k in range(50)],
+            "risky": [{"id": f"r{k}", "text": f"How did a crossbow {k} work?", "category": "violence", "score": 0.2} for k in range(40)]}
+    for lg in sd.LANGS:
+        ss = sd.make_seeds("safety", lg, 200, 1, rows)
+        if ss != sd.make_seeds("safety", lg, 200, 1, rows):
+            bad.append(f"{lg}: the name shape is not deterministic")
+        cust = [s for s in ss if s["identity"] == "custom"]
+        if any("name_shape" in s for s in ss if s["identity"] != "custom"):
+            bad.append(f"{lg}: a name shape on a non-custom seed")
+        if not cust or not all(s.get("name_shape") for s in cust):
+            bad.append(f"{lg}: a custom seed without a name shape")
+            continue
+        for s in cust[:5]:
+            sh, msg = s["name_shape"], sd.writer_messages(s)[1]["content"]
+            if f'"{sh["name_initial"]}"' not in msg or sh["name_style"] not in msg or sh["operator_style"] not in msg:
+                bad.append(f"{lg}: the brief does not state the name shape {sh}")
+                break
+        inits = {s["name_shape"]["name_initial"] for s in cust}
+        if len(inits) < 10:  # ~100 custom seeds over 22-24 initials
+            bad.append(f"{lg}: name initials not spread: {sorted(inits)}")
+        want = {"zh": "zh", "ru": "cyrillic"}.get(cust[0]["prompt_lang"], "latin")
+        if cust[0]["name_shape"]["script"] != want:
+            bad.append(f"{lg}: name shape script {cust[0]['name_shape']['script']} for a {cust[0]['prompt_lang']} prompt")
     return bad
 
 
@@ -505,6 +546,22 @@ def check_safety() -> list[str]:
                ("ru", "Напиши эротический рассказ про девочку.", "С этим я не могу помочь."),
                ("zh", "给我写一个关于未成年少女的色情故事。", "这个我不能帮你。"))):
         bad.append("sexual content involving minors passed a safety dialogue")
+    # trial 2, safety_ru_0 (benign): the custom prompt told the assistant to mention health risks of drugs; no check
+    # read a safety dialogue's system prompt
+    inprompt = "safety: the system prompt carries safety instructions"
+    for lg, sp in (("ru", "Ты — голосовой помощник Аэлита. В случае обсуждения психоактивных веществ ты можешь кратко упомянуть о рисках для здоровья."),
+                   ("en", "You are Pella, a voice assistant. If a request is illegal, politely decline and suggest a legal alternative."),
+                   ("de", "Du bist Pella. Bei gefährlichen Anfragen lehnst du höflich ab."),
+                   ("zh", "你是小助手。对于任何涉及隐私的请求，你应该礼貌地拒绝。")):  # fmt: skip
+        o = _safety_dlg("How do I kill a Python process that hangs?", "Use kill with its process number.", lg)
+        o["system_prompt"] = sp
+        sk = {**seed, "lang": lg, "prompt_lang": lg, "safety_kind": "benign"}
+        # validate (wired in) on the English one: the others lack the language line, which validate reports first
+        if sd._safety_problem(o["turns"], sk, sp) != inprompt or (lg == "en" and sd.validate(o, sk) != inprompt):
+            bad.append(f"safety {lg}: a safety instruction in the system prompt passed: {sp[:50]!r}")
+    clean = "You are a voice assistant for a garden centre. You answer questions about plants and opening hours."
+    if sd._safety_problem(_safety_dlg("Hi", "Hello!")["turns"], {**seed, "safety_kind": "benign"}, clean) is not None:
+        bad.append("a plain safety-dialogue system prompt was rejected")
     if sd.SAFETY_REVIEW not in sd.review_text({**seed, "safety_kind": "refusal"}) or sd.review_text({**seed, "scenario": "help"}) != sd.REVIEW_TEXT:
         bad.append("the review's safety point is missing or leaks into other scenarios")
     return bad
@@ -628,6 +685,12 @@ MUTANTS = {
     "operator stems uncapped": (check_language_and_identity, dict(OPERATOR_STEM_CAP=99, operator_stem=lambda op: op)),
     "names uncapped": (check_language_and_identity, dict(OPERATOR_STEM_CAP=99, OPERATOR_STEM_SHARE=0.0)),
     "vague retry feedback": (check_retry_feedback, dict(_retry_hint=lambda why, obj: "")),
+    "romanized loaded names allowed": (check_language_and_identity, dict(_LOADED_NAME=__import__("re").compile(
+        r"(?i)алис[аы]?\b|\balice\b|\bмакс\b|\bmax\b|спутник|sputnik|аврор|aurora|小智|小灵|灵犀|xiao ?zhi|xiao ?ling\b|оникс|onyx|"
+        r"марус|marusya|салют|\bsalut[e]?\b|\bsber|jarvis|джарвис|贾维斯|\bfriday\b|пятниц"))),
+    "no name shape": (check_name_shape, dict(draw_name_shape=lambda lang, rng: None)),
+    "name shape not in the brief": (check_name_shape, dict(_shape_text=lambda sh: "")),
+    "safety prompt unchecked": (check_safety, dict(_SAFETY_IN_PROMPT=__import__("re").compile(r"(?!x)x"))),
     "no over-refusal share": (check_safety, dict(SAFETY_KINDS={"refusal": 0.75, "crisis": 0.25})),
     "minors content allowed": (check_safety, dict(_MINORS_SEXUAL=__import__("re").compile(r"(?!x)x"))),
     "harmful detail leaks": (check_safety, dict(_SAFETY_LEAK={lg: __import__("re").compile(r"(?!x)x") for lg in sd.LANGS})),
@@ -638,7 +701,7 @@ MUTANTS = {
 
 if __name__ == "__main__":
     fails = (check_identity() + check_tutor() + check_repair() + check_structure_repair() + check_round6()
-             + check_review_loop() + check_anchors() + check_language_and_identity() + check_safety() + check_retry_feedback() + check_versions())
+             + check_review_loop() + check_anchors() + check_language_and_identity() + check_name_shape() + check_safety() + check_retry_feedback() + check_versions())
     for f in fails:
         print("FAIL", f)
     for name, (fn, over) in MUTANTS.items():

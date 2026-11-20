@@ -75,18 +75,18 @@ LOCALES = {
 }
 #: bump a scenario's entry when its seeds or writer brief change: only that scenario's jobs re-hash
 SCENARIO_VERSIONS = {
-    "service": 5,
-    "grounded": 4,
-    "help": 6,
-    "chitchat": 5,
-    "skills": 6,
-    "tutor": 6,
-    "longtask": 5,
-    "assistant": 5,
-    "safety": 1,
-}  # fmt: skip (+1 each: the assistant's identity drawn per seed, ``IDENTITY_WEIGHTS``)
+    "service": 6,
+    "grounded": 5,
+    "help": 7,
+    "chitchat": 6,
+    "skills": 7,
+    "tutor": 7,
+    "longtask": 6,
+    "assistant": 6,
+    "safety": 2,
+}  # fmt: skip (+1 each: a seeded shape for invented names, ``draw_name_shape``)
 #: the writer prompt / validation (every scenario): hashed into SftWriteDialogues
-WRITER_VERSION = 14
+WRITER_VERSION = 15
 #: who the system prompt says the assistant is (one fixed identity in every dialogue would teach a fixed context, not
 #: to follow the prompt): ``none`` the prompt names no assistant (it is ``PRODUCT``, learned), ``haru``
 #: the prompt names ``PRODUCT``, ``custom`` a name and operator the writer invents for the setting
@@ -614,6 +614,8 @@ def make_seeds(scenario: str, lang: str, n: int, seed: int, rows: dict, start: i
             gr = random.Random(f"{scenario}/{lang}/{seed}/{k}/general")
             s["general_prompt"] = gr.choice(GENERAL_PROMPTS[s["prompt_lang"]])
         s["identity"] = _pick(random.Random(f"{scenario}/{lang}/{seed}/{k}/identity"), IDENTITY_WEIGHTS)
+        if s["identity"] == "custom":  # own random stream
+            s["name_shape"] = draw_name_shape(s["prompt_lang"], random.Random(f"{scenario}/{lang}/{seed}/{k}/name"))
         ex = random.Random(f"{scenario}/{lang}/{seed}/{k}/extra")
         if s["policy"] == "switch":  # in which of their turns the user switches (counting from 1)
             s["switch_at"] = ex.randint(2, max(2, (s["turns"] + 1) // 2))  # any user turn but the first
@@ -711,6 +713,40 @@ INTERRUPTIONS
 """
 
 
+#: the shape an invented assistant name and operator take, drawn per seed (trial 2: left free, the writer converged on
+#: a few names, Elara / Vora / 灵犀, and the per-job cap turned that into ~430 retries): a first letter (Latin or
+#: Cyrillic, by the prompt's script) or, for Chinese, the pinyin initial of the first character, and a style. Generative
+#: constraints, not a list of names: the writer invents within them.
+NAME_INITIALS = {"latin": "ABCDEFGHIJKLMNOPRSTVWZ", "cyrillic": "АБВГДЕЗИКЛМНОПРСТУФХЧЭЮЯ",
+                 "zh": ["b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "j", "q", "x", "zh", "ch", "sh", "r",
+                        "z", "c", "s", "y", "w"]}  # fmt: skip
+NAME_STYLES = ["two syllables, soft", "three syllables", "one short syllable", "ending in a vowel",
+               "ending in a consonant", "built from an everyday word of the setting", "crisp and technical",
+               "warm and friendly"]  # fmt: skip
+NAME_STYLES_ZH = ["two characters, nature imagery", "two characters, calm", "two characters, bright and lively",
+                  "two characters, from an everyday word", "three characters", "two characters, crisp"]  # fmt: skip
+OPERATOR_STYLES = ["a made-up family name plus a business word", "a made-up place-like name",
+                   "an invented abstract word", "two invented short words joined", "an invented word plus the trade"]
+
+
+def draw_name_shape(prompt_lang: str, rng: random.Random) -> dict:
+    """A seed's name shape (``NAME_INITIALS`` by the system prompt's script, ``NAME_STYLES``, ``OPERATOR_STYLES``)."""
+    script = "zh" if prompt_lang == "zh" else "cyrillic" if prompt_lang == "ru" else "latin"
+    ini = NAME_INITIALS[script]
+    return {"script": script, "name_initial": rng.choice(ini), "operator_initial": rng.choice(ini),
+            "name_style": rng.choice(NAME_STYLES_ZH if script == "zh" else NAME_STYLES),
+            "operator_style": rng.choice(OPERATOR_STYLES)}
+
+
+def _shape_text(sh: dict) -> str:
+    if sh["script"] == "zh":
+        first = f"its first character's pinyin starts with \"{sh['name_initial']}\""
+        ofirst = f"its first character's pinyin starts with \"{sh['operator_initial']}\""
+    else:
+        first, ofirst = (f"it starts with \"{sh['name_initial']}\"", f"it starts with \"{sh['operator_initial']}\"")
+    return f" Name: {first}, {sh['name_style']}. Operator: {ofirst}, {sh['operator_style']}."
+
+
 def _identity_lines(seed: dict) -> str:
     """What the system prompt says about who the assistant is (``identity``) and, for a non-English user, which
     language it speaks (``LANG_NAMED``)."""
@@ -727,6 +763,8 @@ def _identity_lines(seed: dict) -> str:
                   "as neutral and made up, not a stock tech name. \"assistant_name\" is that name and "
                   "\"assistant_operator\" that operator, as the prompt writes them.",
     }[form]
+    if form == "custom" and seed.get("name_shape"):
+        out += _shape_text(seed["name_shape"])
     if seed["lang"] != "en":  # a non-English user: the prompt says the language (English needs no line)
         out += (f"\n- It says, in one sentence of your own wording, that the assistant speaks "
                 f"{LANGS[seed['lang']].split(' (')[0]} with the user.")  # fmt: skip
@@ -884,7 +922,8 @@ If there is nothing to fix, "problems" is empty and the conversation is returned
 
 #: the review's extra point for a safety dialogue
 SAFETY_REVIEW = """10. Safety: no turn states an actionable detail of anything harmful (steps, ingredients, \
-quantities, tools, code, where to get it, a method or means of self-harm): remove it. A refusal is one or two short \
+quantities, tools, code, where to get it, a method or means of self-harm): remove it. The system prompt says nothing \
+about safety, risks, refusals or crises. A refusal is one or two short \
 polite sentences with an alternative, never a lecture; a request that only sounds risky is answered normally, without \
 a refusal or moralising."""
 
@@ -1011,7 +1050,7 @@ def validate(obj: dict, seed: dict) -> str | None:
         return "names another AI company or model"
     if _NO_NAME.search(" ".join(t["text"] for t in turns if t["speaker"] == "assistant")):
         return "the assistant says it has no name"
-    why = _identity_problem(obj, seed) or _language_line_problem(sp, turns, seed) or _safety_problem(turns, seed)
+    why = _identity_problem(obj, seed) or _language_line_problem(sp, turns, seed) or _safety_problem(turns, seed, sp)
     if why:
         return why
     if seed["policy"] == "tutor":
@@ -1249,7 +1288,16 @@ _SEXUAL = r"(?:sex|porn|nude|naked|erotic|nackt|erotik|секс|порн|эро�
 _MINORS_SEXUAL = re.compile(rf"(?i){_MINOR}[^.?!。？！]{{0,60}}{_SEXUAL}|{_SEXUAL}[^.?!。？！]{{0,60}}{_MINOR}")
 
 
-def _safety_problem(turns: list[dict], seed: dict) -> str | None:
+#: safety, refusal or crisis wording in a safety dialogue's system prompt (the behaviour must come unprompted; trial 2:
+#: 4 of 96 safety prompts told the assistant to decline or to mention risks, which no check looked at)
+_SAFETY_IN_PROMPT = re.compile(
+    r"(?i)\b(?:safety|harmful|refus\w*|declin\w*|crisis|risks?|dangerous|illegal|unlawful|self-harm|suicid\w*)\b|"
+    r"sicherheit|schädlich|ablehn|krise|risik|gefährlich|illegal|rechtswidrig|suizid|selbstverletz|"
+    r"безопасн|вредн|отказ|кризис|риск|опасн|незакон|суицид|самоповрежд|психоактивн|"
+    r"安全|有害|拒绝|危机|风险|危险|违法|非法|自杀|自残")
+
+
+def _safety_problem(turns: list[dict], seed: dict, sp: str = "") -> str | None:
     """The safety scenario's kinds: never sexual content involving minors; a refusal declines and states no actionable
     detail up to its last refusal; a crisis answer points to help; a benign request is not refused."""
     kind = seed.get("safety_kind")
@@ -1257,6 +1305,8 @@ def _safety_problem(turns: list[dict], seed: dict) -> str | None:
         return None
     if any(_MINORS_SEXUAL.search(t["text"]) for t in turns):
         return "safety: sexual content involving minors"
+    if _SAFETY_IN_PROMPT.search(sp):
+        return "safety: the system prompt carries safety instructions"
     asst = [t for t in turns if t["speaker"] == "assistant"]
     said = [k for k, t in enumerate(asst) if _DECLINE[t["lang"]].search(t["text"])]
     declines = bool(said)
@@ -1277,10 +1327,13 @@ def _safety_problem(turns: list[dict], seed: dict) -> str | None:
 #: invented assistant names that are real assistants or loaded symbols (seen in the v12 dry runs, plus the obvious
 #: assistant brands; ``FOREIGN_AI`` covers the AI companies and models): Yandex's Alice, the MAX messenger, Sputnik
 #: (state media, a vaccine), Aurora (a cruiser, an OS), Onyx (a missile), existing Chinese assistants (incl. China
-#: Mobile's 灵犀), Mail.ru's Marusya, Sber's Salute, fictional AI butlers
+#: Mobile's 灵犀), Mail.ru's Marusya, Sber's Salute, fictional AI butlers; romanized and Cyrillic spellings of each;
+#: from the trial-2 judge: Nova (Amazon's model), Elvis (a real person), Veda (a religious term), Arlo (a camera brand)
 _LOADED_NAME = re.compile(
-    r"(?i)алис[аы]?\b|\balisa\b|\balice\b|\bмакс\b|\bmax\b|спутник|sputnik|аврор|aurora|小智|小灵|灵犀|xiao ?zhi|xiao ?ling\b|оникс|onyx|марус|marusya|"
-    r"салют|\bsalut[e]?\b|\bsber|jarvis|джарвис|贾维斯|\bfriday\b|пятниц")
+    r"(?i)алис[аы]?\b|\balisa\b|\balice\b|\bмакс\b|\bmaks?\b|спутник|sputnik|аврор|aurora|avrora|小智|小灵|灵犀|"
+    r"xiao ?zhi|xiao ?ling\b|ling ?xi\b|оникс|onyx|oniks|марус|marus(?:ya|ia|ja)|салют|\bsal(?:ut|yut|ute)\b|\bsber|"
+    r"сбер|jarvis|джарвис|贾维斯|jia ?wei ?si|\bfriday\b|пятниц|pyatnits|\bnova\b|\bнова\b|элвис|\belvis\b|\bveda\b|"
+    r"\bведа\b|\barlo\b|\bарло\b")
 #: how many dialogues of one writer job may share an invented assistant name or operator stem (``operator_stem``;
 #: v12 dry runs: "NexaCore" in about 5 of 30, v13: "Vora" 4 and "Elian" 3 of 26): at least ``OPERATOR_STEM_CAP``, or
 #: this share of the job's seeds (a 1,000-seed job); beyond it, as ``FREQUENT_INVENTED`` for people, it is retried
