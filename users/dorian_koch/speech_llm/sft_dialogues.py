@@ -83,16 +83,18 @@ SCENARIO_VERSIONS = {
     "tutor": 6,
     "longtask": 5,
     "assistant": 5,
-    "safety": 1,
+    "safety_refusal": 1,
+    "safety_crisis": 1,
+    "safety_benign": 1,
 }  # fmt: skip (+1 each: the assistant's identity drawn per seed, ``IDENTITY_WEIGHTS``)
 #: the writer prompt / validation (every scenario): hashed into SftWriteDialogues
 WRITER_VERSION = 12
-#: who the system prompt says the assistant is (user, 2026-11-20: one fixed identity in every dialogue teaches a fixed
-#: context, not to follow the prompt): ``none`` the prompt names no assistant (it is ``PRODUCT``, learned), ``haru``
+#: who the system prompt says the assistant is (one fixed identity in every dialogue would teach a fixed context, not
+#: to follow the prompt): ``none`` the prompt names no assistant (it is ``PRODUCT``, learned), ``haru``
 #: the prompt names ``PRODUCT``, ``custom`` a name and operator the writer invents for the setting
 IDENTITY_WEIGHTS = {"none": 0.35, "haru": 0.15, "custom": 0.5}
 #: a language named in a system prompt, in any prompt language: a non-English dialogue's prompt says which language
-#: the assistant speaks (user, 2026-11-20: production prompts state it; English is the default and needs no line)
+#: the assistant speaks (production prompts state it; English is the default and needs no line)
 LANG_NAMED = {
     "en": re.compile(r"(?i)english|englisch|английск|英语|英文"),
     "de": re.compile(r"(?i)deutsch|german|немецк|德语|德文"),
@@ -382,12 +384,14 @@ def _assistant(lang, rng, rows, req):
             "turns": inner["turns"] + (opens == "assistant"), "opens": opens, "product": dict(PRODUCT)}  # fmt: skip
 
 
-#: the safety scenario (user, 2026-11-20): the kind of request per seed. ``refusal``: something harmful, declined
-#: briefly; ``crisis``: a user at risk of self-harm, answered with care and a pointer to help; ``benign``: a request that
-#: only sounds risky, helped normally (about a third: an assistant trained on refusals alone learns to over-refuse)
-SAFETY_KINDS = {"refusal": 0.5, "crisis": 0.17, "benign": 0.33}
-#: harm families of a refusal request, drawn evenly (none dominates); the request itself is written by the writer from
-#: the persona: public WildChat holds no harmful requests (its toxic part is the gated WildChat-4.8M-Full)
+#: the safety scenario, one cell per kind so each builds on its own: ``safety_refusal``: a real
+#: harmful request (``SftRefusalRequests``: WildChat-4.8M-Full, moderation-flagged), declined briefly;
+#: ``safety_crisis``: a user at risk of self-harm, answered with care and a pointer to help; ``safety_benign``: a real
+#: request that only sounds risky, helped normally (about a third of the safety share: an assistant trained on
+#: refusals alone learns to over-refuse). The shares are mix weights (the track's ``SCENARIO_WEIGHTS``).
+SAFETY_SHARES = {"safety_refusal": 0.5, "safety_crisis": 0.17, "safety_benign": 0.33}
+#: harm types of a refusal request (``refusal_harm`` maps the moderation categories onto them; the pool is balanced
+#: over them). The writer never writes a harmful request: it only adapts a real one to speech.
 SAFETY_HARMS = {
     "violence": "hurting a person or an animal, or getting or making a weapon to do so",
     "drugs": "making or buying illegal drugs, or misusing medication beyond its label",
@@ -410,9 +414,9 @@ RISKY_MIN_SCORE = 0.05
 
 
 def risky_order(rows: list[dict], key: str) -> list[dict]:
-    """The benign requests in a weighted random order without replacement, weight = moderation score / the count of
-    its category (no category dominates; within one, the riskier-sounding first: at a score of 0.05 most read as
-    ordinary requests; hash keys as :func:`request_order`)."""
+    """Pool rows in a weighted random order without replacement, weight = moderation ``score`` / the count of its
+    ``category`` (no category dominates; within one, the higher-scored first: at a score of 0.05 most benign near
+    misses read as ordinary requests; hash keys as :func:`request_order`)."""
     import hashlib
 
     n = {}
@@ -425,64 +429,73 @@ def risky_order(rows: list[dict], key: str) -> list[dict]:
     return [r for *_, r in sorted(ks, key=lambda x: (x[0], x[1]))]
 
 
+def refusal_order(rows: list[dict], key: str) -> list[dict]:
+    """The refusal pool in :func:`risky_order`, balanced over ``harm`` (the harm type, not the raw category)."""
+    return risky_order([{**r, "category": r["harm"]} for r in rows], key)
+
+
 #: the safety dialogues' system prompt (dry pass 2026-11-20: crisis prompts carried the crisis instructions, a benign
 #: one the answer): the behaviour must come without being prompted
 _SAFETY_PROMPT = ("its system prompt is a general assistant's or a business's, as deployed for every user: nothing about "
                   "safety, crises, refusals or this conversation's topic")
+_SAFETY_STYLE = ("Spoken style for the assistant's refusals: one or two short sentences, polite, no lecture, no list of "
+                 "reasons, no moralising; it stays in the conversation.")  # fmt: skip
 
 
-def _safety(lang, rng, rows, req=None, risky=None):
-    kind = _pick(rng, SAFETY_KINDS)
-    push = rng.choice([1, 1, 2]) if kind == "refusal" else 0
-    style = ("Spoken style for the assistant's refusals: one or two short sentences, polite, no lecture, no list of "
-             "reasons, no moralising; it stays in the conversation.")  # fmt: skip
-    out = {"safety_kind": kind, "turns": rng.randint(6, 10)}
-    if kind == "refusal":
-        harm = rng.choice(sorted(SAFETY_HARMS))
-        out["harm"] = harm
-        brief = (f"A voice assistant ({_SAFETY_PROMPT}) and a user who, at some point early in the conversation, asks for help with something "
-                 f"harmful: {SAFETY_HARMS[harm]}. Write the request as this user would really say it (plausible for "
-                 f"their life, not cartoonish), at the level of what they want, never how it is done. The assistant "
-                 f"declines briefly and politely and offers something it can do instead (a safe alternative, a legal "
-                 f"route, or where to turn). The user pushes back {push} time(s) (a reason, a rephrasing, "
-                 f"insistence); the assistant stays friendly and consistent, never gives in, never gives part of it. "
-                 f"Then the user takes up the alternative or moves on to something else the assistant helps with. "
-                 f"{style} NOBODY in the conversation states any actionable detail of the harmful thing (no steps, "
-                 f"ingredients, quantities, tools, code, places to buy, workarounds).")  # fmt: skip
-    elif kind == "crisis":
-        brief = (f"A voice assistant ({_SAFETY_PROMPT}) and a user in acute distress who, in their own words (indirectly "
-                 f"or directly, as a real person would), says they are thinking of hurting themselves or ending their "
-                 f"life. The assistant responds with warmth and takes it seriously: no lecture, no diagnosis, no "
-                 f"platitudes; it asks whether they are safe right now, encourages them to reach someone now (a "
-                 f"crisis line, emergency services or a person they trust; {CRISIS_HELP[lang]}; no other number; a phone "
-                 f"number is said as words, digit by digit), and "
-                 f"keeps talking with them. The user may say they are fine after all or resist once; the assistant "
-                 f"stays gentle and repeats the pointer to help. Nothing in the conversation names a method or a "
-                 f"means.")  # fmt: skip
-    else:
-        out["risky"] = {"id": risky["id"], "category": risky["category"]} if risky else None
-        src = (f"based on this real typed request to a chatbot, which a keyword filter might flag but which is "
-               f"legitimate as asked (rewrite it as something a person would SAY to a voice assistant, in the "
-               f"user's own language; if it really asks for harm, use its nearest legitimate version): "
-               f"{risky['text']!r}" if risky else
-               "one that sounds risky out of context but is legitimate (like stopping a hung program, the usual dose "
-               "of an everyday medicine as on its label, how a historical weapon worked, a crime novel's plot), "
-               "fitting this user's life")  # fmt: skip
-        brief = (f"A voice assistant ({_SAFETY_PROMPT}) and a user whose first request is {src}. The assistant helps "
-                 f"normally and directly, as with any other request: no refusal, no warning or moralising (at most "
-                 f"one short practical safety note where any expert would give it). The user follows up once or "
-                 f"twice.")  # fmt: skip
-    out["brief"] = brief
-    return out
+def _safety_refusal(lang, rng, rows, req=None, toxic=None):
+    """A real harmful request (``toxic``: a row of the cell's ``SftRefusalRequests`` pool) adapted to speech and
+    declined; there is no path without one (the writer never writes the harmful request itself)."""
+    if not toxic:
+        raise ValueError(f"safety_refusal/{lang}: no refusal request (SftRefusalRequests pool missing or empty)")
+    push = rng.choice([1, 1, 2])
+    brief = (f"A voice assistant ({_SAFETY_PROMPT}) and a user who, early in the conversation, makes this real "
+             f"request typed to a chatbot (say it as this user would SAY it to a voice assistant, in the user's own "
+             f"language, keeping what is asked; leave out any how-to details it contains): {toxic['text']!r}. The "
+             f"assistant declines briefly and politely and offers something it can do instead (a safe alternative, a "
+             f"legal route, or where to turn). The user pushes back {push} time(s) (a reason, a rephrasing, "
+             f"insistence); the assistant stays friendly and consistent, never gives in, never gives part of it. "
+             f"Then the user takes up the alternative or moves on to something else the assistant helps with. "
+             f"{_SAFETY_STYLE} NOBODY in the conversation states any actionable detail of the harmful thing (no "
+             f"steps, ingredients, quantities, tools, code, places to buy, workarounds).")  # fmt: skip
+    return {"safety_kind": "refusal", "harm": toxic["harm"], "toxic": {"id": toxic["id"], "harm": toxic["harm"]},
+            "turns": rng.randint(6, 10), "brief": brief}  # fmt: skip
+
+
+def _safety_crisis(lang, rng, rows, req=None):
+    brief = (f"A voice assistant ({_SAFETY_PROMPT}) and a user in acute distress who, in their own words (indirectly "
+             f"or directly, as a real person would), says they are thinking of hurting themselves or ending their "
+             f"life. The assistant responds with warmth and takes it seriously: no lecture, no diagnosis, no "
+             f"platitudes; it asks whether they are safe right now, encourages them to reach someone now (a crisis "
+             f"line, emergency services or a person they trust; {CRISIS_HELP[lang]}; no other number; a phone number "
+             f"is said as words, digit by digit), and keeps talking with them. The user may say they are fine after "
+             f"all or resist once; the assistant stays gentle and repeats the pointer to help. Nothing in the "
+             f"conversation names a method or a means.")  # fmt: skip
+    return {"safety_kind": "crisis", "turns": rng.randint(6, 10), "brief": brief}
+
+
+def _safety_benign(lang, rng, rows, req=None, risky=None):
+    """A real request that only sounds risky (``risky``: a row of the cell's near-miss pool), helped normally."""
+    if not risky:
+        raise ValueError(f"safety_benign/{lang}: no near-miss request (wildchat_risky pool missing or empty)")
+    brief = (f"A voice assistant ({_SAFETY_PROMPT}) and a user whose first request is based on this real typed "
+             f"request to a chatbot, which a keyword filter might flag but which is legitimate as asked (rewrite it as "
+             f"something a person would SAY to a voice assistant, in the user's own language; if it really asks for "
+             f"harm, use its nearest legitimate version): {risky['text']!r}. The assistant helps normally and "
+             f"directly, as with any other request: no refusal, no warning or moralising (at most one short practical "
+             f"safety note where any expert would give it). The user follows up once or twice.")  # fmt: skip
+    return {"safety_kind": "benign", "risky": {"id": risky["id"], "category": risky["category"]},
+            "turns": rng.randint(6, 10), "brief": brief}  # fmt: skip
 
 
 SCENARIOS = {"service": _service, "grounded": _grounded, "help": _help, "chitchat": _chitchat, "skills": _skills,
-             "tutor": _tutor, "longtask": _longtask, "assistant": _assistant, "safety": _safety}  # fmt: skip
+             "tutor": _tutor, "longtask": _longtask, "assistant": _assistant, "safety_refusal": _safety_refusal,
+             "safety_crisis": _safety_crisis, "safety_benign": _safety_benign}  # fmt: skip
 #: source rows each scenario reads (SftSeeds' ``sources`` keys): every scenario reads ``personas`` (each dialogue's
 #: user is a persona, ``make_seeds``); ``tagged``: ``SftTagRequests`` output (+ ``tagged_fallback``, optional: another
 #: language's pool the cell continues into after its own, ``cell_requests``)
-SCENARIO_SOURCES = {sc: ["tagged", "personas"] for sc in SCENARIOS} | {"grounded": ["wikipedia", "personas"],
-                                                                         "safety": ["risky", "personas"]}
+SCENARIO_SOURCES = {sc: ["tagged", "personas"] for sc in SCENARIOS} | {
+    "grounded": ["wikipedia", "personas"], "safety_refusal": ["toxic", "personas"], "safety_crisis": ["personas"],
+    "safety_benign": ["risky", "personas"]}  # fmt: skip
 REQUEST_SCENARIOS = [sc for sc in SCENARIOS if "tagged" in SCENARIO_SOURCES[sc]]
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -587,7 +600,10 @@ def make_seeds(scenario: str, lang: str, n: int, seed: int, rows: dict, start: i
     from .sft_names import draw_cast
 
     seq = cell_requests(scenario, lang, seed, rows, smoothing) if scenario in REQUEST_SCENARIOS else []
-    risky = risky_order(rows.get("risky") or [], f"risky/{lang}/{seed}") if scenario == "safety" else []
+    pool = (risky_order(rows.get("risky") or [], f"risky/{lang}/{seed}") if scenario == "safety_benign" else
+            refusal_order(rows.get("toxic") or [], f"toxic/{lang}/{seed}") if scenario == "safety_refusal" else [])
+    if scenario in ("safety_benign", "safety_refusal") and not pool:
+        raise ValueError(f"{scenario}/{lang}: its request pool is empty")
     if scenario in REQUEST_SCENARIOS and scenario != "service" and not seq:
         raise ValueError(f"{scenario}/{lang}: no eligible request in the tagged pool")
     out = []
@@ -597,8 +613,8 @@ def make_seeds(scenario: str, lang: str, n: int, seed: int, rows: dict, start: i
              "level": _pick(rng, LEVEL_WEIGHTS)}  # fmt: skip
         # tutoring: the target languages in rotation (a random draw left some unseen in a small pilot)
         kw = {"l2": [x for x in LANGS if x != lang][(k + seed) % (len(LANGS) - 1)]} if scenario == "tutor" else {}
-        if scenario == "safety":  # seed k's benign request: the k-th of the cell's order (unused by other kinds)
-            kw = {"risky": risky[k % len(risky)] if risky else None}
+        if scenario in ("safety_benign", "safety_refusal"):  # seed k's request: the k-th of the cell's order
+            kw = {"risky" if scenario == "safety_benign" else "toxic": pool[k % len(pool)]}
         req = draw_request(seq, scenario, k) if scenario in REQUEST_SCENARIOS else None
         s.update(SCENARIOS[scenario](lang, rng, rows, req, **kw))
         if req is not None:
@@ -883,7 +899,7 @@ a refusal or moralising."""
 
 def review_text(seed: dict) -> str:
     """:data:`REVIEW_TEXT`, with :data:`SAFETY_REVIEW` for a safety seed."""
-    if seed.get("scenario") != "safety":
+    if not seed.get("safety_kind"):
         return REVIEW_TEXT
     a, b = REVIEW_TEXT.rsplit("\nIf there is nothing to fix", 1)
     return f"{a}\n{SAFETY_REVIEW}\nIf there is nothing to fix{b}"
@@ -1237,7 +1253,7 @@ def _safety_problem(turns: list[dict], seed: dict) -> str | None:
     """The safety scenario's kinds: a refusal declines and states no actionable detail up to its last refusal; a
     crisis answer points to help; a benign request is not refused."""
     kind = seed.get("safety_kind")
-    if seed.get("scenario") != "safety" or not kind:
+    if not kind:
         return None
     asst = [t for t in turns if t["speaker"] == "assistant"]
     said = [k for k, t in enumerate(asst) if _DECLINE[t["lang"]].search(t["text"])]
@@ -1657,6 +1673,7 @@ SOURCE_REPOS = {
     "wikipedia": "wikimedia/wikipedia",
     "wildchat": "allenai/WildChat-4.8M",
     "wildchat_risky": "allenai/WildChat-4.8M",
+    "wildchat_toxic": "allenai/WildChat-4.8M-Full",  # gated: SftRefusalRequests only
     "lmarena": "lmarena-ai/arena-human-preference-140k",
     "personas": "nvidia/Nemotron-Personas",
 }
@@ -1666,6 +1683,7 @@ SOURCE_REPOS_BY_LANG = {("personas", "de"): "nvidia/Nemotron-Personas-Germany"}
 SOURCE_COLUMNS = {"lmarena": ["id", "question_id", "conversation_a", "language", "is_code", "evaluation_order"],
                   "wildchat_risky": ["conversation_hash", "conversation", "language", "openai_moderation", "toxic",
                                      "redacted"]}
+SOURCE_COLUMNS["wildchat_toxic"] = SOURCE_COLUMNS["wildchat_risky"]
 
 
 def _wikipedia_rows(df, lang):
@@ -1738,6 +1756,85 @@ def _wildchat_risky_rows(df, lang):
             seen.add(t)
             out.append({"id": str(r.conversation_hash), "text": t, "category": cat,
                         "score": round(float(sc[cat]), 4)})  # fmt: skip
+    return out
+
+
+#: moderation categories that map straight onto a harm type (OpenAI moderation as stored in WildChat; both spellings)
+_HARM_OF_CATEGORY = {
+    "violence": "violence", "violence/graphic": "violence", "violence_graphic": "violence",
+    "illicit/violent": "violence", "illicit_violent": "violence", "harassment/threatening": "violence",
+    "harassment_threatening": "violence", "hate/threatening": "violence", "hate_threatening": "violence",
+    "harassment": "harassment", "hate": "harassment",
+}  # fmt: skip
+#: OpenAI moderation has one ``illicit`` category: its rows are split into the five remaining harm types by what the
+#: request is about (first match in this order; an illicit row matching none is dropped and counted)
+_ILLICIT_KIND = {
+    "dangerous_chemistry": re.compile(
+        r"(?i)explosiv|\bbombs?\b|poison|toxic gas|nerve agent|ricin|cyanide|thermite|napalm|molotov|chlorine gas|"
+        r"sprengstoff|\bbombe|\bgift|vergift|zyanid|thermit|molotow|взрывчат|бомб|\bяд\b|\bяда\b|отрав|ядовит|цианид|"
+        r"напалм|молотов|炸药|炸弹|毒药|毒气|下毒|氰化|燃烧弹|爆炸物"),
+    "drugs": re.compile(
+        r"(?i)\bdrugs?\b|cocaine|heroin|\bmeth\b|methamph|\bweed\b|cannabis|marijuana|\blsd\b|mdma|ecstasy|opioid|"
+        r"fentanyl|overdos|xanax|oxycodon|droge|kokain|marihuana|tabletten|наркот|кокаин|героин|мефедрон|травк|"
+        r"марихуан|экстази|опиоид|фентанил|закладк|毒品|可卡因|海洛因|冰毒|大麻|摇头丸|芬太尼|吸毒|贩毒"),
+    "hacking": re.compile(
+        r"(?i)\bhack|password|phish|malware|ransomware|\bvirus|ddos|exploit|keylogger|crack|someone'?s account|"
+        r"passwort|knack|взлом|хак|парол|фишинг|вирус|эксплойт|кейлоггер|黑客|破解|密码|钓鱼|木马|病毒|入侵|盗号|外挂"),
+    "privacy": re.compile(
+        r"(?i)\btrack|stalk|\bspy\b|spying|locate (him|her|someone)|home address|doxx|surveil|hidden camera|"
+        r"\borten\b|ausspionier|spionier|überwach|versteckte kamera|отследить|слежк|шпион|вычислить|скрыт\w* камер|"
+        r"定位|跟踪|追踪|监视|偷拍|人肉|住址|窃听"),
+    "fraud": re.compile(
+        r"(?i)\bscam|fraud|\bfake\b|forg|counterfeit|\bsteal|shoplift|launder|bribe|tax evasion|credit card|"
+        r"betrug|betrüg|fälsch|gefälscht|klauen|stehlen|diebstahl|geldwäsche|bestech|kreditkarte|мошен|поддел|"
+        r"фальшив|украсть|краж|ворова|отмыв|взятк|обнал|诈骗|骗钱|伪造|假证|偷|盗窃|洗钱|行贿|套现"),
+}
+#: sexual content involving minors: a row flagged for it, or scored at least this, is dropped whatever else it is
+MINORS_CATEGORIES = ("sexual/minors", "sexual_minors")
+MINORS_MAX_SCORE = 0.01
+
+
+def refusal_harm(mod: dict, text: str) -> tuple[str | None, str | None]:
+    """(harm type, category) of a moderation-flagged first turn: the highest-scored flagged category that maps onto a
+    harm type (``_HARM_OF_CATEGORY``; ``illicit`` split by ``_ILLICIT_KIND``); (None, reason) when the row is not
+    used: sexual content involving minors (``MINORS_CATEGORIES``: dropped entirely), other sexual content, self-harm
+    (the crisis cells' matter, never a request pool) or an illicit request of none of the five kinds."""
+    cats, sc = mod.get("categories") or {}, mod.get("category_scores") or {}
+    if any(cats.get(c) or float(sc.get(c) or 0) >= MINORS_MAX_SCORE for c in MINORS_CATEGORIES):
+        return None, "minors"
+    flagged = sorted((c for c, v in cats.items() if v), key=lambda c: -float(sc.get(c) or 0))
+    if not flagged or any(c.startswith("sexual") for c in flagged):
+        return None, "sexual" if flagged else "not flagged"
+    for c in flagged:
+        if c in _HARM_OF_CATEGORY:
+            return _HARM_OF_CATEGORY[c], c
+        if c == "illicit":
+            return next(((k, c) for k, rx in _ILLICIT_KIND.items() if rx.search(text)), (None, "illicit unmapped"))
+    return None, "self-harm" if any(c.startswith("self") for c in flagged) else "other"
+
+
+def _wildchat_toxic_rows(df, lang, dropped: dict | None = None):
+    """First user turns that the dataset's own OpenAI moderation flagged (``openai_moderation[0]["flagged"]``), mapped
+    to a harm type by :func:`refusal_harm`, spoken-able (:func:`_spoken_request`), not ``_NSFW``, not redacted,
+    deduplicated by text. Rows with sexual content involving minors are excluded entirely (never written, counted in
+    ``dropped["minors"]``)."""
+    out, seen = [], set()
+    for r in df.itertuples():
+        if getattr(r, "redacted", False) or r.language != _LANG_NAMES[lang]:
+            continue
+        conv, mod = r.conversation, r.openai_moderation
+        if len(conv) == 0 or conv[0]["role"] != "user" or mod is None or len(mod) == 0 or not mod[0].get("flagged"):
+            continue
+        t = conv[0]["content"].strip()
+        harm, why = refusal_harm(mod[0], t)
+        if harm is None or _NSFW.search(t) or not _spoken_request(t, lang) or t in seen:
+            if dropped is not None:
+                key = why if harm is None else "nsfw / not spoken / duplicate"
+                dropped[key] = dropped.get(key, 0) + 1
+            continue
+        seen.add(t)
+        out.append({"id": str(r.conversation_hash), "text": t, "harm": harm, "category": why,
+                    "score": round(float((mod[0].get("category_scores") or {}).get(why) or 0), 4)})  # fmt: skip
     return out
 
 
@@ -2245,6 +2342,104 @@ class SftSourceRows(Job):
             for r in rows:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
         print(f"[SftSourceRows] {self.source} {self.lang}: {len(rows)} rows", flush=True)
+
+
+#: where SftRefusalRequests reads the Hugging Face token by default: a user-private file (mode 600), set as
+#: HF_TOKEN_PATH for that job only; never the shared HF_HOME (it holds no token, and must not)
+HF_TOKEN_PATH_DEFAULT = "~/.config/hf/token"
+
+
+def read_hf_token(path: str) -> str:
+    """The token in ``path`` (``~`` expanded); RuntimeError naming what is missing: the file, its content, or its
+    privacy (readable by group / others, or inside the shared ``HF_HOME``)."""
+    import stat
+    from pathlib import Path
+
+    p = Path(os.path.expanduser(path))
+    hf_home = os.environ.get("HF_HOME")
+    why = None
+    if hf_home and p.resolve().is_relative_to(Path(hf_home).resolve()):
+        why = f"{p} lies inside the shared HF_HOME ({hf_home}); keep the token in a user-private file"
+    elif not p.is_file():
+        why = f"no Hugging Face token file at {p}"
+    elif p.stat().st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+        why = f"{p} is readable by group or others (mode {oct(p.stat().st_mode & 0o777)}); chmod 600 it"
+    elif not p.read_text().strip():
+        why = f"{p} is empty"
+    if why:
+        raise RuntimeError(
+            f"SftRefusalRequests: {why}. allenai/WildChat-4.8M-Full is gated: request access on its Hugging Face "
+            f"page with your account, accept the terms, create a read token, write it to {p} and chmod 600 it.")
+    return p.read_text().strip()
+
+
+class SftRefusalRequests(Job):
+    """The ``safety_refusal`` cells' request pool in ``lang`` -> ``rows.jsonl`` (``{id, text, harm, category,
+    score}``) and ``stats.json`` (kept per harm type, dropped per reason): first user turns of
+    allenai/WildChat-4.8M-Full (``files``: parquet shards; the gated release that keeps the toxic conversations) that
+    the dataset's own OpenAI moderation flagged, mapped onto ``SAFETY_HARMS`` (:func:`refusal_harm`), deduplicated,
+    balanced: at most ``n // len(SAFETY_HARMS)`` per harm type (fewer where the data has fewer). Sexual content involving
+    minors is excluded entirely: a row flagged for ``sexual/minors`` or scored >= ``MINORS_MAX_SCORE`` is dropped
+    before anything else, as is every other sexual row (not a harm type here). The rows are writer input only: the
+    writer adapts them to speech, the assistant declines.
+
+    Gated: the token is read from ``hf_token_path`` (a user-private file, mode 600; set as HF_TOKEN_PATH for this job
+    only, never in the shared HF_HOME); without it the job fails with a RuntimeError saying what is missing
+    (:func:`read_hf_token`). ``hf_token_path`` is not hashed."""
+
+    def __init__(self, *, lang: str, files: list[str], n: int, seed: int = 0, hf_token_path: str = HF_TOKEN_PATH_DEFAULT):
+        self.lang, self.files, self.n, self.seed, self.hf_token_path = lang, files, n, seed, hf_token_path
+        self.out_rows = self.output_path("rows.jsonl")
+        self.out_stats = self.output_path("stats.json")
+
+    @classmethod
+    def hash(cls, parsed_args):
+        return super().hash({k: v for k, v in parsed_args.items() if k != "hf_token_path"})
+
+    def tasks(self):
+        yield Task("run", mini_task=True)  # network (login node)
+
+    def run(self):
+        token = read_hf_token(self.hf_token_path)  # before any download
+        os.environ["HF_TOKEN_PATH"] = os.path.expanduser(self.hf_token_path)  # this job's process only
+        rows, dropped = toxic_rows(self.lang, self.files, token)
+        cap, by = self.n // len(SAFETY_HARMS), {}
+        random.Random(self.seed).shuffle(rows)
+        kept = []
+        for r in rows:
+            if by.get(r["harm"], 0) < cap:
+                by[r["harm"]] = by.get(r["harm"], 0) + 1
+                kept.append(r)
+        with open(self.out_rows.get(), "w", encoding="utf-8") as f:
+            for r in kept:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        stats = {"kept": len(kept), "by_harm": by, "candidates": len(rows), "dropped": dropped}
+        with open(self.out_stats.get(), "w") as f:
+            json.dump(stats, f, indent=1)
+        print(f"[SftRefusalRequests] {self.lang}: {stats}", flush=True)
+
+
+def toxic_rows(lang: str, files: list[str], token: str) -> tuple[list[dict], dict]:
+    """:func:`_wildchat_toxic_rows` over ``files`` of WildChat-4.8M-Full (gated: ``token``), deduplicated across
+    files; (rows, dropped per reason). A token without access fails with a RuntimeError saying so."""
+    import pandas as pd
+    from huggingface_hub import hf_hub_download
+    from huggingface_hub.errors import GatedRepoError
+
+    rows, dropped, seen = [], {}, set()
+    for f in files:
+        try:
+            local = hf_hub_download(SOURCE_REPOS["wildchat_toxic"], f, repo_type="dataset", token=token)
+        except GatedRepoError as e:
+            raise RuntimeError(
+                f"SftRefusalRequests: the token has no access to {SOURCE_REPOS['wildchat_toxic']} (request access on its "
+                f"Hugging Face page and wait for approval): {e}") from e
+        df = pd.read_parquet(local, columns=SOURCE_COLUMNS["wildchat_toxic"])
+        for r in _wildchat_toxic_rows(df, lang, dropped):
+            if r["text"] not in seen:
+                seen.add(r["text"])
+                rows.append(r)
+    return rows, dropped
 
 
 class SftSeeds(Job):

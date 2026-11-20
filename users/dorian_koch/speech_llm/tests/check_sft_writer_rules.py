@@ -311,6 +311,7 @@ def check_anchors() -> list[str]:
                         "flags": {"needs_document": False, "needs_business_facts": False, "unsafe": False,
                                   "not_speakable": False}} for k in range(5)],
             "wikipedia": [{"id": f"k{k}", "title": f"Topic {k}", "text": "A passage. " * 20} for k in range(5)]}  # fmt: skip
+    rows |= {k: v for k, v in _safety_rows().items() if k != "personas"}
     for sc in sd.SCENARIOS:
         if set(sd.SCENARIO_SOURCES.get(sc, [])) != set(sd.SCENARIO_SOURCES.get(sc, [])) | {"personas"}:
             bad.append(f"{sc} does not read personas")
@@ -351,7 +352,7 @@ OPEN_REASON = "the assistant opens in a language its prompt does not name"
 
 
 def check_language_and_identity() -> list[str]:
-    """User 2026-11-20: a non-English dialogue's system prompt says which language to speak (English needs no line);
+    """A non-English dialogue's system prompt says which language to speak (English needs no line);
     the assistant's identity varies (none / Haru / an invented name and operator) and it uses only the one its prompt
     gives."""
     bad = []
@@ -418,11 +419,12 @@ def _safety_dlg(user, asst, lang="en"):
 
 
 def check_safety() -> list[str]:
-    """User 2026-11-20, the safety scenario: refusal / crisis / benign kinds with about a third benign (over-refusal),
+    """The safety scenario: refusal / crisis / benign kinds with about a third benign (over-refusal),
     harm families and benign categories drawn so none dominates; a refusal declines and leaks no actionable detail, a
     crisis answer points to help, a benign request is not refused; the review asks for it."""
     bad = []
-    seed = {"scenario": "safety", "lang": "en", "prompt_lang": "en", "policy": "same", "turns": 2, "identity": "none"}
+    seed = {"scenario": "safety_refusal", "lang": "en", "prompt_lang": "en", "policy": "same", "turns": 2,
+            "identity": "none"}
     ask = "My neighbour's dog keeps barking, how could I poison it without anyone noticing?"
     cases = [
         ("refusal", ask, "I can't help with hurting an animal, but I can tell you how to file a noise complaint.", None),
@@ -449,34 +451,44 @@ def check_safety() -> list[str]:
                      ("zh", "怎么偷偷进入前任的手机？", "这个我不能帮你，不过我可以告诉你怎么保护自己的手机。")):
         if sd._safety_problem(_safety_dlg(u, a, lg)["turns"], {**seed, "lang": lg, "safety_kind": "refusal"}) is not None:
             bad.append(f"safety {lg}: a refusal was not recognised: {a!r}")
-    rows = {"personas": [{"id": "p", "text": "A nurse who likes cycling."}],
-            "risky": [{"id": f"v{k}", "text": f"How did a medieval crossbow {k} work?", "category": "violence", "score": 0.2}
-                      for k in range(40)] + [{"id": f"h{k}", "text": f"Why is this word {k} offensive?", "category": "hate", "score": 0.2}
-                                             for k in range(4)]}  # fmt: skip
-    kinds, harms, minority = {}, set(), 0
+    rows = _safety_rows()
+    harms, minority = {}, 0
     for lg in sd.LANGS:
-        ss = sd.make_seeds("safety", lg, 300, 1, rows)
-        for s in ss:
-            kinds[s["safety_kind"]] = kinds.get(s["safety_kind"], 0) + 1
-            harms.add(s.get("harm"))
-            msg = sd.writer_messages(s)[1]["content"]
-            if s["safety_kind"] == "refusal" and "actionable detail" not in msg:
-                bad.append(f"safety/{lg}: no leak rule in a refusal brief")
-                break
-            if s["safety_kind"] == "crisis" and sd.CRISIS_HELP[lg] not in msg:
-                bad.append(f"safety/{lg}: no help pointer in a crisis brief")
-                break
+        for sc in ("safety_refusal", "safety_crisis", "safety_benign"):
+            for s in sd.make_seeds(sc, lg, 21 if sc == "safety_refusal" else 6, 1, rows):  # 21 < the pool: one pass
+                msg = sd.writer_messages(s)[1]["content"]
+                if s["safety_kind"] == "refusal":
+                    harms[s["harm"]] = harms.get(s["harm"], 0) + 1
+                    text = next(r["text"] for r in rows["toxic"] if r["id"] == s["toxic"]["id"])
+                    if repr(text) not in msg or "actionable detail" not in msg:
+                        bad.append(f"{sc}/{lg}: the brief does not carry its pool request and the leak rule")
+                        break
+                if s["safety_kind"] == "crisis" and sd.CRISIS_HELP[lg] not in msg:
+                    bad.append(f"safety/{lg}: no help pointer in a crisis brief")
+                    break
         minority += sum(r["category"] == "hate" for r in sd.risky_order(rows["risky"], f"risky/{lg}/1")[:8])
-    n = sum(kinds.values())
-    if kinds.get("benign", 0) / n < 0.25 or kinds.get("refusal", 0) / n < 0.35 or kinds.get("crisis", 0) / n < 0.08:
-        bad.append(f"safety kinds {kinds}: want about 1/2 refusal, 1/6 crisis, 1/3 benign")
-    if harms - {None} != set(sd.SAFETY_HARMS):
-        bad.append(f"safety harms drawn {sorted(h for h in harms if h)}")
+    if set(harms) != set(sd.SAFETY_HARMS) or max(harms.values()) > 3 * min(harms.values()):
+        bad.append(f"refusal requests not balanced over the harm types: {harms}")
     if minority < 8:  # 4 of 44 requests: uniform gives ~0.7 of 8 per language, by category ~4 (all 4 used)
         bad.append(f"the benign draw is not balanced by category: {minority} of 32 from the 9% category")
-    if sd.SAFETY_REVIEW not in sd.review_text(seed) or sd.review_text({**seed, "scenario": "help"}) != sd.REVIEW_TEXT:
+    if abs(sum(sd.SAFETY_SHARES.values()) - 1) > 1e-9 or sd.SAFETY_SHARES["safety_benign"] < 0.25:
+        bad.append(f"safety shares {sd.SAFETY_SHARES}: want a third benign (over-refusal), summing to one scenario")
+    sk = {**seed, "safety_kind": "refusal"}
+    if sd.SAFETY_REVIEW not in sd.review_text(sk) or sd.review_text({**seed, "scenario": "help"}) != sd.REVIEW_TEXT:
         bad.append("the review's safety point is missing or leaks into other scenarios")
     return bad
+
+
+def _safety_rows():
+    """Pools as the safety cells read them: near misses (90% one category) and refusal requests (12 types: 7 harm
+    types, one of them 10x more frequent)."""
+    toxic = [{"id": f"t{h}{k}", "text": f"real flagged request {h} {k}", "harm": h, "category": "x", "score": 0.9}
+             for h in sd.SAFETY_HARMS for k in range(40 if h == "violence" else 4)]  # fmt: skip
+    return {"personas": [{"id": "p", "text": "A nurse who likes cycling."}], "toxic": toxic,
+            "risky": [{"id": f"v{k}", "text": f"How did a medieval crossbow {k} work?", "category": "violence",
+                       "score": 0.2} for k in range(40)]
+            + [{"id": f"h{k}", "text": f"Why is this word {k} offensive?", "category": "hate", "score": 0.2}
+               for k in range(4)]}  # fmt: skip
 
 
 def check_versions() -> list[str]:
@@ -552,7 +564,9 @@ MUTANTS = {
     "language line not checked": (check_language_and_identity, dict(_language_line_problem=lambda *a: None)),
     "identity not checked": (check_language_and_identity, dict(_identity_problem=lambda o, s: None)),
     "one identity for all": (check_language_and_identity, dict(IDENTITY_WEIGHTS={"none": 1.0})),
-    "no over-refusal share": (check_safety, dict(SAFETY_KINDS={"refusal": 0.75, "crisis": 0.25})),
+    "no over-refusal share": (check_safety, dict(SAFETY_SHARES={"safety_refusal": 0.75, "safety_crisis": 0.25,
+                                                               "safety_benign": 0.0})),
+    "refusal pool not balanced by harm": (check_safety, dict(refusal_order=lambda rows, key: sorted(rows, key=lambda r: r["id"])[::-1])),
     "harmful detail leaks": (check_safety, dict(_SAFETY_LEAK={lg: __import__("re").compile(r"(?!x)x") for lg in sd.LANGS})),
     "refusal not required": (check_safety, dict(_DECLINE={lg: __import__("re").compile(r"(?!x)x") for lg in sd.LANGS})),
     "crisis without help": (check_safety, dict(_HELP_POINTER={lg: __import__("re").compile(r"") for lg in sd.LANGS})),

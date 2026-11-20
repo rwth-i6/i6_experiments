@@ -1002,6 +1002,11 @@ def build_sft_corpus(*, name: str, rows: dict, env: dict, cell_seeds: int, shard
                 src["wikipedia"] = s_w
             if "risky" in sd.SCENARIO_SOURCES[sc] and (s_r := rows.get(("wildchat_risky", lg))) is not None:
                 src["risky"] = s_r  # only where read: the other cells' hashes stay
+            if "toxic" in sd.SCENARIO_SOURCES[sc]:  # the refusal pool (SftRefusalRequests): no cell without it
+                if rows.get(("wildchat_toxic", lg)) is None:
+                    raise ValueError(f"{sc}/{lg} needs rows[('wildchat_toxic', {lg!r})] (SftRefusalRequests); "
+                                     f"leave {sc} out of `scenarios` until the pool can be built")
+                src["toxic"] = rows[("wildchat_toxic", lg)]
             if (fallback or {}).get(lg):
                 src["tagged_fallback"] = tags[fallback[lg]].out_tags
             for start, n in shard_ranges((cell_sizes or {}).get((sc, lg), cell_seeds), shard_seeds):
