@@ -37,6 +37,8 @@ SAME = [
     ("zh", "今天有25个人来了，", "今天有二十五个人来了"),
     ("zh", "大约40%的人", "大约百分之四十的人"),
     ("zh", "两个苹果", "二个苹果"),
+    # more digits than cn2an takes (an ASR hypothesis of a card number crashed a TTS job): digit by digit, no error
+    ("zh", "卡号是一二三四五六七八九零一二三四五六七八", "卡号是12345678901234567 8"),
     ("fr", "J'ai 3 chats.", "j'ai trois chats"),
 ]
 #: (lang, reference, transcript, expected error): real differences stay errors

@@ -80,21 +80,31 @@ def _drop_punct(text: str) -> str:
     return "".join(" " if unicodedata.category(c)[0] in "PSZ" or c in "-‐‑–—" else c for c in text)
 
 
+_CN_DIGITS = dict(zip("0123456789.", "零一二三四五六七八九点"))
+
+
+def _an2cn(num: str) -> str:
+    """``cn2an.an2cn``, or digit by digit where it gives up (more than 16 digits: an ASR transcript of a phone or card
+    number crashed a whole TTS job, 2026-11-20)."""
+    import cn2an
+
+    try:
+        return cn2an.an2cn(num)
+    except ValueError:
+        return "".join(_CN_DIGITS[c] for c in num)
+
+
 def normalize(text: str, lang: str) -> list[str]:
     """Tokens of ``text`` in its spoken form: words, or characters (and whole Latin words) for ``CHAR_LANGS``."""
     text = unicodedata.normalize("NFKC", text)
     if lang == "en":
         return " ".join(_english(text)).replace("cannot", "can not").split()
     if lang in CHAR_LANGS:  # "40%" is read 百分之四十: the number moves behind the word
-        import cn2an
-
-        text = re.sub(r"(\d+(?:\.\d+)?)\s*[%％]", lambda m: "百分之" + cn2an.an2cn(m.group(1)), text)
+        text = re.sub(r"(\d+(?:\.\d+)?)\s*[%％]", lambda m: "百分之" + _an2cn(m.group(1)), text)
     for s, w in SYMBOLS.get(lang, {}).items():
         text = text.replace(s, w)
     if lang in CHAR_LANGS:
-        import cn2an
-
-        text = re.sub(r"\d+(?:\.\d+)?", lambda m: cn2an.an2cn(m.group(0)), text)
+        text = re.sub(r"\d+(?:\.\d+)?", lambda m: _an2cn(m.group(0)), text)
         text = _drop_punct(text.casefold()).replace("两", "二")
         return re.findall(r"[a-z0-9']+|\S", text)
     text = _num_words(text, lang).casefold()
