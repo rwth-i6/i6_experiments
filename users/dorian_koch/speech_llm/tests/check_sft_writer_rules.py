@@ -338,13 +338,13 @@ def check_anchors() -> list[str]:
     return bad
 
 
-def _dlg(sp, lang="de", first="user", name="", asst=None):
+def _dlg(sp, lang="de", first="user", name="", asst=None, op=""):
     u = {"de": "Hallo, ich hab eine Frage zu meinem Fahrrad.", "en": "Hi, I have a question about my bike."}[lang]
     a = asst or {"de": "Klar, worum geht es denn genau?", "en": "Sure, what's going on with it?"}[lang]
     turns = [{"speaker": "user", "lang": lang, "text": u}, {"speaker": "assistant", "lang": lang, "text": a}]
     if first == "assistant":
         turns = [{"speaker": "assistant", "lang": lang, "text": a}] + turns
-    return {"system_prompt": sp, "assistant_name": name, "turns": turns, "user_facts": []}
+    return {"system_prompt": sp, "assistant_name": name, "assistant_operator": op, "turns": turns, "user_facts": []}
 
 
 LANG_REASON = "the system prompt does not say which language to speak"
@@ -390,11 +390,11 @@ def check_language_and_identity() -> list[str]:
     asks = "Wie heißt du eigentlich?"
     cu = {**de, "identity": "custom", "prompt_lang": "de"}
     sp = "Du bist Lumi, die Sprachassistentin der Stadtwerke Kassel. Du sprichst Deutsch mit den Kunden."
-    o = _dlg(sp, name="Lumi", asst="Ich bin Lumi, die Assistentin der Stadtwerke.")
+    o = _dlg(sp, name="Lumi", asst="Ich bin Lumi, die Assistentin der Stadtwerke.", op="Stadtwerke Kassel")
     o["turns"][0]["text"] = asks
     if sd._identity_problem(o, cu) is not None:
         bad.append(f"a custom identity used as given was rejected: {sd._identity_problem(o, cu)}")
-    o2 = _dlg(sp, name="Lumi", asst="Ich bin Haru i sechs Instruct.")
+    o2 = _dlg(sp, name="Lumi", asst="Ich bin Haru i sechs Instruct.", op="Stadtwerke Kassel")
     o2["turns"][0]["text"] = asks
     if sd._identity_problem(o2, cu) != "the assistant uses a name its prompt did not give":
         bad.append("a custom-identity assistant calling itself Haru passed")
@@ -404,6 +404,19 @@ def check_language_and_identity() -> list[str]:
         bad.append("identity none with Haru in the prompt passed")
     if sd._identity_problem(_dlg("You are a voice assistant.", lang="en"), {**en, "identity": "haru"}) is None:
         bad.append("identity haru without Haru in the prompt passed")
+    if sd._identity_problem(_dlg(sp, name="Lumi", op=""), cu) != "the invented operator is not in the system prompt":
+        bad.append("a custom identity without its operator passed")
+    loaded = "the invented assistant name is Haru, a real assistant's or a loaded name"
+    for nm, op in (("Алиса", "ТехноСфера"), ("Макс", "ЭдуТех"), ("Спутник", "ЭдуТех"), ("Аврора", "ТехноСфера"),
+                   ("小智", "星辰科技"), ("小灵", "星辰科技"), ("Xiao Ling", "Brightline"), ("Маруся", "ЭдуТех"), ("Jarvis", "Brightline"),
+                   ("Friday", "Brightline"), ("Alice", "Brightline"), ("Lumi", "Yandex")):  # fmt: skip
+        o = _dlg(f"Ты {nm}, голосовой помощник компании {op}. Ты говоришь по-русски.", name=nm, op=op)
+        if sd._identity_problem(o, {**cu, "lang": "ru"}) != loaded:
+            bad.append(f"a loaded or real name passed: {nm} / {op}")
+    caps = sd.OperatorCap()
+    took = [caps.take({"assistant_operator": op}, cu) for op in ("NexaCore", "NexaFlow", "Nexa Labs", "Brightline")]
+    if took[:2] != [None, None] or took[2] is None or took[3] is not None:
+        bad.append(f"operator stems not capped per job: {took}")
     g = sd.GENERAL_PROMPTS["en"][0]
     ge = {**en, "general_prompt": g}
     if sd._identity_problem(_dlg(g + " You speak with users of the city library.", lang="en"), ge) is not None:
@@ -564,6 +577,8 @@ MUTANTS = {
     "language line not checked": (check_language_and_identity, dict(_language_line_problem=lambda *a: None)),
     "identity not checked": (check_language_and_identity, dict(_identity_problem=lambda o, s: None)),
     "one identity for all": (check_language_and_identity, dict(IDENTITY_WEIGHTS={"none": 1.0})),
+    "loaded names allowed": (check_language_and_identity, dict(_LOADED_NAME=__import__("re").compile(r"(?!x)x"))),
+    "operator stems uncapped": (check_language_and_identity, dict(OPERATOR_STEM_CAP=99, operator_stem=lambda op: op)),
     "no over-refusal share": (check_safety, dict(SAFETY_SHARES={"safety_refusal": 0.75, "safety_crisis": 0.25,
                                                                "safety_benign": 0.0})),
     "refusal pool not balanced by harm": (check_safety, dict(refusal_order=lambda rows, key: sorted(rows, key=lambda r: r["id"])[::-1])),

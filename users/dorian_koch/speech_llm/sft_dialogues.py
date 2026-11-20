@@ -88,7 +88,7 @@ SCENARIO_VERSIONS = {
     "safety_benign": 1,
 }  # fmt: skip (+1 each: the assistant's identity drawn per seed, ``IDENTITY_WEIGHTS``)
 #: the writer prompt / validation (every scenario): hashed into SftWriteDialogues
-WRITER_VERSION = 12
+WRITER_VERSION = 13
 #: who the system prompt says the assistant is (one fixed identity in every dialogue would teach a fixed context, not
 #: to follow the prompt): ``none`` the prompt names no assistant (it is ``PRODUCT``, learned), ``haru``
 #: the prompt names ``PRODUCT``, ``custom`` a name and operator the writer invents for the setting
@@ -730,11 +730,16 @@ def _identity_lines(seed: dict) -> str:
     language it speaks (``LANG_NAMED``)."""
     form = seed.get("identity", "none")
     out = {
-        "none": "- It does not name the assistant or its maker. \"assistant_name\" is empty.",
-        "haru": f"- It names the assistant {PRODUCT['name']}, made by {PRODUCT['maker']}. \"assistant_name\" is empty.",
+        "none": "- It does not name the assistant or its maker. \"assistant_name\" and \"assistant_operator\" are "
+                "empty.",
+        "haru": f"- It names the assistant {PRODUCT['name']}, made by {PRODUCT['maker']}. \"assistant_name\" and "
+                f"\"assistant_operator\" are empty.",
         "custom": "- It gives the assistant a name and says who runs it: invent both to fit this setting and this user's "
-                  "country (the business's or organisation's own assistant, or a product of an invented company): not a "
-                  "real AI company or product and not Haru. \"assistant_name\" is that name as the prompt writes it.",
+                  "country (the business's or organisation's own assistant, or a product of an invented company). The "
+                  "name is neutral and made up: not any real assistant, product, brand, company or media outlet, not a "
+                  "political, military, religious, historical or ideological symbol, and not Haru. The operator is just "
+                  "as neutral and made up, not a stock tech name. \"assistant_name\" is that name and "
+                  "\"assistant_operator\" that operator, as the prompt writes them.",
     }[form]
     if seed["lang"] != "en":  # a non-English user: the prompt says the language (English needs no line)
         out += (f"\n- It says, in one sentence of your own wording, that the assistant speaks "
@@ -783,7 +788,7 @@ def n_turns(seed: dict) -> int:
 
 def writer_messages(seed: dict) -> list[dict]:
     opens, n = seed.get("opens", "user"), n_turns(seed)
-    user = f"""Write one spoken conversation as JSON: {{"system_prompt": "...", "assistant_name": "...", "turns": [{{"speaker": "user" | "assistant", "lang": "<language id>", "text": "..."}}], "user_facts": ["..."]}}.
+    user = f"""Write one spoken conversation as JSON: {{"system_prompt": "...", "assistant_name": "...", "assistant_operator": "...", "turns": [{{"speaker": "user" | "assistant", "lang": "<language id>", "text": "..."}}], "user_facts": ["..."]}}.
 
 SCENARIO
 {seed["brief"]}
@@ -831,6 +836,7 @@ WRITER_SCHEMA = {
     "properties": {
         "system_prompt": {"type": "string"},
         "assistant_name": {"type": "string"},
+        "assistant_operator": {"type": "string"},
         "turns": {
             "type": "array",
             "minItems": 2,
@@ -846,7 +852,7 @@ WRITER_SCHEMA = {
         },
         "user_facts": {"type": "array", "minItems": 2, "maxItems": 5, "items": {"type": "string"}},
     },
-    "required": ["system_prompt", "assistant_name", "turns", "user_facts"],
+    "required": ["system_prompt", "assistant_name", "assistant_operator", "turns", "user_facts"],
 }
 
 #: the review pass: the problems are generated first (a short written check before the corrected dialogue, cheaper
@@ -1272,6 +1278,46 @@ def _safety_problem(turns: list[dict], seed: dict) -> str | None:
     return None
 
 
+#: invented assistant names that are real assistants or loaded symbols (seen in the v12 dry runs, plus the obvious
+#: assistant brands; ``FOREIGN_AI`` covers the AI companies and models): Yandex's Alice, the MAX messenger, Sputnik
+#: (state media, a vaccine), Aurora (a cruiser, an OS), existing Chinese assistants, Mail.ru's Marusya, Sber's Salute,
+#: fictional AI butlers
+_LOADED_NAME = re.compile(
+    r"(?i)алис[аы]?\b|\balisa\b|\balice\b|\bмакс\b|\bmax\b|спутник|sputnik|аврор|aurora|小智|小灵|xiao ?zhi|xiao ?ling\b|марус|marusya|"
+    r"салют|\bsalut[e]?\b|\bsber|jarvis|джарвис|贾维斯|\bfriday\b|пятниц")
+#: how many dialogues of one writer job may share an invented operator's stem (``operator_stem``; v12 dry runs:
+#: "NexaCore" in about 5 of 30): beyond it, as ``FREQUENT_INVENTED`` for people, the dialogue is retried
+OPERATOR_STEM_CAP = 2
+
+
+def operator_stem(op: str) -> str:
+    """The stem of an operator name: its first word's first 4 letters (Chinese: 2 characters), lower-cased."""
+    w = re.findall(r"[\w]+", op.lower())
+    if not w:
+        return ""
+    return w[0][:2] if _CJK.search(w[0][:1]) else w[0][:4]
+
+
+class OperatorCap:
+    """Counts invented operators' stems over one writer job (shared by its threads and shards); ``take(obj, seed)``:
+    None and counted, or why the dialogue is retried."""
+
+    def __init__(self, cap: int | None = None):
+        import threading
+
+        self.cap, self.n, self.lock = cap, {}, threading.Lock()
+
+    def take(self, obj: dict, seed: dict) -> str | None:
+        if seed.get("identity") != "custom":
+            return None
+        st = operator_stem(obj.get("assistant_operator") or "")
+        with self.lock:
+            if st and self.n.get(st, 0) >= (OPERATOR_STEM_CAP if self.cap is None else self.cap):
+                return f"a frequent invented operator (stem {st!r})"
+            self.n[st] = self.n.get(st, 0) + 1
+        return None
+
+
 def _identity_problem(obj: dict, seed: dict) -> str | None:
     """The system prompt carries the seed's identity (``IDENTITY_WEIGHTS``) and the assistant uses only that name:
     ``none``: no Haru in the prompt; ``haru``: Haru in the prompt; ``custom``: ``assistant_name`` in the prompt, not
@@ -1288,8 +1334,11 @@ def _identity_problem(obj: dict, seed: dict) -> str | None:
     if form == "custom":
         if not name or name not in sp:
             return "the invented assistant name is not in the system prompt"
-        if _PRODUCT_NAME.search(name + " " + sp) or FOREIGN_AI.search(name):
-            return "the invented assistant name is Haru or a real assistant's"
+        op = (obj.get("assistant_operator") or "").strip()
+        if _PRODUCT_NAME.search(name + " " + sp) or FOREIGN_AI.search(name + " " + op) or _LOADED_NAME.search(name):
+            return "the invented assistant name is Haru, a real assistant's or a loaded name"
+        if not op or op not in sp:
+            return "the invented operator is not in the system prompt"
         if any(t["speaker"] == "assistant" and _PRODUCT_NAME.search(t["text"]) for t in turns):
             return "the assistant uses a name its prompt did not give"
         return _name_problem(sp, turns, re.compile(re.escape(name), re.I))
@@ -1944,7 +1993,7 @@ def _writer_body(thinking: bool, reasoning_effort: str | None) -> dict:
 def write_dialogues(seeds: list[dict], url: str, model: str, temperature: float, max_tries: int,
                     workers: int = 64, thinking: bool = False, max_tokens: int = 12288,
                     reasoning_effort: str | None = None, review: int = 0,
-                    review_until_clean: bool = False) -> tuple[list[dict], dict]:  # fmt: skip
+                    review_until_clean: bool = False, operators: OperatorCap | None = None) -> tuple[list[dict], dict]:  # fmt: skip
     """The writer over ``seeds`` against an OpenAI-compatible server at ``url``: rows (``SftWriteDialogues``' columns)
     and stats (kept, dropped, failures per reason with examples, reasoning length). ``thinking``: the model reasons
     before the JSON (``enable_thinking`` per request: our Qwen3.8 server defaults to off; the JSON schema constrains
@@ -1961,6 +2010,7 @@ def write_dialogues(seeds: list[dict], url: str, model: str, temperature: float,
     from .common import json_schema_format
 
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url, timeout=1800)
+    operators = operators if operators is not None else OperatorCap()  # one per call unless shared (a job's shards)
     stats = {"seeds": len(seeds), "kept": 0, "dropped_after_tries": 0, "reasons": {}, "examples": {},
              "thinking": thinking, "reasoning_effort": reasoning_effort, "reasoning_chars": [], "traces": [], "reasons_by_scenario": {},
              "review": {"rounds": review, "until_clean": review_until_clean, "changed": 0, "unchanged": 0,
@@ -2019,7 +2069,7 @@ def write_dialogues(seeds: list[dict], url: str, model: str, temperature: float,
                 rc = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None) or ""
                 stats["reasoning_chars"].append(len(rc))
                 obj = repair(json.loads(msg.content), seed)
-                why = validate(obj, seed)
+                why = validate(obj, seed) or operators.take(obj, seed)
             except Exception as e:  # malformed output or a request error: retried like a failed check
                 obj, why = None, f"error: {type(e).__name__}"
             if why is None:
@@ -2058,6 +2108,8 @@ def write_dialogues(seeds: list[dict], url: str, model: str, temperature: float,
         rows.append({"id": seed["id"], "scenario": seed["scenario"], "lang": seed["lang"],
                      "prompt_lang": seed["prompt_lang"], "policy": seed["policy"], "level": seed["level"],
                      "system_prompt": obj["system_prompt"].strip(),
+                     "assistant_name": (obj.get("assistant_name") or "").strip(),
+                     "assistant_operator": (obj.get("assistant_operator") or "").strip(),
                      "user_facts": json.dumps(obj["user_facts"], ensure_ascii=False),
                      "dialogue": json.dumps(to_tts_dialogue(obj, seed), ensure_ascii=False),
                      "seed": json.dumps(seed, ensure_ascii=False), "tries": tries})  # fmt: skip
@@ -2499,7 +2551,7 @@ def write_groups(seed_lists: list[list[dict]], write_fn, workers: int) -> list:
 class SftWriteDialogues(Job):
     """``write_dialogues`` over the seeds of ``seeds`` (one or more ``SftSeeds`` outputs) with the writer on a vLLM
     server. ``out_hf``: ChatterboxInferenceV2's input (``dialogue``) plus ``id, scenario, lang, prompt_lang, policy,
-    level, system_prompt, seed, tries``; ``out_stats``: kept / dropped per reason, with examples. ``review``: review
+    level, system_prompt, assistant_name, assistant_operator, seed, tries``; ``out_stats``: kept / dropped per reason, with examples. ``review``: review
     passes per dialogue (``write_dialogues``); ``vllm_args``: extra server arguments (e.g. ``--quantization fp8
     --kv-cache-dtype fp8``: Gemma 4 31B in 8-bit, judged no worse than bf16 at 2.5x the speed, 2026-11-19);
     ``workers``: requests in flight (not hashed). Seeds are sliced ``seed_slice`` = (k, n): every n-th from k, so one
@@ -2558,7 +2610,7 @@ class SftWriteDialogues(Job):
             rows, stats = write_dialogues(seeds, url, self.model, self.temperature, self.max_tries,
                                           workers=self.workers, thinking=self.thinking, max_tokens=self.max_tokens,
                                           reasoning_effort=self.reasoning_effort, review=self.review,
-                                          review_until_clean=self.review_until_clean)  # fmt: skip
+                                          review_until_clean=self.review_until_clean)  # fmt: skip  (one cap: one call)
         Dataset.from_list(rows).save_to_disk(self.out_hf.get())
         with open(self.out_stats.get(), "w", encoding="utf-8") as f:
             json.dump(stats, f, ensure_ascii=False, indent=1)
@@ -2571,13 +2623,14 @@ class SftWriteDialogues(Job):
 
         lists = [[json.loads(x) for x in open(p.get(), encoding="utf-8")] for p in self.seeds]
         t0 = time.time()
+        operators = OperatorCap()  # the operator-stem cap counts over the whole job, across its shards
         with vllm_server(self.model, max_model_len=self.max_model_len, extra_args=self.vllm_args) as url:
 
             def one(seeds, workers):
                 return write_dialogues(seeds, url, self.model, self.temperature, self.max_tries, workers=workers,
                                        thinking=self.thinking, max_tokens=self.max_tokens,
                                        reasoning_effort=self.reasoning_effort, review=self.review,
-                                       review_until_clean=self.review_until_clean)  # fmt: skip
+                                       review_until_clean=self.review_until_clean, operators=operators)  # fmt: skip
 
             res = write_groups(lists, one, self.workers)
         for (rows, stats), hf, st in zip(res, self.out_hfs, self.out_stats_parts):
