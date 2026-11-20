@@ -973,5 +973,8 @@
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_sft_seed_draw.py": {
   "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_tts_bounded.py": {
+  "env": "setup"
  }
 }

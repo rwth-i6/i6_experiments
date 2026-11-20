@@ -361,16 +361,20 @@ class ChatterboxInference(Job):
 
 #: the column a grouped ``ChatterboxInferenceV2`` tags each input row with (which of ``in_hfs`` it came from)
 GROUP_PART = "_group_part"
+#: a row's index within its own input (``seed_by_part``: the worker's seed key)
+GROUP_INDEX = "_group_index"
 
 
 def concat_group_inputs(paths: list[str], out: str) -> str:
-    """``paths``' datasets as one (in order), each row tagged with its input's index in :data:`GROUP_PART`."""
+    """``paths``' datasets as one (in order), each row tagged with its input's index in :data:`GROUP_PART` and its
+    index within that input in :data:`GROUP_INDEX`."""
     from datasets import concatenate_datasets, load_from_disk
 
     parts = []
     for i, p in enumerate(paths):
         ds = load_from_disk(p)
-        parts.append(ds.add_column(GROUP_PART, [str(i)] * len(ds)))
+        ds = ds.add_column(GROUP_PART, [str(i)] * len(ds))
+        parts.append(ds.add_column(GROUP_INDEX, [str(k) for k in range(len(ds))]))
     concatenate_datasets(parts).save_to_disk(out)
     return out
 
@@ -426,6 +430,8 @@ class ChatterboxInferenceV2(Job):
 
     ``in_hfs`` (instead of ``in_hf``) + ``in_prefixes``: several inputs in one GPU job (one model load), one output per
     input (``out_hfs``; ids ``<prefix>dialogue_<k>``, ``split_group_output``); ``out_stats`` covers the group.
+    ``seed_by_part``: a dialogue's seeds (voices drawn, gaps, sampling) come from its index within its own input, so
+    an input sounds the same in any group (default False: its index in the whole run, as before).
 
     ``parakeet_python_path``: the NeMo venv (``fdb.fdb_asr_venv()``), needed when a backend is ``parakeet``;
     ``annotate_python_path``: the annotate venv (``qwen-asr``, ``num2words``, ``cn2an``, ``whisper_normalizer``;
@@ -475,11 +481,13 @@ class ChatterboxInferenceV2(Job):
         rqmt: dict | None = None,
         in_hfs: list[tk.Path] | None = None,
         in_prefixes: list[str] | None = None,
+        seed_by_part: bool = False,
     ):
         from . import chatterbox_v2_core as core
 
         assert (in_hf is None) != (in_hfs is None), "in_hf or in_hfs"
         assert in_hfs is None or (len(in_prefixes or []) == len(in_hfs) and shard is None and not id_prefix)
+        assert not seed_by_part or in_hfs is not None, "seed_by_part: grouped inputs (in_hfs) only"
 
         assert english_model in ("turbo", "mtl"), english_model
         assert code_switch in ("segments", "single_pass"), code_switch
@@ -530,7 +538,7 @@ class ChatterboxInferenceV2(Job):
             self.config["tts_model"] = "qwen3"
             self.config["qwen3_mixed_lang"] = qwen3_mixed_lang
         self.chunk = chunk
-        self.in_hfs, self.in_prefixes = in_hfs, in_prefixes
+        self.in_hfs, self.in_prefixes, self.seed_by_part = in_hfs, in_prefixes, seed_by_part
         if in_hfs is None:
             self.out_hf = self.output_path("out_hf", directory=True)
         else:
@@ -547,6 +555,8 @@ class ChatterboxInferenceV2(Job):
         for k in ("tts_model", "qwen3_tts_python_path", "qwen3_mixed_lang", "in_hfs", "in_prefixes"):  # old hashes
             if d.get(k) in (None, "chatterbox"):
                 d.pop(k, None)
+        if not d.get("seed_by_part"):
+            d.pop("seed_by_part", None)
         return super().hash(d)
 
     @staticmethod
@@ -606,6 +616,8 @@ class ChatterboxInferenceV2(Job):
             args += ["--keep_columns", *keep]
         if self.id_prefix:
             args += ["--id_prefix", self.id_prefix]
+        if getattr(self, "seed_by_part", False):  # getattr: a job pickled before this parameter
+            args += ["--seed_key_column", GROUP_INDEX]
 
         def env_hook(env):
             add_torchcodec_to_env(env, ffmpeg_path=self.ffmpeg_path, npp_venv_python=self.venv_python_path.get(),

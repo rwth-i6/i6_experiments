@@ -55,9 +55,11 @@ __all__ = [
 #: bump when the voice-text prompt or its checks change
 VOICE_TEXTS_VERSION = 1
 #: columns the TTS carries through from the cast dialogues (``id`` is the TTS's own)
-#: host memory of a TTS job (GB; not hashed): the trial's grouped jobs (~200-290 dialogues per language, Parakeet
-#: loaded beside Qwen3-TTS) peaked at 31.7 GB (de) and OOM-killed at 32 GB (en); the job's default is 32
-TTS_MEM_GB = 64
+#: host memory of a TTS job (GB; not hashed): the trial's grouped jobs peaked at 31.7 GB (de) and OOM-killed at 32 GB
+#: (en) while the annotators took a whole chunk's clips in one call; with the calls sliced
+#: (``chatterbox_v2_inference.ANN_CALL``) the job tree peaked at 12.1 GB (48 dialogues), 14.3 GB (192 in chunks of
+#: 48) and 17.7 GB (192 in one chunk of 192, the default), 2026-11-20 (``/hpcwork/tt201262/sbatch/sft_trial/mem``)
+TTS_MEM_GB = 32
 TTS_KEEP = ["sft_id", "scenario", "lang", "prompt_lang", "policy", "level", "system_prompt", "user_facts", "seed",
             "dialogue", "tries"]  # fmt: skip
 
@@ -1011,7 +1013,8 @@ def build_sft_corpus(*, name: str, rows: dict, env: dict, cell_seeds: int, shard
                                        parakeet_python_path=env["parakeet"], qwen3_tts_python_path=env["qwen3_tts"],
                                        ffmpeg_path=env["ffmpeg"], in_hfs=[c.out_hf for c in casts],
                                        in_prefixes=[f"{sc}_{lg}_{k:03d}_" for sc, lg, k in grp],
-                                       speaker_dir=pool.out_dir, keep_columns=TTS_KEEP, **tts)  # fmt: skip
+                                       speaker_dir=pool.out_dir, keep_columns=TTS_KEEP, seed_by_part=True,
+                                       **tts)  # fmt: skip
         speech.rqmt = {**speech.rqmt, "mem": TTS_MEM_GB}
         if job_hours:
             write.rqmt = {**write.rqmt, "time": job_hours["write"]}

@@ -145,6 +145,48 @@ class WorkerProc:
 #: clips per ASR / aligner forward: small, so the annotators stay at a few GB beside the TTS (at 32 Parakeet alone held
 #: 28 GB on long LLM-written turns, 2026-11-17)
 ASR_BATCH = 8
+#: transcribable clips per annotator call (a multiple of ``ASR_BATCH``): a call's host memory grows with its clips
+#: (Parakeet keeps every hypothesis' timestamps of a call), so a chunk is sent in calls of at most this many; the
+#: SFT trial's English TTS job sent ~2,600 clips in one call and was OOM-killed at 32 GB (2026-11-19)
+ANN_CALL = 256
+#: the Parakeet worker's sample rate and shortest transcribed clip (``parakeet_worker._prepare``)
+PARAKEET_SR, MIN_CLIP_S = 16000, 0.1
+
+
+def call_slices(valid: list[bool], per_call: int = ANN_CALL) -> list[tuple[int, int]]:
+    """``[start, end)`` slices of a clip list, each holding ``per_call`` clips the worker transcribes (``valid``; the
+    last one fewer): the worker batches only its transcribable clips, ``ASR_BATCH`` at a time, so with slice
+    boundaries every ``per_call`` (a multiple of ``ASR_BATCH``) such clips, every forward batch holds the same clips as
+    in one call, and the results are the same."""
+    assert per_call % ASR_BATCH == 0, per_call
+    out, a, k = [], 0, 0
+    for i, v in enumerate(valid):
+        k += bool(v)
+        if k == per_call:
+            out.append((a, i + 1))
+            a, k = i + 1, 0
+    if a < len(valid):
+        out.append((a, len(valid)))
+    return out
+
+
+def call_sliced(proc: "WorkerProc", method: str, lists: tuple[str, ...], valid: list[bool], **kw) -> list:
+    """``proc.call_split`` over :func:`call_slices` of the list arguments ``lists``, results concatenated in order."""
+    out = []
+    for a, b in call_slices(valid):
+        out += proc.call_split(method, lists, **{**kw, **{k: kw[k][a:b] for k in lists}})
+    return out
+
+
+def parakeet_valid(pcms, sr: int) -> list[bool]:
+    """Which clips the Parakeet worker transcribes: at least ``MIN_CLIP_S`` after its resampling to ``PARAKEET_SR``
+    (torchaudio's output length: ceil(n * new / old))."""
+    return [-(-len(p) * PARAKEET_SR // sr) >= int(MIN_CLIP_S * PARAKEET_SR) for p in pcms]
+
+
+def annotate_valid(pcms, sr: int, texts=None) -> list[bool]:
+    """Which clips the annotate worker transcribes / aligns (``speech_annotate_worker``: >= ``MIN_CLIP_S``, a text)."""
+    return [len(p) >= int(MIN_CLIP_S * sr) and (texts is None or bool(texts[i].strip())) for i, p in enumerate(pcms)]
 
 
 class Annotators:
@@ -189,10 +231,12 @@ class Annotators:
         if b == "none":
             return [{"err": 0.0, "wer": 0.0, "cer": 0.0, "asr_text": "", "words": None, "exempt": True} for _ in pcms]
         if b == "parakeet":
-            words = self.parakeet.call_split("transcribe_words_many", ("pcms",), pcms=pcms, sr=sr, batch_size=ASR_BATCH)
+            words = call_sliced(self.parakeet, "transcribe_words_many", ("pcms",), parakeet_valid(pcms, sr), pcms=pcms,
+                                sr=sr, batch_size=ASR_BATCH)  # fmt: skip
             hyps = [" ".join(w["text"] for w in ws) for ws in words]
         else:
-            hyps = self.annotate.call_split("transcribe_many", ("pcms",), pcms=pcms, sr=sr, language=lang)
+            hyps = call_sliced(self.annotate, "transcribe_many", ("pcms",), annotate_valid(pcms, sr), pcms=pcms, sr=sr,
+                               language=lang)  # fmt: skip
         scores = self.annotate.call("score_many", refs=refs, hyps=hyps, language=lang)
         return [{"err": s[self.metric], "wer": s["wer"], "cer": s["cer"], "asr_text": h, "words": w,
                  "exempt": s["n_ref"] < min_tokens} for s, h, w in zip(scores, hyps, words)]  # fmt: skip
@@ -205,8 +249,10 @@ class Annotators:
         if b == "parakeet":
             if self.backend(lang, "check") == "parakeet" and all(c is not None for c in cached):
                 return cached
-            return self.parakeet.call_split("transcribe_words_many", ("pcms",), pcms=pcms, sr=sr, batch_size=ASR_BATCH)
-        return self.annotate.call_split("align_many", ("pcms", "texts"), pcms=pcms, sr=sr, texts=refs, language=lang)
+            return call_sliced(self.parakeet, "transcribe_words_many", ("pcms",), parakeet_valid(pcms, sr), pcms=pcms,
+                               sr=sr, batch_size=ASR_BATCH)  # fmt: skip
+        return call_sliced(self.annotate, "align_many", ("pcms", "texts"), annotate_valid(pcms, sr, refs), pcms=pcms,
+                           sr=sr, texts=refs, language=lang)  # fmt: skip
 
 
 class Tts:
@@ -307,12 +353,14 @@ class Tts:
                 torch.cuda.empty_cache()
 
 
-def plan_dialogue(raw, diag_id, cfg: dict, speaker_dir: str) -> dict:
-    """Segments, model, voices, seeds and gaps of one dialogue (deterministic in ``diag_id``)."""
+def plan_dialogue(raw, diag_id, cfg: dict, speaker_dir: str, seed_key=None) -> dict:
+    """Segments, model, voices, seeds and gaps of one dialogue (deterministic in ``seed_key``, default ``diag_id``:
+    a grouped run passes each row's index within its own input, so its audio does not depend on the group)."""
+    key = diag_id if seed_key is None else seed_key
     spec = raw if isinstance(raw, dict) else {"turns": raw}
     turns, lang, voice_names = spec["turns"], spec.get("lang") or cfg["default_lang"], spec.get("voices") or {}
     assert isinstance(turns, list) and turns, f"dialogue {diag_id}: no turns"
-    random.seed(v1.SEED ^ v1.seed_for_dialogue(diag_id))  # speaker draws and gaps, as chatterbox_inference
+    random.seed(v1.SEED ^ v1.seed_for_dialogue(key))  # speaker draws and gaps, as chatterbox_inference
     segs = []
     for t in turns:
         s = core.turn_segments(t, lang)
@@ -348,7 +396,7 @@ def plan_dialogue(raw, diag_id, cfg: dict, speaker_dir: str) -> dict:
             used.add(p)
     # exaggeration per speaker and dialogue: drawn from cfg["exaggeration"][speaker] (a [lo, hi] range or a number;
     # "*" = any other speaker) on its own random stream, so the voice and gap draws above stay as they were
-    exr = random.Random(core.stable_seed(v1.SEED, diag_id, "exaggeration"))
+    exr = random.Random(core.stable_seed(v1.SEED, key, "exaggeration"))
     exag = {}
     for sp in voices:
         e = core.per_lang(cfg.get("exaggeration") or {"*": 0.5}, sp)
@@ -368,11 +416,11 @@ def plan_dialogue(raw, diag_id, cfg: dict, speaker_dir: str) -> dict:
                           **({"spans": x["spans"], "span_tags": cfg["code_switch"] == "mixed"} if "spans" in x else {}),
                           "speaker": t["speaker"], "voice": voices[t["speaker"]],
                           "exaggeration": float(t.get("exaggeration", exag[t["speaker"]])),
-                          "seed": core.stable_seed(v1.SEED, diag_id, ti, si),
+                          "seed": core.stable_seed(v1.SEED, key, ti, si),
                           "cfg": xcfg if (xcfg is not None and kind == "mtl" and x["lang"] != vlang[t["speaker"]]
                                           and vlang[t["speaker"]] in core.LANG_IDS) else None})  # fmt: skip
     # the pause AFTER turn k is the one before turn k + 1: drawn by who speaks next (cfg["gaps"]), own random stream
-    grng = random.Random(core.stable_seed(v1.SEED, diag_id, "gaps"))
+    grng = random.Random(core.stable_seed(v1.SEED, key, "gaps"))
     gspec = cfg.get("gaps") or core.DEFAULT_GAPS
     gaps = [core.draw_gap(grng, core.per_lang(gspec, turns[k + 1]["speaker"])) if k + 1 < len(turns) else 0.0
             for k in range(len(turns))]  # fmt: skip
@@ -386,9 +434,9 @@ def plan_dialogue(raw, diag_id, cfg: dict, speaker_dir: str) -> dict:
 
 def process_chunk(chunk, cfg, tts: Tts, ann: Annotators, speaker_dir, id_prefix, keep_cols, stats: dict,
                   stress: "WorkerProc | None" = None) -> list[dict]:  # fmt: skip
-    """``chunk`` = [(diag_id, dialogue, passthrough)] -> its output rows (``FEATURES`` + ``keep_cols``), audio inline
-    as FLAC: nothing is written to disk per dialogue."""
-    plans = [(plan_dialogue(d, i, cfg, speaker_dir), pt) for i, d, pt in chunk]
+    """``chunk`` = [(diag_id, dialogue, passthrough, seed key | None)] -> its output rows (``FEATURES`` +
+    ``keep_cols``), audio inline as FLAC: nothing is written to disk per dialogue."""
+    plans = [(plan_dialogue(d, i, cfg, speaker_dir, key), pt) for i, d, pt, key in chunk]
     items = [it for p, _ in plans for it in p["items"]]
     sr = tts.sr
 
@@ -496,6 +544,24 @@ def make_row(p, tracks, sr, turn_rows, seg_rows, word_rows, speaker_dir, id_pref
     return row
 
 
+#: output rows the dataset builder holds before it writes them (default 1000: every row with its audio in RAM until
+#: then, so a job's memory grew with its dialogues)
+WRITER_ROWS = 16
+
+
+def iter_chunks(ds, id_base: int, keep_columns: list[str], size: int, seed_key_column: str | None = None):
+    """``ds`` in chunks of ``size``: ``[(row id, dialogue, passthrough, seed key | None)]``."""
+    chunk = []
+    for i, ex in enumerate(ds, start=id_base):
+        key = int(ex[seed_key_column]) if seed_key_column else None
+        chunk.append((i, json.loads(ex["dialogue"]), {c: ex[c] for c in keep_columns if c in ex}, key))
+        if len(chunk) >= size:
+            yield chunk
+            chunk = []
+    if chunk:
+        yield chunk
+
+
 @torch.inference_mode()
 def main():
     import torchcodec  # noqa: F401  (fail early: FFmpeg / NPP on LD_LIBRARY_PATH, see ChatterboxInference)
@@ -526,6 +592,8 @@ def main():
     ap.add_argument("--stress_worker")
     ap.add_argument("--qwen3_tts_python", help="Qwen3-TTS venv (tts_model qwen3)")
     ap.add_argument("--qwen3_tts_worker", help="qwen3_tts_worker.py")
+    ap.add_argument("--seed_key_column", help="an input column whose value keys each dialogue's seeds instead of its "
+                    "row index (grouped jobs: the index within its own input)")  # fmt: skip
     args = ap.parse_args()
     cfg = json.loads(args.config)
     print(f"Config: {json.dumps(cfg)}", flush=True)
@@ -574,17 +642,14 @@ def main():
         logging.getLogger("chatterbox.models.tokenizers.tokenizer").setLevel(logging.ERROR)
 
     def gen():  # rows stream into the dataset builder's arrow file as each chunk finishes
-        chunk, done = [], 0
-        for i, ex in enumerate(ds, start=id_base):
-            chunk.append((i, json.loads(ex["dialogue"]), {c: ex[c] for c in args.keep_columns if c in ex}))
-            if len(chunk) >= cfg["chunk"] or done + len(chunk) == total:
-                yield from process_chunk(chunk, cfg, tts, ann, args.speaker_directory, args.id_prefix,
-                                         args.keep_columns, stats, stress)  # fmt: skip
-                done += len(chunk)
-                chunk.clear()
-                v1._write_progress(done, total)
-                print(f"[v2] {done}/{total} dialogues, {time.time() - t_start:.0f} s: "
-                      f"{json.dumps(core.stats_summary(stats))}", flush=True)  # fmt: skip
+        done = 0
+        for chunk in iter_chunks(ds, id_base, args.keep_columns, cfg["chunk"], args.seed_key_column):
+            yield from process_chunk(chunk, cfg, tts, ann, args.speaker_directory, args.id_prefix,
+                                     args.keep_columns, stats, stress)  # fmt: skip
+            done += len(chunk)
+            v1._write_progress(done, total)
+            print(f"[v2] {done}/{total} dialogues, {time.time() - t_start:.0f} s: "
+                  f"{json.dumps(core.stats_summary(stats))}", flush=True)  # fmt: skip
 
     import shutil
     import tempfile
@@ -594,7 +659,8 @@ def main():
     os.makedirs(args.scratch_dir, exist_ok=True)
     cache = tempfile.mkdtemp(prefix="hf_gen_cache_", dir=args.scratch_dir)
     # an explicit fingerprint: the default hashes the generator, i.e. pickles the models and worker processes
-    out = Dataset.from_generator(gen, features=feats, cache_dir=cache, fingerprint=uuid.uuid4().hex)
+    out = Dataset.from_generator(gen, features=feats, cache_dir=cache, fingerprint=uuid.uuid4().hex,
+                                 writer_batch_size=WRITER_ROWS)  # fmt: skip
     assert len(out) == total, (len(out), total)
     t0 = time.time()
     out.save_to_disk(args.out_hf)
