@@ -75,17 +75,29 @@ LOCALES = {
 }
 #: bump a scenario's entry when its seeds or writer brief change: only that scenario's jobs re-hash
 SCENARIO_VERSIONS = {
-    "service": 4,
-    "grounded": 3,
-    "help": 5,
-    "chitchat": 4,
-    "skills": 5,
-    "tutor": 5,
-    "longtask": 4,
-    "assistant": 4,
-}  # fmt: skip (v12 draw: content from tagged WildChat requests, lists retired)
+    "service": 5,
+    "grounded": 4,
+    "help": 6,
+    "chitchat": 5,
+    "skills": 6,
+    "tutor": 6,
+    "longtask": 5,
+    "assistant": 5,
+}  # fmt: skip (+1 each: the assistant's identity drawn per seed, ``IDENTITY_WEIGHTS``)
 #: the writer prompt / validation (every scenario): hashed into SftWriteDialogues
-WRITER_VERSION = 11
+WRITER_VERSION = 12
+#: who the system prompt says the assistant is (user, 2026-11-20: one fixed identity in every dialogue teaches a fixed
+#: context, not to follow the prompt): ``none`` the prompt names no assistant (it is ``PRODUCT``, learned), ``haru``
+#: the prompt names ``PRODUCT``, ``custom`` a name and operator the writer invents for the setting
+IDENTITY_WEIGHTS = {"none": 0.35, "haru": 0.15, "custom": 0.5}
+#: a language named in a system prompt, in any prompt language: a non-English dialogue's prompt says which language
+#: the assistant speaks (user, 2026-11-20: production prompts state it; English is the default and needs no line)
+LANG_NAMED = {
+    "en": re.compile(r"(?i)english|englisch|английск|英语|英文"),
+    "de": re.compile(r"(?i)deutsch|german|немецк|德语|德文"),
+    "ru": re.compile(r"(?i)russisch|russian|русск|俄语|俄文"),
+    "zh": re.compile(r"(?i)chinesisch|chinese|mandarin|китайск|中文|汉语|普通话|国语|华语"),
+}
 #: system-prompt detail levels (PersonaPlex: prompts "at varying detail levels") and their draw weights
 LEVELS = {
     "short": "one or two sentences: who the assistant is and only the facts it needs",
@@ -500,6 +512,7 @@ def make_seeds(scenario: str, lang: str, n: int, seed: int, rows: dict, start: i
         if scenario in GENERAL_SCENARIOS:  # own random stream: the other draws stay
             gr = random.Random(f"{scenario}/{lang}/{seed}/{k}/general")
             s["general_prompt"] = gr.choice(GENERAL_PROMPTS[s["prompt_lang"]])
+        s["identity"] = _pick(random.Random(f"{scenario}/{lang}/{seed}/{k}/identity"), IDENTITY_WEIGHTS)
         ex = random.Random(f"{scenario}/{lang}/{seed}/{k}/extra")
         if s["policy"] == "switch":  # in which of their turns the user switches (counting from 1)
             s["switch_at"] = ex.randint(2, max(2, (s["turns"] + 1) // 2))  # any user turn but the first
@@ -517,12 +530,19 @@ def _cast_text(seed: dict) -> str:
     g = {"female": "a woman", "male": "a man"}
     others = "; ".join(f"{c[k]['full']} ({g[c[k]['gender']]})" for k in sorted(c) if k.startswith("other"))
     voice = g[c["assistant"]["gender"]]
-    me = (f"{PRODUCT['name']}, an AI voice assistant made by {PRODUCT['maker']} (its voice is {voice}'s). It knows "
-          f"this itself: the system prompt need not mention its name or maker and usually does not (in a business's role it is that "
-          f"business's assistant). In the turns it says its name ONLY when the user asks for it (what "
-          f"it is called, who or what it is), as \"{PRODUCT['spoken'][_spoken_lang(seed)]}\" (later just Haru), and "
-          f"its maker only when asked who made it; otherwise neither comes up, not even in a greeting. It never "
-          f"claims to have no name.")  # fmt: skip
+    if seed.get("identity") == "custom":
+        me = (f"an AI voice assistant (its voice is {voice}'s) with the name and operator its system prompt gives it. "
+              f"In the turns it says that name ONLY when the user asks for it (what it is called, who or what it is), "
+              f"and its operator only when asked who runs or made it; otherwise neither comes up, not even in a "
+              f"greeting. It never uses any other name for itself.")  # fmt: skip
+    else:
+        me = (f"{PRODUCT['name']}, an AI voice assistant made by {PRODUCT['maker']} (its voice is {voice}'s). "
+              + ("Its system prompt names it. " if seed.get("identity") == "haru" else
+                 "It knows this itself: the system prompt does not mention its name or maker (in a business's role it is "
+                 "that business's assistant). ")
+              + f"In the turns it says its name ONLY when the user asks for it (what it is called, who or what it is), "
+              f"as \"{PRODUCT['spoken'][_spoken_lang(seed)]}\" (later just Haru), and its maker only when asked who "
+              f"made it; otherwise neither comes up, not even in a greeting. It never claims to have no name.")  # fmt: skip
     return (f"- The user: {c['user']['full']}, {g[c['user']['gender']]} (says their name only if the situation calls "
             f"for it; in a language that marks gender, everything the user says about themselves and every form "
             f"addressing them is {'feminine' if c['user']['gender'] == 'female' else 'masculine'}).\n- The assistant: {me}\n- Anyone else who comes up: {others}.\n- Use exactly these names, in "
@@ -545,8 +565,8 @@ def _policy_text(seed: dict) -> str:
     if seed["policy"] == "same":
         return f"The user speaks {ln}; the assistant answers in {ln}."
     if seed["policy"] == "cross":
-        return (f"The user speaks {ln}. The system prompt is in {LANGS[seed['prompt_lang']]} and does NOT tell the "
-                f"assistant which language to use; the assistant answers in the user's language, {ln}.")  # fmt: skip
+        return (f"The user speaks {ln}. The system prompt is in {LANGS[seed['prompt_lang']]}; the assistant answers "
+                f"in the user's language, {ln}.")  # fmt: skip
     if seed["policy"] == "switch":
         return (f"The user starts in {ln}; in the user's turn number {seed.get('switch_at', 2)} (counting the user's "
                 f"turns from one) the user switches to {LANGS[seed['switch_to']]} (e.g. for a family member, practice, "
@@ -590,14 +610,33 @@ INTERRUPTIONS
 """
 
 
+def _identity_lines(seed: dict) -> str:
+    """What the system prompt says about who the assistant is (``identity``) and, for a non-English user, which
+    language it speaks (``LANG_NAMED``)."""
+    form = seed.get("identity", "none")
+    out = {
+        "none": "- It does not name the assistant or its maker. \"assistant_name\" is empty.",
+        "haru": f"- It names the assistant {PRODUCT['name']}, made by {PRODUCT['maker']}. \"assistant_name\" is empty.",
+        "custom": "- It gives the assistant a name and says who runs it: invent both to fit this setting and this user's "
+                  "country (the business's or organisation's own assistant, or a product of an invented company): not a "
+                  "real AI company or product and not Haru. \"assistant_name\" is that name as the prompt writes it.",
+    }[form]
+    if seed["lang"] != "en":  # a non-English user: the prompt says the language (English needs no line)
+        out += (f"\n- It says, in one sentence of your own wording, that the assistant speaks "
+                f"{LANGS[seed['lang']].split(' (')[0]} with the user.")  # fmt: skip
+    return out + "\n"
+
+
 def _system_prompt_text(seed: dict) -> str:
     if seed.get("general_prompt"):
-        return f"""SYSTEM PROMPT (fixed: the general assistant's instructions; copy it into "system_prompt" exactly)
+        return f"""SYSTEM PROMPT (fixed: the general assistant's instructions; copy it into "system_prompt" exactly, with
+at most one sentence of yours before it and one after it for the points below, nothing else)
 {seed["general_prompt"]}
-- Nothing about this conversation's topic is in it: the assistant states only general knowledge and what the user
+{_identity_lines(seed)}- Nothing about this conversation's topic is in it: the assistant states only general knowledge and what the user
   says; asked for anything specific beyond that, it says it does not have that information.
 """
     return f"""SYSTEM PROMPT (the assistant's instructions, in {LANGS[seed["prompt_lang"]]}, addressed to it as "you")
+{_identity_lines(seed)}
 - Detail: {LEVELS[seed["level"]]}.
 - Write it before the turns and put in it every specific fact the assistant will state that the user does not
   tell it (names, numbers, prices, times, policies, menu items, ingredients, availability, passage content, the
@@ -629,7 +668,7 @@ def n_turns(seed: dict) -> int:
 
 def writer_messages(seed: dict) -> list[dict]:
     opens, n = seed.get("opens", "user"), n_turns(seed)
-    user = f"""Write one spoken conversation as JSON: {{"system_prompt": "...", "turns": [{{"speaker": "user" | "assistant", "lang": "<language id>", "text": "..."}}], "user_facts": ["..."]}}.
+    user = f"""Write one spoken conversation as JSON: {{"system_prompt": "...", "assistant_name": "...", "turns": [{{"speaker": "user" | "assistant", "lang": "<language id>", "text": "..."}}], "user_facts": ["..."]}}.
 
 SCENARIO
 {seed["brief"]}
@@ -676,6 +715,7 @@ WRITER_SCHEMA = {
     "type": "object",
     "properties": {
         "system_prompt": {"type": "string"},
+        "assistant_name": {"type": "string"},
         "turns": {
             "type": "array",
             "minItems": 2,
@@ -691,7 +731,7 @@ WRITER_SCHEMA = {
         },
         "user_facts": {"type": "array", "minItems": 2, "maxItems": 5, "items": {"type": "string"}},
     },
-    "required": ["system_prompt", "turns", "user_facts"],
+    "required": ["system_prompt", "assistant_name", "turns", "user_facts"],
 }
 
 #: the review pass: the problems are generated first (a short written check before the corrected dialogue, cheaper
@@ -849,7 +889,7 @@ def validate(obj: dict, seed: dict) -> str | None:
         return "names another AI company or model"
     if _NO_NAME.search(" ".join(t["text"] for t in turns if t["speaker"] == "assistant")):
         return "the assistant says it has no name"
-    why = _name_problem(sp, turns)
+    why = _identity_problem(obj, seed) or _language_line_problem(sp, turns, seed)
     if why:
         return why
     if seed["policy"] == "tutor":
@@ -1040,14 +1080,56 @@ _ASKS_NAME = re.compile(
 )
 
 
-def _name_problem(sp: str, turns: list[dict]) -> str | None:
-    """An assistant turn may say the name only right after a user turn asking who / what it is or its name (the system
-    prompt need not state it: the model learns its identity)."""
+def _name_problem(sp: str, turns: list[dict], name_rx=None) -> str | None:
+    """An assistant turn may say its name (``name_rx``, default ``PRODUCT``'s) only right after a user turn asking who
+    / what it is or its name."""
+    name_rx = name_rx or _PRODUCT_NAME
     for k, t in enumerate(turns):
-        if t["speaker"] == "assistant" and _PRODUCT_NAME.search(t["text"]):
+        if t["speaker"] == "assistant" and name_rx.search(t["text"]):
             prev = next((u["text"] for u in reversed(turns[:k]) if u["speaker"] == "user"), "")
             if not _ASKS_NAME.search(prev):
                 return "the assistant says its name unasked"
+    return None
+
+
+def _identity_problem(obj: dict, seed: dict) -> str | None:
+    """The system prompt carries the seed's identity (``IDENTITY_WEIGHTS``) and the assistant uses only that name:
+    ``none``: no Haru in the prompt; ``haru``: Haru in the prompt; ``custom``: ``assistant_name`` in the prompt, not
+    Haru, and the assistant never calls itself Haru; in every form it says its name only when asked. A general prompt
+    is copied with at most a sentence before and after it."""
+    sp, turns = (obj.get("system_prompt") or "").strip(), obj.get("turns") or []
+    form, name = seed.get("identity", "none"), (obj.get("assistant_name") or "").strip()
+    if seed.get("general_prompt"):
+        g = seed["general_prompt"]
+        if " ".join(g.split()) not in " ".join(sp.split()):
+            return "the general system prompt was not copied"
+        if len(sp) - len(g) > (120 if _CJK.search(g) else 320):
+            return "more than a sentence added to the general system prompt"
+    if form == "custom":
+        if not name or name not in sp:
+            return "the invented assistant name is not in the system prompt"
+        if _PRODUCT_NAME.search(name + " " + sp) or FOREIGN_AI.search(name):
+            return "the invented assistant name is Haru or a real assistant's"
+        if any(t["speaker"] == "assistant" and _PRODUCT_NAME.search(t["text"]) for t in turns):
+            return "the assistant uses a name its prompt did not give"
+        return _name_problem(sp, turns, re.compile(re.escape(name), re.I))
+    if form == "haru" and not _PRODUCT_NAME.search(sp):
+        return "the system prompt does not name the assistant"
+    if form == "none" and (_PRODUCT_NAME.search(sp) or name):
+        return "the system prompt names the assistant"
+    return _name_problem(sp, turns)
+
+
+def _language_line_problem(sp: str, turns: list[dict], seed: dict) -> str | None:
+    """A non-English dialogue's prompt names the user's language; an assistant that opens the conversation speaks a
+    language its prompt names (or English when it names none)."""
+    if seed["lang"] != "en" and not LANG_NAMED[seed["lang"]].search(sp):
+        return "the system prompt does not say which language to speak"
+    if turns and turns[0]["speaker"] == "assistant":
+        lg = turns[0]["lang"]
+        named = [x for x, rx in LANG_NAMED.items() if rx.search(sp)]
+        if lg not in named and not (lg == "en" and not (set(named) - {"en"})):
+            return "the assistant opens in a language its prompt does not name"
     return None
 
 
@@ -1330,8 +1412,6 @@ def repair(obj: dict, seed: dict | None = None) -> dict:
     from opencc import OpenCC
 
     t2s = OpenCC("t2s").convert
-    if seed is not None and seed.get("general_prompt"):  # the fixed general prompt, whatever the writer returned
-        obj["system_prompt"] = seed["general_prompt"]
     if isinstance(obj.get("system_prompt"), str):  # the TTS spelling of the name leaks into the (text) prompt
         obj["system_prompt"] = _SPOKEN_NAME.sub(PRODUCT["name"], obj["system_prompt"])
         if _CJK.search(obj["system_prompt"]):  # traditional characters in a Chinese prompt too (turns: below)

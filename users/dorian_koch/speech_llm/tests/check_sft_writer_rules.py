@@ -55,7 +55,7 @@ def _cast():
 
 def check_identity() -> list[str]:
     bad = []
-    seed = {"scenario": "help", "lang": "en", "prompt_lang": "en", "policy": "same", "turns": 2}
+    seed = {"scenario": "help", "lang": "en", "prompt_lang": "en", "policy": "same", "turns": 2, "identity": "haru"}
     for sc in ("help", "assistant"):
         why = sd.validate(_obj("I'm Haru i six Instruct, from the I six group."), {**seed, "scenario": sc})
         if why == UNASKED:
@@ -329,12 +329,86 @@ def check_anchors() -> list[str]:
                     gp = s.get("general_prompt")
                     if gp not in sd.GENERAL_PROMPTS[s["prompt_lang"]] or gp not in msg:
                         bad.append(f"{sc}/{lg}: no fixed general prompt in {s['prompt_lang']}")
-                    o = sd.repair({"system_prompt": "You know: Man Utd revenue was 600 million.", "turns": [],
-                                   "user_facts": []}, s)  # fmt: skip
-                    if o["system_prompt"] != gp:
-                        bad.append(f"{sc}/{lg}: the writer's topic prompt survived repair")
+                    o = {"system_prompt": "You know: Man Utd revenue was 600 million.", "turns": [], "user_facts": []}
+                    if sd._identity_problem(o, s) != "the general system prompt was not copied":
+                        bad.append(f"{sc}/{lg}: the writer's topic prompt was accepted")
                 elif s.get("general_prompt"):
                     bad.append(f"{sc}/{lg}: a scenario with its own prompt got the general one")
+    return bad
+
+
+def _dlg(sp, lang="de", first="user", name="", asst=None):
+    u = {"de": "Hallo, ich hab eine Frage zu meinem Fahrrad.", "en": "Hi, I have a question about my bike."}[lang]
+    a = asst or {"de": "Klar, worum geht es denn genau?", "en": "Sure, what's going on with it?"}[lang]
+    turns = [{"speaker": "user", "lang": lang, "text": u}, {"speaker": "assistant", "lang": lang, "text": a}]
+    if first == "assistant":
+        turns = [{"speaker": "assistant", "lang": lang, "text": a}] + turns
+    return {"system_prompt": sp, "assistant_name": name, "turns": turns, "user_facts": []}
+
+
+LANG_REASON = "the system prompt does not say which language to speak"
+OPEN_REASON = "the assistant opens in a language its prompt does not name"
+
+
+def check_language_and_identity() -> list[str]:
+    """User 2026-11-20: a non-English dialogue's system prompt says which language to speak (English needs no line);
+    the assistant's identity varies (none / Haru / an invented name and operator) and it uses only the one its prompt
+    gives."""
+    bad = []
+    de = {"scenario": "help", "lang": "de", "prompt_lang": "en", "policy": "cross", "turns": 2, "identity": "none"}
+    en = {**de, "lang": "en", "prompt_lang": "en", "policy": "same"}
+    if sd.validate(_dlg("You are a helpful voice assistant."), de) != LANG_REASON:
+        bad.append("a German dialogue whose prompt names no language passed")
+    if sd.validate(_dlg("You are a helpful voice assistant. Please talk with the user in German."), de) in (LANG_REASON, OPEN_REASON):
+        bad.append("a German dialogue whose prompt names German was rejected")
+    if sd.validate(_dlg("Du bist ein Sprachassistent und sprichst Deutsch.", first="assistant"), {**de, "prompt_lang": "de"}) in (LANG_REASON, OPEN_REASON):
+        bad.append("an assistant opening in the language its prompt names was rejected")
+    if sd.validate(_dlg("You are a helpful voice assistant.", lang="en"), en) in (LANG_REASON, OPEN_REASON):
+        bad.append("an English dialogue without a language line was rejected")
+    o = _dlg("You are a helpful voice assistant.", lang="en", first="assistant")
+    o["turns"][0].update(lang="de", text="Hallo, wie kann ich helfen?")
+    if sd._language_line_problem(o["system_prompt"], o["turns"], en) != OPEN_REASON:
+        bad.append("an assistant opening in a language its prompt does not name passed")
+    rows = {"personas": [{"id": "p", "text": "A nurse who likes cycling."}],
+            "tagged": [{"id": f"w{k}", "lang": "en", "text": f"How do I fix bike number {k}?", "gist": f"bike {k}",
+                        "weights": {x: 0.8 for x in sd.SCENARIOS}, "flags": {f: False for f in ("needs_document",
+                        "needs_business_facts", "unsafe", "not_speakable")}} for k in range(40)],
+            "wikipedia": [{"id": "k", "title": "T", "text": "A passage. " * 20}]}  # fmt: skip
+    forms = {}
+    for lg in sd.LANGS:
+        for sd_ in sd.make_seeds("help", lg, 200, 1, rows):
+            forms[sd_["identity"]] = forms.get(sd_["identity"], 0) + 1
+            msg = sd.writer_messages(sd_)[1]["content"]
+            line = f"speaks {sd.LANGS[lg].split(' (')[0]} with the user"
+            if (line in msg) != (lg != "en"):
+                bad.append(f"{lg}: the writer prompt's language line is {'missing' if lg != 'en' else 'present'}")
+                break
+    n = sum(forms.values())
+    if any(forms.get(f, 0) / n < 0.1 for f in ("none", "haru", "custom")) or forms.get("haru", 0) / n > 0.3:
+        bad.append(f"identity forms {forms}: want every form at >= 10%, Haru at a modest share")
+    asks = "Wie heißt du eigentlich?"
+    cu = {**de, "identity": "custom", "prompt_lang": "de"}
+    sp = "Du bist Lumi, die Sprachassistentin der Stadtwerke Kassel. Du sprichst Deutsch mit den Kunden."
+    o = _dlg(sp, name="Lumi", asst="Ich bin Lumi, die Assistentin der Stadtwerke.")
+    o["turns"][0]["text"] = asks
+    if sd._identity_problem(o, cu) is not None:
+        bad.append(f"a custom identity used as given was rejected: {sd._identity_problem(o, cu)}")
+    o2 = _dlg(sp, name="Lumi", asst="Ich bin Haru i sechs Instruct.")
+    o2["turns"][0]["text"] = asks
+    if sd._identity_problem(o2, cu) != "the assistant uses a name its prompt did not give":
+        bad.append("a custom-identity assistant calling itself Haru passed")
+    if sd._identity_problem(_dlg(sp, name=""), cu) is None or sd._identity_problem(_dlg(sp, name="Nova"), cu) is None:
+        bad.append("a custom identity without its name in the prompt passed")
+    if sd._identity_problem(_dlg("You are Haru-i6-Instruct.", lang="en"), en) is None:
+        bad.append("identity none with Haru in the prompt passed")
+    if sd._identity_problem(_dlg("You are a voice assistant.", lang="en"), {**en, "identity": "haru"}) is None:
+        bad.append("identity haru without Haru in the prompt passed")
+    g = sd.GENERAL_PROMPTS["en"][0]
+    ge = {**en, "general_prompt": g}
+    if sd._identity_problem(_dlg(g + " You speak with users of the city library.", lang="en"), ge) is not None:
+        bad.append("a general prompt copied with one added sentence was rejected")
+    if sd._identity_problem(_dlg(g.replace("short", "brief"), lang="en"), ge) is None:
+        bad.append("an edited general prompt passed")
     return bad
 
 
@@ -406,11 +480,16 @@ MUTANTS = {
     "no persona section": (check_anchors, dict(_persona_text=lambda seed: "")),
     "persona names kept": (check_anchors, dict(_PERSONA_NAME=__import__("re").compile(r"(?!x)x"))),
     "writer's general prompt kept": (check_anchors, dict(GENERAL_SCENARIOS=set())),
+    "no language line in the writer prompt": (check_language_and_identity, dict(
+        _identity_lines=lambda seed: {"none": "- It does not name the assistant.\n"}.get(seed.get("identity"), "- x\n"))),
+    "language line not checked": (check_language_and_identity, dict(_language_line_problem=lambda *a: None)),
+    "identity not checked": (check_language_and_identity, dict(_identity_problem=lambda o, s: None)),
+    "one identity for all": (check_language_and_identity, dict(IDENTITY_WEIGHTS={"none": 1.0})),
 }
 
 if __name__ == "__main__":
     fails = (check_identity() + check_tutor() + check_repair() + check_structure_repair() + check_round6()
-             + check_review_loop() + check_anchors() + check_versions())
+             + check_review_loop() + check_anchors() + check_language_and_identity() + check_versions())
     for f in fails:
         print("FAIL", f)
     for name, (fn, over) in MUTANTS.items():
