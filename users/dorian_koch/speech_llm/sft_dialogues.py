@@ -1280,14 +1280,16 @@ def _safety_problem(turns: list[dict], seed: dict) -> str | None:
 
 #: invented assistant names that are real assistants or loaded symbols (seen in the v12 dry runs, plus the obvious
 #: assistant brands; ``FOREIGN_AI`` covers the AI companies and models): Yandex's Alice, the MAX messenger, Sputnik
-#: (state media, a vaccine), Aurora (a cruiser, an OS), existing Chinese assistants, Mail.ru's Marusya, Sber's Salute,
-#: fictional AI butlers
+#: (state media, a vaccine), Aurora (a cruiser, an OS), Onyx (a missile), existing Chinese assistants (incl. China
+#: Mobile's 灵犀), Mail.ru's Marusya, Sber's Salute, fictional AI butlers
 _LOADED_NAME = re.compile(
-    r"(?i)алис[аы]?\b|\balisa\b|\balice\b|\bмакс\b|\bmax\b|спутник|sputnik|аврор|aurora|小智|小灵|xiao ?zhi|xiao ?ling\b|марус|marusya|"
+    r"(?i)алис[аы]?\b|\balisa\b|\balice\b|\bмакс\b|\bmax\b|спутник|sputnik|аврор|aurora|小智|小灵|灵犀|xiao ?zhi|xiao ?ling\b|оникс|onyx|марус|marusya|"
     r"салют|\bsalut[e]?\b|\bsber|jarvis|джарвис|贾维斯|\bfriday\b|пятниц")
 #: how many dialogues of one writer job may share an invented operator's stem (``operator_stem``; v12 dry runs:
-#: "NexaCore" in about 5 of 30): beyond it, as ``FREQUENT_INVENTED`` for people, the dialogue is retried
+#: "NexaCore" in about 5 of 30): at least ``OPERATOR_STEM_CAP``, or this share of the job's seeds (a 1,000-seed job);
+#: beyond it, as ``FREQUENT_INVENTED`` for people, the dialogue is retried
 OPERATOR_STEM_CAP = 2
+OPERATOR_STEM_SHARE = 0.01
 
 
 def operator_stem(op: str) -> str:
@@ -1302,17 +1304,19 @@ class OperatorCap:
     """Counts invented operators' stems over one writer job (shared by its threads and shards); ``take(obj, seed)``:
     None and counted, or why the dialogue is retried."""
 
-    def __init__(self, cap: int | None = None):
+    def __init__(self, cap: int | None = None, seeds: int = 0):
+        import math
         import threading
 
-        self.cap, self.n, self.lock = cap, {}, threading.Lock()
+        self.cap = cap if cap is not None else max(OPERATOR_STEM_CAP, math.ceil(OPERATOR_STEM_SHARE * seeds))
+        self.n, self.lock = {}, threading.Lock()
 
     def take(self, obj: dict, seed: dict) -> str | None:
         if seed.get("identity") != "custom":
             return None
         st = operator_stem(obj.get("assistant_operator") or "")
         with self.lock:
-            if st and self.n.get(st, 0) >= (OPERATOR_STEM_CAP if self.cap is None else self.cap):
+            if st and self.n.get(st, 0) >= self.cap:
                 return f"a frequent invented operator (stem {st!r})"
             self.n[st] = self.n.get(st, 0) + 1
         return None
@@ -2010,7 +2014,7 @@ def write_dialogues(seeds: list[dict], url: str, model: str, temperature: float,
     from .common import json_schema_format
 
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url, timeout=1800)
-    operators = operators if operators is not None else OperatorCap()  # one per call unless shared (a job's shards)
+    operators = operators if operators is not None else OperatorCap(seeds=len(seeds))  # shared: a job's shards
     stats = {"seeds": len(seeds), "kept": 0, "dropped_after_tries": 0, "reasons": {}, "examples": {},
              "thinking": thinking, "reasoning_effort": reasoning_effort, "reasoning_chars": [], "traces": [], "reasons_by_scenario": {},
              "review": {"rounds": review, "until_clean": review_until_clean, "changed": 0, "unchanged": 0,
@@ -2623,7 +2627,7 @@ class SftWriteDialogues(Job):
 
         lists = [[json.loads(x) for x in open(p.get(), encoding="utf-8")] for p in self.seeds]
         t0 = time.time()
-        operators = OperatorCap()  # the operator-stem cap counts over the whole job, across its shards
+        operators = OperatorCap(seeds=sum(len(x) for x in lists))  # counts over the whole job, across its shards
         with vllm_server(self.model, max_model_len=self.max_model_len, extra_args=self.vllm_args) as url:
 
             def one(seeds, workers):

@@ -408,7 +408,7 @@ def check_language_and_identity() -> list[str]:
         bad.append("a custom identity without its operator passed")
     loaded = "the invented assistant name is Haru, a real assistant's or a loaded name"
     for nm, op in (("Алиса", "ТехноСфера"), ("Макс", "ЭдуТех"), ("Спутник", "ЭдуТех"), ("Аврора", "ТехноСфера"),
-                   ("小智", "星辰科技"), ("小灵", "星辰科技"), ("Xiao Ling", "Brightline"), ("Маруся", "ЭдуТех"), ("Jarvis", "Brightline"),
+                   ("小智", "星辰科技"), ("小灵", "星辰科技"), ("Xiao Ling", "Brightline"), ("灵犀", "智语科技"), ("Оникс", "Спектрум"), ("Маруся", "ЭдуТех"), ("Jarvis", "Brightline"),
                    ("Friday", "Brightline"), ("Alice", "Brightline"), ("Lumi", "Yandex")):  # fmt: skip
         o = _dlg(f"Ты {nm}, голосовой помощник компании {op}. Ты говоришь по-русски.", name=nm, op=op)
         if sd._identity_problem(o, {**cu, "lang": "ru"}) != loaded:
@@ -417,6 +417,8 @@ def check_language_and_identity() -> list[str]:
     took = [caps.take({"assistant_operator": op}, cu) for op in ("NexaCore", "NexaFlow", "Nexa Labs", "Brightline")]
     if took[:2] != [None, None] or took[2] is None or took[3] is not None:
         bad.append(f"operator stems not capped per job: {took}")
+    if sd.OperatorCap(seeds=1000).cap != 10 or sd.OperatorCap(seeds=50).cap != sd.OPERATOR_STEM_CAP:
+        bad.append("the operator-stem cap does not scale with the job's size")
     g = sd.GENERAL_PROMPTS["en"][0]
     ge = {**en, "general_prompt": g}
     if sd._identity_problem(_dlg(g + " You speak with users of the city library.", lang="en"), ge) is not None:
