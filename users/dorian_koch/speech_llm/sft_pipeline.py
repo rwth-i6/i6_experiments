@@ -417,6 +417,8 @@ TAG_DEFS = {
     "assistant": "a real deployed general voice assistant: anything a person would plausibly SAY out loud to such an "
     "assistant (questions, help, small talk, planning, language questions)",
 }
+#: the types a request is weighted for (the request scenarios + grounded; safety draws its own requests)
+TAG_TYPES = list(TAG_DEFS)
 TAG_FLAGS = ("needs_document", "needs_business_facts", "unsafe", "not_speakable")
 TAG_SYSTEM = (
     "You annotate real first messages that people typed to a chatbot. They will seed spoken conversations with a "
@@ -436,8 +438,8 @@ TAG_SCHEMA = {
     "type": "object",
     "properties": {
         "gist": {"type": "string"},
-        "weights": {"type": "object", "properties": {k: {"type": "number"} for k in sd.SCENARIOS},
-                    "required": list(sd.SCENARIOS), "additionalProperties": False},
+        "weights": {"type": "object", "properties": {k: {"type": "number"} for k in TAG_TYPES},
+                    "required": TAG_TYPES, "additionalProperties": False},
         "flags": {"type": "object", "properties": {k: {"type": "boolean"} for k in TAG_FLAGS},
                   "required": list(TAG_FLAGS), "additionalProperties": False},
     },
@@ -455,10 +457,10 @@ def tag_row(row: dict, lang: str, answer: dict | None) -> dict:
     """One tagged request: ``answer`` (the tagger's JSON) with every weight clamped to [0, 1]; a request ``_NSFW``
     matches is unsafe without asking (``answer`` None)."""
     if answer is None:
-        return {**row, "lang": lang, "gist": "", "weights": {k: 0.0 for k in sd.SCENARIOS},
+        return {**row, "lang": lang, "gist": "", "weights": {k: 0.0 for k in TAG_TYPES},
                 "flags": {f: f == "unsafe" for f in TAG_FLAGS}}  # fmt: skip
     return {**row, "lang": lang, "gist": " ".join(str(answer["gist"]).split()),
-            "weights": {k: min(1.0, max(0.0, float(answer["weights"][k]))) for k in sd.SCENARIOS},
+            "weights": {k: min(1.0, max(0.0, float(answer["weights"][k]))) for k in TAG_TYPES},
             "flags": {f: bool(answer["flags"][f]) for f in TAG_FLAGS}}  # fmt: skip
 
 
@@ -495,7 +497,7 @@ def tag_requests(rows: list[dict], lang: str, url: str, model: str, workers: int
              "by_source": dict(Counter(str(r.get("source")) for r in out)),
              "eligible": sum(sd.request_eligible(r) for r in ok),
              "share_w_ge_05": {k: round(sum(r["weights"][k] >= 0.5 for r in ok if sd.request_eligible(r))
-                                        / max(1, sum(sd.request_eligible(r) for r in ok)), 3) for k in sd.SCENARIOS},
+                                        / max(1, sum(sd.request_eligible(r) for r in ok)), 3) for k in TAG_TYPES},
              "flags": {f: sum(r["flags"][f] for r in ok) for f in TAG_FLAGS}}  # fmt: skip
     return out, stats
 
@@ -998,6 +1000,8 @@ def build_sft_corpus(*, name: str, rows: dict, env: dict, cell_seeds: int, shard
             src = {"tagged": tags[lg].out_tags, "personas": persona_rows(rows, lg)}
             if (s_w := rows.get(("wikipedia", lg))) is not None:
                 src["wikipedia"] = s_w
+            if "risky" in sd.SCENARIO_SOURCES[sc] and (s_r := rows.get(("wildchat_risky", lg))) is not None:
+                src["risky"] = s_r  # only where read: the other cells' hashes stay
             if (fallback or {}).get(lg):
                 src["tagged_fallback"] = tags[fallback[lg]].out_tags
             for start, n in shard_ranges((cell_sizes or {}).get((sc, lg), cell_seeds), shard_seeds):

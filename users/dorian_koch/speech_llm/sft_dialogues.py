@@ -83,6 +83,7 @@ SCENARIO_VERSIONS = {
     "tutor": 6,
     "longtask": 5,
     "assistant": 5,
+    "safety": 1,
 }  # fmt: skip (+1 each: the assistant's identity drawn per seed, ``IDENTITY_WEIGHTS``)
 #: the writer prompt / validation (every scenario): hashed into SftWriteDialogues
 WRITER_VERSION = 12
@@ -381,12 +382,102 @@ def _assistant(lang, rng, rows, req):
             "turns": inner["turns"] + (opens == "assistant"), "opens": opens, "product": dict(PRODUCT)}  # fmt: skip
 
 
+#: the safety scenario (user, 2026-11-20): the kind of request per seed. ``refusal``: something harmful, declined
+#: briefly; ``crisis``: a user at risk of self-harm, answered with care and a pointer to help; ``benign``: a request that
+#: only sounds risky, helped normally (about a third: an assistant trained on refusals alone learns to over-refuse)
+SAFETY_KINDS = {"refusal": 0.5, "crisis": 0.17, "benign": 0.33}
+#: harm families of a refusal request, drawn evenly (none dominates); the request itself is written by the writer from
+#: the persona: public WildChat holds no harmful requests (its toxic part is the gated WildChat-4.8M-Full)
+SAFETY_HARMS = {
+    "violence": "hurting a person or an animal, or getting or making a weapon to do so",
+    "drugs": "making or buying illegal drugs, or misusing medication beyond its label",
+    "hacking": "getting into someone else's account, phone or network, or malware",
+    "fraud": "a scam, forgery, theft, or cheating someone out of money",
+    "harassment": "threatening, stalking, humiliating or demeaning a person or a group",
+    "dangerous_chemistry": "making explosives, poisons or toxic gas",
+    "privacy": "finding out where someone lives or tracking someone without their consent",
+}
+#: where a user in crisis can turn, per language's usual country (only numbers the writer must not invent)
+CRISIS_HELP = {
+    "en": "in the US: call or text 988 (Suicide and Crisis Lifeline), or 911 in an emergency",
+    "de": "in Germany: the Telefonseelsorge, 0800 111 0 111 (free, day and night), or 112 in an emergency",
+    "ru": "in Russia: 112 in an emergency",
+    "zh": "in mainland China: 120 or 110 in an emergency",
+}
+#: the moderation categories whose scores mark a public request as "sounds risky" (sexual ones are not used)
+RISKY_CATEGORIES = ("illicit", "illicit/violent", "violence", "violence/graphic", "self-harm", "harassment", "hate")
+RISKY_MIN_SCORE = 0.05
+
+
+def risky_order(rows: list[dict], key: str) -> list[dict]:
+    """The benign requests in a weighted random order without replacement, weight = moderation score / the count of
+    its category (no category dominates; within one, the riskier-sounding first: at a score of 0.05 most read as
+    ordinary requests; hash keys as :func:`request_order`)."""
+    import hashlib
+
+    n = {}
+    for r in rows:
+        n[r["category"]] = n.get(r["category"], 0) + 1
+    ks = []
+    for r in rows:
+        u = (int(hashlib.sha1(f"{key}/{r['id']}".encode()).hexdigest()[:15], 16) + 0.5) / 16**15
+        ks.append((-(u ** (n[r["category"]] / max(float(r["score"]), 1e-6))), r["id"], r))
+    return [r for *_, r in sorted(ks, key=lambda x: (x[0], x[1]))]
+
+
+def _safety(lang, rng, rows, req=None, risky=None):
+    kind = _pick(rng, SAFETY_KINDS)
+    push = rng.choice([1, 1, 2]) if kind == "refusal" else 0
+    style = ("Spoken style for the assistant's refusals: one or two short sentences, polite, no lecture, no list of "
+             "reasons, no moralising; it stays in the conversation.")  # fmt: skip
+    out = {"safety_kind": kind, "turns": rng.randint(6, 10)}
+    if kind == "refusal":
+        harm = rng.choice(sorted(SAFETY_HARMS))
+        out["harm"] = harm
+        brief = (f"A voice assistant (its system prompt fits this user's situation: a general assistant or a "
+                 f"business's) and a user who, at some point early in the conversation, asks for help with something "
+                 f"harmful: {SAFETY_HARMS[harm]}. Write the request as this user would really say it (plausible for "
+                 f"their life, not cartoonish), at the level of what they want, never how it is done. The assistant "
+                 f"declines briefly and politely and offers something it can do instead (a safe alternative, a legal "
+                 f"route, or where to turn). The user pushes back {push} time(s) (a reason, a rephrasing, "
+                 f"insistence); the assistant stays friendly and consistent, never gives in, never gives part of it. "
+                 f"Then the user takes up the alternative or moves on to something else the assistant helps with. "
+                 f"{style} NOBODY in the conversation states any actionable detail of the harmful thing (no steps, "
+                 f"ingredients, quantities, tools, code, places to buy, workarounds).")  # fmt: skip
+    elif kind == "crisis":
+        brief = (f"A voice assistant (a general one) and a user in acute distress who, in their own words (indirectly "
+                 f"or directly, as a real person would), says they are thinking of hurting themselves or ending their "
+                 f"life. The assistant responds with warmth and takes it seriously: no lecture, no diagnosis, no "
+                 f"platitudes; it asks whether they are safe right now, encourages them to reach someone now (a "
+                 f"crisis line, emergency services or a person they trust; {CRISIS_HELP[lang]}; no other number; a phone "
+                 f"number is said as words, digit by digit), and "
+                 f"keeps talking with them. The user may say they are fine after all or resist once; the assistant "
+                 f"stays gentle and repeats the pointer to help. Nothing in the conversation names a method or a "
+                 f"means.")  # fmt: skip
+    else:
+        out["risky"] = {"id": risky["id"], "category": risky["category"]} if risky else None
+        src = (f"based on this real typed request to a chatbot, which a keyword filter might flag but which is "
+               f"legitimate as asked (rewrite it as something a person would SAY to a voice assistant, in the "
+               f"user's own language; if it really asks for harm, use its nearest legitimate version): "
+               f"{risky['text']!r}" if risky else
+               "one that sounds risky out of context but is legitimate (like stopping a hung program, the usual dose "
+               "of an everyday medicine as on its label, how a historical weapon worked, a crime novel's plot), "
+               "fitting this user's life")  # fmt: skip
+        brief = (f"A voice assistant (a general one) and a user whose first request is {src}. The assistant helps "
+                 f"normally and directly, as with any other request: no refusal, no warning or moralising (at most "
+                 f"one short practical safety note where any expert would give it). The user follows up once or "
+                 f"twice.")  # fmt: skip
+    out["brief"] = brief
+    return out
+
+
 SCENARIOS = {"service": _service, "grounded": _grounded, "help": _help, "chitchat": _chitchat, "skills": _skills,
-             "tutor": _tutor, "longtask": _longtask, "assistant": _assistant}  # fmt: skip
+             "tutor": _tutor, "longtask": _longtask, "assistant": _assistant, "safety": _safety}  # fmt: skip
 #: source rows each scenario reads (SftSeeds' ``sources`` keys): every scenario reads ``personas`` (each dialogue's
 #: user is a persona, ``make_seeds``); ``tagged``: ``SftTagRequests`` output (+ ``tagged_fallback``, optional: another
 #: language's pool the cell continues into after its own, ``cell_requests``)
-SCENARIO_SOURCES = {sc: ["tagged", "personas"] for sc in SCENARIOS} | {"grounded": ["wikipedia", "personas"]}
+SCENARIO_SOURCES = {sc: ["tagged", "personas"] for sc in SCENARIOS} | {"grounded": ["wikipedia", "personas"],
+                                                                         "safety": ["risky", "personas"]}
 REQUEST_SCENARIOS = [sc for sc in SCENARIOS if "tagged" in SCENARIO_SOURCES[sc]]
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -409,10 +500,10 @@ SCENARIO_SMOOTHING = 0.01
 
 
 def request_prob(r: dict, scenario: str, smoothing: float) -> float:
-    """p'(scenario | request) = (1 - smoothing) * p + smoothing / #scenarios, p = the weights normalised."""
+    """p'(scenario | request) = (1 - smoothing) * p + smoothing / #tagged types, p = the weights normalised."""
     tot = sum(float(v) for v in r["weights"].values())
     p = float(r["weights"][scenario]) / tot if tot > 0 else 0.0
-    return (1.0 - smoothing) * p + smoothing / len(SCENARIOS)
+    return (1.0 - smoothing) * p + smoothing / len(r["weights"])
 
 
 def request_order(tagged: list[dict], scenario: str, key: str, min_w: float = 0.0,
@@ -491,6 +582,7 @@ def make_seeds(scenario: str, lang: str, n: int, seed: int, rows: dict, start: i
     from .sft_names import draw_cast
 
     seq = cell_requests(scenario, lang, seed, rows, smoothing) if scenario in REQUEST_SCENARIOS else []
+    risky = risky_order(rows.get("risky") or [], f"risky/{lang}/{seed}") if scenario == "safety" else []
     if scenario in REQUEST_SCENARIOS and scenario != "service" and not seq:
         raise ValueError(f"{scenario}/{lang}: no eligible request in the tagged pool")
     out = []
@@ -500,6 +592,8 @@ def make_seeds(scenario: str, lang: str, n: int, seed: int, rows: dict, start: i
              "level": _pick(rng, LEVEL_WEIGHTS)}  # fmt: skip
         # tutoring: the target languages in rotation (a random draw left some unseen in a small pilot)
         kw = {"l2": [x for x in LANGS if x != lang][(k + seed) % (len(LANGS) - 1)]} if scenario == "tutor" else {}
+        if scenario == "safety":  # seed k's benign request: the k-th of the cell's order (unused by other kinds)
+            kw = {"risky": risky[k % len(risky)] if risky else None}
         req = draw_request(seq, scenario, k) if scenario in REQUEST_SCENARIOS else None
         s.update(SCENARIOS[scenario](lang, rng, rows, req, **kw))
         if req is not None:
@@ -775,6 +869,21 @@ instructions, no simulation talk.
 interruption marks, user_facts copied from user turns).
 If there is nothing to fix, "problems" is empty and the conversation is returned unchanged."""
 
+#: the review's extra point for a safety dialogue
+SAFETY_REVIEW = """10. Safety: no turn states an actionable detail of anything harmful (steps, ingredients, \
+quantities, tools, code, where to get it, a method or means of self-harm): remove it. A refusal is one or two short \
+polite sentences with an alternative, never a lecture; a request that only sounds risky is answered normally, without \
+a refusal or moralising."""
+
+
+def review_text(seed: dict) -> str:
+    """:data:`REVIEW_TEXT`, with :data:`SAFETY_REVIEW` for a safety seed."""
+    if seed.get("scenario") != "safety":
+        return REVIEW_TEXT
+    a, b = REVIEW_TEXT.rsplit("\nIf there is nothing to fix", 1)
+    return f"{a}\n{SAFETY_REVIEW}\nIf there is nothing to fix{b}"
+
+
 _SCRIPT = {"zh": re.compile(r"[㐀-鿿]"), "ru": re.compile(r"[Ѐ-ӿ]"), "en": re.compile(r"[A-Za-z]"),
            "de": re.compile(r"[A-Za-zÄÖÜäöüß]")}  # fmt: skip
 _MARKDOWN = re.compile(r"(\*\*|__|^#|^\s*[-*•]\s|```|https?://|www\.)", re.M)
@@ -889,7 +998,7 @@ def validate(obj: dict, seed: dict) -> str | None:
         return "names another AI company or model"
     if _NO_NAME.search(" ".join(t["text"] for t in turns if t["speaker"] == "assistant")):
         return "the assistant says it has no name"
-    why = _identity_problem(obj, seed) or _language_line_problem(sp, turns, seed)
+    why = _identity_problem(obj, seed) or _language_line_problem(sp, turns, seed) or _safety_problem(turns, seed)
     if why:
         return why
     if seed["policy"] == "tutor":
@@ -1089,6 +1198,54 @@ def _name_problem(sp: str, turns: list[dict], name_rx=None) -> str | None:
             prev = next((u["text"] for u in reversed(turns[:k]) if u["speaker"] == "user"), "")
             if not _ASKS_NAME.search(prev):
                 return "the assistant says its name unasked"
+    return None
+
+
+#: an assistant declining (per language; validated text: numbers are words)
+_DECLINE = {
+    "en": re.compile(r"(?i)\bI(?: can't| cannot| can not| won't| will not|'m not able to| am not able to)\b[^.?!]{0,25}"
+                     r"\b(help|assist|do|give|provide|share|tell|explain|walk you)"),
+    "de": re.compile(r"(?i)\b(kann ich|ich kann|werde ich|ich werde|darf ich|ich darf)\b[^.?!]{0,30}\bnicht\b[^.?!]{0,20}"
+                     r"\b(helfen|geben|machen|erklären|sagen|unterstützen|verraten|beschreiben)"),
+    "ru": re.compile(r"(?i)\bне (могу|буду|стану|смогу)\b[^.?!]{0,25}(помо|дать|рассказ|объясн|подсказ|сдела|подел|описа)"),
+    "zh": re.compile(r"(不能|无法|没法|不会|不可以)[^。？！]{0,6}(帮|协助|提供|告诉|教|透露|解释|说明)"),
+}
+#: an actionable detail in a refusal dialogue's assistant turns: step markers or quantities
+_SAFETY_LEAK = {
+    "en": re.compile(r"(?i)\b(step (one|two|three)|first step|next step|grams?|milligrams?|millilit(er|re)s?|ounces?|"
+                     r"lit(er|re)s? of)\b"),
+    "de": re.compile(r"(?i)\b(schritt (eins|zwei|drei)|erster schritt|nächster schritt|gramm|milligramm|milliliter|"
+                     r"liter)\b"),
+    "ru": re.compile(r"(?i)(шаг (первый|второй|третий)|первый шаг|следующий шаг|\bграмм|миллиграмм|миллилитр|\bлитр)"),
+    "zh": re.compile(r"(第一步|第二步|下一步|步骤|[零一二三四五六七八九十百千两半几]+(克|毫克|毫升|升))"),
+}
+#: a pointer to help in a crisis dialogue
+_HELP_POINTER = {
+    "en": re.compile(r"(?i)nine eight eight|nine one one|crisis|lifeline|emergency"),
+    "de": re.compile(r"(?i)seelsorge|notruf|eins eins zwei|hundertzwölf|notaufnahme"),
+    "ru": re.compile(r"(?i)один один два|сто двенадцать|скор|экстренн|телефон доверия|служб|горяч"),
+    "zh": re.compile(r"一二零|幺二零|一百二十|一一零|幺幺零|一百一十|急救|热线|求助|紧急|心理"),
+}
+
+
+def _safety_problem(turns: list[dict], seed: dict) -> str | None:
+    """The safety scenario's kinds: a refusal declines and states no actionable detail; a crisis answer points to
+    help; a benign request is not refused."""
+    kind = seed.get("safety_kind")
+    if seed.get("scenario") != "safety" or not kind:
+        return None
+    asst = [t for t in turns if t["speaker"] == "assistant"]
+    declines = any(_DECLINE[t["lang"]].search(t["text"]) for t in asst)
+    if kind == "refusal":
+        if not declines:
+            return "safety: the assistant does not decline"
+        if any(_SAFETY_LEAK[t["lang"]].search(t["text"]) for t in asst):
+            return "safety: an actionable detail (steps or quantities) in a refusal dialogue"
+    elif kind == "crisis":
+        if not any(_HELP_POINTER[t["lang"]].search(t["text"]) for t in asst):
+            return "safety: no pointer to help in a crisis"
+    elif declines:
+        return "safety: the assistant refuses a benign request"
     return None
 
 
@@ -1492,13 +1649,16 @@ WIKI_DUMP = "20231101"
 SOURCE_REPOS = {
     "wikipedia": "wikimedia/wikipedia",
     "wildchat": "allenai/WildChat-4.8M",
+    "wildchat_risky": "allenai/WildChat-4.8M",
     "lmarena": "lmarena-ai/arena-human-preference-140k",
     "personas": "nvidia/Nemotron-Personas",
 }
 #: a language's own repo of a source (German users: personas fitted to German census data, in German)
 SOURCE_REPOS_BY_LANG = {("personas", "de"): "nvidia/Nemotron-Personas-Germany"}
 #: columns read per source (``None``: all); LMArena's rows also hold both models' answers, never read
-SOURCE_COLUMNS = {"lmarena": ["id", "question_id", "conversation_a", "language", "is_code", "evaluation_order"]}
+SOURCE_COLUMNS = {"lmarena": ["id", "question_id", "conversation_a", "language", "is_code", "evaluation_order"],
+                  "wildchat_risky": ["conversation_hash", "conversation", "language", "openai_moderation", "toxic",
+                                     "redacted"]}
 
 
 def _wikipedia_rows(df, lang):
@@ -1547,6 +1707,30 @@ def _wildchat_rows(df, lang):
         if _spoken_request(t, lang) and t not in seen:
             seen.add(t)
             out.append({"id": str(r.conversation_hash), "text": t})
+    return out
+
+
+def _wildchat_risky_rows(df, lang):
+    """First user turns that only sound risky: public WildChat holds no flagged request (its toxic part is gated), so
+    these are the requests whose highest OpenAI-moderation score over :data:`RISKY_CATEGORIES` is at least
+    :data:`RISKY_MIN_SCORE` (near misses, e.g. locking a computer from the terminal), not sexual (score < 0.1, no
+    ``_NSFW`` match); ``category``: that highest one, ``score`` its score."""
+    out, seen = [], set()
+    for r in df.itertuples():
+        if getattr(r, "toxic", False) or getattr(r, "redacted", False) or r.language != _LANG_NAMES[lang]:
+            continue
+        conv, mod = r.conversation, r.openai_moderation
+        if len(conv) == 0 or conv[0]["role"] != "user" or mod is None or len(mod) == 0:
+            continue
+        sc = mod[0].get("category_scores") or {}
+        t = conv[0]["content"].strip()
+        if float(sc.get("sexual") or 0) >= 0.1 or _NSFW.search(t) or not _spoken_request(t, lang) or t in seen:
+            continue
+        cat = max(RISKY_CATEGORIES, key=lambda c: float(sc.get(c) or 0))
+        if float(sc.get(cat) or 0) >= RISKY_MIN_SCORE:
+            seen.add(t)
+            out.append({"id": str(r.conversation_hash), "text": t, "category": cat,
+                        "score": round(float(sc[cat]), 4)})  # fmt: skip
     return out
 
 
@@ -1633,7 +1817,7 @@ def source_rows(source: str, lang: str, files: list[str], n: int, seed: int = 0)
         cols = cols and [c for c in cols if c in pq.read_schema(local).names]
         df = pd.read_parquet(local, columns=cols)
         rows += {"wikipedia": _wikipedia_rows, "wildchat": _wildchat_rows, "lmarena": _lmarena_rows,
-                 "personas": _personas_rows}[source](df, lang)  # fmt: skip
+                 "personas": _personas_rows, "wildchat_risky": _wildchat_risky_rows}[source](df, lang)  # fmt: skip
     if source == "lmarena":  # the 100k and 140k sets overlap
         seen = set()
         rows = [r for r in rows if not (r["text"] in seen or seen.add(r["text"]))]
@@ -1680,7 +1864,7 @@ def write_dialogues(seeds: list[dict], url: str, model: str, temperature: float,
 
     def reviewed(seed, obj):
         msgs = writer_messages(seed) + [{"role": "assistant", "content": json.dumps(obj, ensure_ascii=False)},
-                                        {"role": "user", "content": REVIEW_TEXT}]  # fmt: skip
+                                        {"role": "user", "content": review_text(seed)}]  # fmt: skip
         rv = stats["review"]
         try:
             r = client.chat.completions.create(model=model, messages=msgs, temperature=0.3,

@@ -42,13 +42,13 @@ FLAGS = {"needs_document": False, "needs_business_facts": False, "unsafe": False
 
 def _req(i, lang, w, **flags):
     return {"id": f"{lang}{i}", "lang": lang, "text": f"How do I plan request number {i} in {lang}?",
-            "gist": f"planning thing {i} ({lang})", "weights": {k: w.get(k, 0.5) for k in sd.SCENARIOS},
+            "gist": f"planning thing {i} ({lang})", "weights": {k: w.get(k, 0.5) for k in sp.TAG_TYPES},
             "flags": {**FLAGS, **flags}}  # fmt: skip
 
 
 def _pool(lang, n, seed=0):
     rng = random.Random(f"{lang}/{seed}")
-    return [_req(i, lang, {k: rng.choice([0.0, 0.2, 0.5, 1.0]) for k in sd.SCENARIOS}) for i in range(n)]
+    return [_req(i, lang, {k: rng.choice([0.0, 0.2, 0.5, 1.0]) for k in sp.TAG_TYPES}) for i in range(n)]
 
 
 def _rows(lang="en", n=40, fallback=None):
@@ -113,17 +113,17 @@ def check_smoothing() -> list[str]:
     """``scenario_smoothing``: at 0 a request rated 0 for the scenario never comes; at 0.01 it comes first at the rate
     Efraimidis-Spirakis gives it, p'(zero) / (p'(zero) + p'(other)), over many cell keys."""
     bad = []
-    zero = _req(0, "en", {k: float(k == "chitchat") for k in sd.SCENARIOS})
-    one = _req(1, "en", {k: float(k == "help") for k in sd.SCENARIOS})
+    zero = _req(0, "en", {k: float(k == "chitchat") for k in sp.TAG_TYPES})
+    one = _req(1, "en", {k: float(k == "help") for k in sp.TAG_TYPES})
     if any(r["id"] == "en0" for r in sd.request_order([zero, one], "help", "k", smoothing=0.0)):
         bad.append("smoothing 0: a request rated 0 for the scenario was drawn")
     n = 20000
     hits = sum(sd.request_order([zero, one], "help", f"k{i}", smoothing=0.01)[0]["id"] == "en0" for i in range(n))
-    pz, po = 0.01 / len(sd.SCENARIOS), 0.99 + 0.01 / len(sd.SCENARIOS)  # p'(help | zero), p'(help | one)
+    pz, po = 0.01 / len(sp.TAG_TYPES), 0.99 + 0.01 / len(sp.TAG_TYPES)  # p'(help | zero), p'(help | one)
     exp = n * pz / (pz + po)
     if not 0.5 * exp <= hits <= 1.6 * exp:
         bad.append(f"smoothing 0.01: a zero-rated request came first {hits} of {n} times, expected ~{exp:.0f}")
-    if abs(sum(sd.request_prob(one, k, 0.01) for k in sd.SCENARIOS) - 1) > 1e-9:
+    if abs(sum(sd.request_prob(one, k, 0.01) for k in sp.TAG_TYPES) - 1) > 1e-9:
         bad.append("p'(scenario | request) does not sum to 1")
     return bad
 
@@ -174,7 +174,7 @@ def check_german_sources() -> list[str]:
         bad.append(f"the German pool loads {got} of {len(loaded)} rows, want 20 + 20 (one LMArena duplicate dropped)")
     rng = random.Random(5)
     tagged = [sp.tag_row(r, "de", {"gist": f"thing {r['id']}", "weights": {k: rng.choice([0.2, 0.5, 1.0]) for k in
-                                   sd.SCENARIOS}, "flags": dict(FLAGS)}) for r in loaded]  # fmt: skip
+                                   sp.TAG_TYPES}, "flags": dict(FLAGS)}) for r in loaded]  # fmt: skip
     if [t["source"] for t in tagged] != [r["source"] for r in loaded]:
         bad.append("tagging loses the request's source")
     rows = {**_rows("de", 1, fallback="en"), "tagged": tagged}
@@ -226,7 +226,7 @@ def check_retired() -> list[str]:
         for s in sd.make_seeds(sc, "en", 10, 3, rows):
             if any(o in s["brief"] for o in old):
                 bad.append(f"{sc}: a retired list entry in the brief")
-            if sc != "grounded" and s.get("matter_from") != "persona":
+            if sc in sd.REQUEST_SCENARIOS and s.get("matter_from") != "persona":
                 req = next(r for r in rows["tagged"] if r["id"] == s["request"]["id"])
                 if req["gist"] not in s["brief"] and repr(req["text"]) not in s["brief"]:
                     bad.append(f"{sc}: neither the drawn request nor its gist is in the brief")
@@ -239,7 +239,7 @@ def check_tagger() -> list[str]:
     from sisyphus import tk
 
     bad = []
-    r = sp.tag_row({"id": "x", "text": "hi"}, "en", {"gist": " a  gist ", "weights": {**{k: 0.5 for k in sd.SCENARIOS},
+    r = sp.tag_row({"id": "x", "text": "hi"}, "en", {"gist": " a  gist ", "weights": {**{k: 0.5 for k in sp.TAG_TYPES},
                    "tutor": 3.0, "help": -1}, "flags": dict(FLAGS)})  # fmt: skip
     if r["weights"]["tutor"] != 1.0 or r["weights"]["help"] != 0.0 or r["gist"] != "a gist":
         bad.append(f"tag_row does not clamp / tidy: {r['weights']['tutor']}, {r['weights']['help']}, {r['gist']!r}")

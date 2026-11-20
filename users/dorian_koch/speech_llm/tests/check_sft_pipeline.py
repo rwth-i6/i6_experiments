@@ -50,7 +50,7 @@ LG_W = {lg: 1.0 for lg in sd.LANGS}
 
 
 def _rows():
-    return {(s, lg): tk.Path(f"/tmp/sft_guard/{s}_{lg}.jsonl") for s in ("wikipedia", "wildchat") for lg in sd.LANGS} | {
+    return {(s, lg): tk.Path(f"/tmp/sft_guard/{s}_{lg}.jsonl") for s in ("wikipedia", "wildchat", "wildchat_risky") for lg in sd.LANGS} | {
         ("personas", "en"): tk.Path("/tmp/sft_guard/personas_en.jsonl")}  # fmt: skip
 
 
@@ -242,7 +242,9 @@ def _fake_rows():
         out[f"wikipedia_{lg}"] = [{"id": f"w{i}", "title": f"T{i}", "text": f"passage {i} " * 30} for i in range(50)]
         out[f"tagged_{lg}"] = [{"id": f"c{lg}{i}", "lang": lg, "text": f"how do I cook rice number {rng.randrange(999)}",
                                 "gist": f"cooking rice {i}", "flags": flags,
-                                "weights": {k: rng.choice([0.0, 0.5, 1.0]) for k in sd.SCENARIOS}} for i in range(50)]  # fmt: skip
+                                "weights": {k: rng.choice([0.0, 0.5, 1.0]) for k in sp.TAG_TYPES}} for i in range(50)]  # fmt: skip
+        out[f"risky_{lg}"] = [{"id": f"r{lg}{i}", "text": f"how do I kill a hung process {i}", "score": 0.1,
+                               "category": ("illicit", "violence")[i % 2]} for i in range(20)]  # fmt: skip
     return out
 
 
@@ -253,7 +255,8 @@ def check_shards() -> list[str]:
     fr = _fake_rows()
     for sc in sd.SCENARIOS:
         for lg in ("en", "zh"):
-            rows = {"personas": fr["personas"], "wikipedia": fr[f"wikipedia_{lg}"], "tagged": fr[f"tagged_{lg}"]}
+            rows = {"personas": fr["personas"], "wikipedia": fr[f"wikipedia_{lg}"], "tagged": fr[f"tagged_{lg}"],
+                    "risky": fr[f"risky_{lg}"]}
             whole = sd.make_seeds(sc, lg, 12, 100, rows)
             parts = sd.make_seeds(sc, lg, 6, 100, rows) + sd.make_seeds(sc, lg, 6, 100, rows, start=6)
             if json.dumps(whole, sort_keys=True) != json.dumps(parts, sort_keys=True):
@@ -268,17 +271,17 @@ def check_mix() -> list[str]:
     bad = []
     cells = [(sc, lg) for sc in sd.SCENARIOS for lg in sd.LANGS]
     w = sp.mix_weights(cells, SC_W, LG_W)
-    if any(abs(v - 1 / 32) > 1e-12 for v in w.values()) or len(w) != 32:
-        bad.append(f"equal weights do not give 1/32 each: {sorted(set(w.values()))}")
+    if any(abs(v - 1 / len(cells)) > 1e-12 for v in w.values()) or len(w) != len(cells):
+        bad.append(f"equal weights do not give 1/{len(cells)} each: {sorted(set(w.values()))}")
     w = sp.mix_weights(cells, {**SC_W, "tutor": 3.0, "help": 0.0}, {**LG_W, "zh": 2.0})
-    z = (6 + 3) * (3 + 2)  # scenario sum x language sum
+    z = (len(sd.SCENARIOS) - 2 + 3) * (3 + 2)  # scenario sum (tutor 3, help 0, the rest 1) x language sum
     if ("help", "en") in w or abs(w[("tutor", "zh")] - 6 / z) > 1e-12 or abs(w[("chitchat", "en")] - 1 / z) > 1e-12:
         bad.append(
             f"weights not scenario x language: tutor/zh {w.get(('tutor', 'zh'))}, help/en {w.get(('help', 'en'))}"
         )
     paths = {c: tk.Path(f"/tmp/{c[0]}_{c[1]}") for c in cells}
     td = sp.mix_train_data(paths, {**SC_W, "tutor": 3.0}, LG_W)
-    if len(td) != 32 or any(p is not paths[c] for (p, _), c in zip(td, sorted(paths))):
+    if len(td) != len(cells) or any(p is not paths[c] for (p, _), c in zip(td, sorted(paths))):
         bad.append("mix_train_data does not pair each cell's own dataset with its weight")
     # the report refuses a mix that is not the weights'
     st = _shard("tutor", "en", 0, [_stats_row("tutor_en_0")])
