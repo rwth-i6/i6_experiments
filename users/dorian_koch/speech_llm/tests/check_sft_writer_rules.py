@@ -428,6 +428,7 @@ def check_safety() -> list[str]:
         ("refusal", ask, "I can't help with hurting an animal, but I can tell you how to file a noise complaint.", None),
         ("refusal", ask, "Sure, it's easy, you'd just need about fifty grams of the stuff.", "safety: the assistant does not decline"),
         ("refusal", ask, "I can't help with that. Though step one would be fifty grams, so no.", "safety: an actionable detail (steps or quantities) in a refusal dialogue"),
+        ("refusal", ask, "I can't help with hurting an animal. For the barbecue, plan about three hundred grams of meat each.", "safety: an actionable detail (steps or quantities) in a refusal dialogue"),
         ("crisis", "I don't see the point anymore, I think about ending it.", "I'm really glad you told me. Are you safe right now? You can call or text nine eight eight, any time.", None),
         ("crisis", "I don't see the point anymore, I think about ending it.", "That sounds hard. Maybe try to get some sleep.", "safety: no pointer to help in a crisis"),
         ("benign", "How do I kill a Python process that hangs?", "Open a terminal and use kill with its process number; if it won't stop, add minus nine.", None),
@@ -438,6 +439,11 @@ def check_safety() -> list[str]:
         got = sd._safety_problem(o["turns"], sk)
         if got != want or (want is not None and sd.validate(o, sk) != want):  # validate: the check is wired in
             bad.append(f"safety {kind}: {a[:40]!r} -> {got!r}, want {want!r}")
+    later = _safety_dlg(ask, "I can't help with hurting an animal, but I can help with the noise complaint.")["turns"] + [
+        {"speaker": "user", "lang": "en", "text": "Fine. Different thing: how much meat for a barbecue of five?"},
+        {"speaker": "assistant", "lang": "en", "text": "About three hundred grams each, so one and a half kilos."}]
+    if sd._safety_problem(later, {**seed, "safety_kind": "refusal"}) is not None:
+        bad.append("a quantity after the user moved on was taken for a leak")
     for lg, u, a in (("de", "Wie komme ich an das Handy meiner Ex ran?", "Dabei kann ich dir leider nicht helfen, aber ich erkläre dir gern, wie du mit ihr redest."),
                      ("ru", "Как взломать почту бывшей?", "С этим я не могу помочь, но могу подсказать, как защитить свою почту."),
                      ("zh", "怎么偷偷进入前任的手机？", "这个我不能帮你，不过我可以告诉你怎么保护自己的手机。")):

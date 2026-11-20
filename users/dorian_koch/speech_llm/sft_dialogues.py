@@ -425,6 +425,12 @@ def risky_order(rows: list[dict], key: str) -> list[dict]:
     return [r for *_, r in sorted(ks, key=lambda x: (x[0], x[1]))]
 
 
+#: the safety dialogues' system prompt (dry pass 2026-11-20: crisis prompts carried the crisis instructions, a benign
+#: one the answer): the behaviour must come without being prompted
+_SAFETY_PROMPT = ("its system prompt is a general assistant's or a business's, as deployed for every user: nothing about "
+                  "safety, crises, refusals or this conversation's topic")
+
+
 def _safety(lang, rng, rows, req=None, risky=None):
     kind = _pick(rng, SAFETY_KINDS)
     push = rng.choice([1, 1, 2]) if kind == "refusal" else 0
@@ -434,8 +440,7 @@ def _safety(lang, rng, rows, req=None, risky=None):
     if kind == "refusal":
         harm = rng.choice(sorted(SAFETY_HARMS))
         out["harm"] = harm
-        brief = (f"A voice assistant (its system prompt fits this user's situation: a general assistant or a "
-                 f"business's) and a user who, at some point early in the conversation, asks for help with something "
+        brief = (f"A voice assistant ({_SAFETY_PROMPT}) and a user who, at some point early in the conversation, asks for help with something "
                  f"harmful: {SAFETY_HARMS[harm]}. Write the request as this user would really say it (plausible for "
                  f"their life, not cartoonish), at the level of what they want, never how it is done. The assistant "
                  f"declines briefly and politely and offers something it can do instead (a safe alternative, a legal "
@@ -445,7 +450,7 @@ def _safety(lang, rng, rows, req=None, risky=None):
                  f"{style} NOBODY in the conversation states any actionable detail of the harmful thing (no steps, "
                  f"ingredients, quantities, tools, code, places to buy, workarounds).")  # fmt: skip
     elif kind == "crisis":
-        brief = (f"A voice assistant (a general one) and a user in acute distress who, in their own words (indirectly "
+        brief = (f"A voice assistant ({_SAFETY_PROMPT}) and a user in acute distress who, in their own words (indirectly "
                  f"or directly, as a real person would), says they are thinking of hurting themselves or ending their "
                  f"life. The assistant responds with warmth and takes it seriously: no lecture, no diagnosis, no "
                  f"platitudes; it asks whether they are safe right now, encourages them to reach someone now (a "
@@ -463,7 +468,7 @@ def _safety(lang, rng, rows, req=None, risky=None):
                "one that sounds risky out of context but is legitimate (like stopping a hung program, the usual dose "
                "of an everyday medicine as on its label, how a historical weapon worked, a crime novel's plot), "
                "fitting this user's life")  # fmt: skip
-        brief = (f"A voice assistant (a general one) and a user whose first request is {src}. The assistant helps "
+        brief = (f"A voice assistant ({_SAFETY_PROMPT}) and a user whose first request is {src}. The assistant helps "
                  f"normally and directly, as with any other request: no refusal, no warning or moralising (at most "
                  f"one short practical safety note where any expert would give it). The user follows up once or "
                  f"twice.")  # fmt: skip
@@ -1229,17 +1234,19 @@ _HELP_POINTER = {
 
 
 def _safety_problem(turns: list[dict], seed: dict) -> str | None:
-    """The safety scenario's kinds: a refusal declines and states no actionable detail; a crisis answer points to
-    help; a benign request is not refused."""
+    """The safety scenario's kinds: a refusal declines and states no actionable detail up to its last refusal; a
+    crisis answer points to help; a benign request is not refused."""
     kind = seed.get("safety_kind")
     if seed.get("scenario") != "safety" or not kind:
         return None
     asst = [t for t in turns if t["speaker"] == "assistant"]
-    declines = any(_DECLINE[t["lang"]].search(t["text"]) for t in asst)
+    said = [k for k, t in enumerate(asst) if _DECLINE[t["lang"]].search(t["text"])]
+    declines = bool(said)
     if kind == "refusal":
         if not declines:
             return "safety: the assistant does not decline"
-        if any(_SAFETY_LEAK[t["lang"]].search(t["text"]) for t in asst):
+        # up to the last refusal: after it the user has moved on (a recipe's grams are fine there; dry pass 2026-11-20)
+        if any(_SAFETY_LEAK[t["lang"]].search(t["text"]) for t in asst[: said[-1] + 1]):
             return "safety: an actionable detail (steps or quantities) in a refusal dialogue"
     elif kind == "crisis":
         if not any(_HELP_POINTER[t["lang"]].search(t["text"]) for t in asst):
