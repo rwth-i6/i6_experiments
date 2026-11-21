@@ -193,6 +193,9 @@ def turn_cut_units(turn: dict, lang: str) -> int | None:
     if turn.get("segments") or CUT not in _turn_text(turn):
         return None
     pre = _turn_text(turn).split(CUT)[0]
+    tags = list(TAG.finditer(pre))
+    if tags and tags[-1].group(1) != "/":  # cut inside a language span (full SFT run: 3 TTS jobs crashed on one)
+        pre += f"</{tags[-1].group(2)}>"
     return sum(speech_units(s["text"], s["lang"]) for s in parse_segments(pre, turn.get("lang") or lang))
 
 

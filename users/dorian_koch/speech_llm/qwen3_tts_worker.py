@@ -9,8 +9,13 @@ needs its transcript beside it (``<name>.txt``: the ICL clone prompt is the clip
 codes (``en``, ``de``, ``zh``, ``ru``, ...). ``modes``: per item ``"clone"`` (default; ICL) or ``"timbre"`` (speaker
 embedding only: for text in another language than the voice prompt's, which ICL would speak with the prompt's
 accent; ``qwen3_tts_fast.prompt``). Argument: JSON ``{"model", "device", "slots"}``.
+
+Memory: each call collects garbage first (a finished call's decoder state can sit in reference cycles until a full
+collection; the full SFT run's TTS jobs held ~77 GB of live tensors and failed every retry, 2026-11-21), and a CUDA
+out of memory retries the same request at half the slots, which then stay halved for the worker's later requests.
 """
 
+import gc
 import json
 import os
 import pickle
@@ -58,6 +63,21 @@ def serve() -> None:
     torch.set_float32_matmul_precision("high")
     model = q3.load(spec.get("device", "cuda"), spec.get("model") or q3.MODEL)
     prompts = {}
+    slots = int(spec.get("slots", 64))
+
+    def synth(items):
+        nonlocal slots
+        while True:
+            gc.collect()
+            torch.cuda.empty_cache()
+            try:
+                return q3.synthesize(model, items, slots=slots)
+            except torch.OutOfMemoryError:
+                if slots <= 4:
+                    raise
+            slots //= 2  # outside the except block: its traceback (the failed call's tensors) is released by now
+            print(f"[qwen3_tts_worker] CUDA out of memory on {len(items)} items; now {slots} slots", flush=True)
+
     write(out, {"ready": True})
     inp = sys.stdin.buffer
     while (req := read(inp)) is not None:
@@ -73,14 +93,13 @@ def serve() -> None:
                                       else q3.prompt(model, v, ref_text(v)))  # fmt: skip
             items = [{"text": t, "language": LANG[lg], "prompt": prompts[v, md], "seed": int(s)}
                      for t, lg, v, s, md in zip(req["texts"], req["languages"], req["voices"], req["seeds"], modes)]  # fmt: skip
-            wavs, sr = q3.synthesize(model, items, slots=int(spec.get("slots", 64)))
+            wavs, sr = synth(items)
             if sr != SR:
                 import torchaudio.functional as AF
 
                 wavs = [AF.resample(torch.from_numpy(w), sr, SR).numpy() for w in wavs]
             write(out, {"result": [np.asarray(w, "<f4").tobytes() for w in wavs], "id": req.get("id")})
         except Exception as e:  # reported to the caller, which raises (CUDA OOM: the caller splits the batch)
-            torch.cuda.empty_cache()
             write(out, {"error": f"{type(e).__name__}: {e}", "id": req.get("id")})
 
 

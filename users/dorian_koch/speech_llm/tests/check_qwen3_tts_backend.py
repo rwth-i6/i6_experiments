@@ -120,8 +120,20 @@ def load(device, path):
     return "model"
 def prompt(model, ref_audio, ref_text, timbre_only=False):
     return {"audio": ref_audio, "text": "TIMBRE" if timbre_only else ref_text}
+class _Kv:  # a decoder state left in a reference cycle, as a finished call's can be
+    def __init__(self):
+        self.me = self
+_LIVE = []
 def synthesize(model, items, slots=64):
-    import json, os
+    import json, os, weakref
+    import torch
+    if any(r() is not None for r in _LIVE):
+        raise torch.OutOfMemoryError("CUDA out of memory (an earlier call's state is still alive)")
+    if os.environ.get("Q3_MAX_SLOTS") and slots > int(os.environ["Q3_MAX_SLOTS"]):
+        raise torch.OutOfMemoryError(f"CUDA out of memory at {slots} slots")
+    _LIVE.append(weakref.ref(_Kv()))
+    with open(os.environ["Q3_LOG"] + ".slots", "a") as f:
+        f.write(f"{slots}\\n")
     with open(os.environ["Q3_LOG"], "a") as f:
         f.write(json.dumps([{"text": it["text"], "language": it["language"], "ref": it["prompt"]["text"],
                              "seed": it["seed"]} for it in items]) + "\\n")
@@ -139,7 +151,7 @@ def check_worker(tmp):
     v2.write_bytes(b"")
     (Path(tmp) / "a.txt").write_text("Das ist meine Stimme.\n")
     log = Path(tmp) / "q3.log"
-    env = {**os.environ, "Q3_LOG": str(log)}
+    env = {**os.environ, "Q3_LOG": str(log), "Q3_MAX_SLOTS": "16"}
     proc = subprocess.Popen([sys.executable, str(wd / "qwen3_tts_worker.py"), json.dumps({"device": "cpu"})],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env)  # fmt: skip
     w = inf.WorkerProc.__new__(inf.WorkerProc)
@@ -174,6 +186,12 @@ def check_worker(tmp):
             bad.append(f"unexpected error: {e}")
     proc.stdin.close()
     proc.wait(timeout=30)
+    # spec slots 64, the stand-in fits 16: the first request retries 64 -> 32 -> 16, later ones start at 16; a
+    # garbage cycle left by a call must not cost a later request a retry (it would go down to 8)
+    seen = (Path(str(log) + ".slots").read_text().split() if Path(str(log) + ".slots").exists() else [])
+    if seen != ["16", "16"]:
+        bad.append(f"worker slots per successful call {seen}, want ['16', '16'] (OOM retry at half the slots, "
+                   "garbage collected before each call)")
 
 
 def check_decode():

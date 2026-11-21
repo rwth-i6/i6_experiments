@@ -191,6 +191,14 @@ def check_cut(c) -> list[str]:
         bad.append(f"cut: turn 0 ends at {turns[0]['end_time']:.3f}, want {want_end:.3f}")
     if abs(turns[1]["start_time"] - (turns[0]["end_time"] - 0.3)) > 3e-3:
         bad.append("cut: the interrupting turn does not overlap the cut turn by its gap")
+    t1 = {"speaker": "assistant", "lang": "zh", "text": "你可以说 <ru>Переходя к контролю <cut/> над пандемией</ru>。"}
+    try:
+        n, want = c.turn_cut_units(t1, "zh"), sum(c.speech_units(s["text"], s["lang"]) for s in c.parse_segments(
+            "你可以说 <ru>Переходя к контролю</ru>", "zh"))  # fmt: skip
+        if n != want:
+            bad.append(f"cut inside a language span: {n} units before the cut, want {want}")
+    except ValueError as e:
+        bad.append(f"cut inside a language span raised {e}")
     return bad
 
 
