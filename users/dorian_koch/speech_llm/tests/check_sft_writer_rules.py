@@ -477,6 +477,20 @@ def check_name_shape() -> list[str]:
     return bad
 
 
+def check_unencodable() -> list[str]:
+    """A lone surrogate anywhere in the writer's object (two full-run shards crashed at save on one) is rejected by
+    ``validate``, so the seed is retried instead of the whole shard failing; ordinary text passes the check."""
+    bad = []
+    seed = {"scenario": "help", "lang": "zh", "prompt_lang": "zh", "policy": "same", "turns": 2, "identity": "none"}
+    o = _safety_dlg("Hi, can you help me?", "Sure, what do you need?")
+    if sd._unencodable(o):
+        bad.append("ordinary dialogue taken for unencodable")
+    o["user_facts"] = ["喜欢" + json.loads('"\\ude6f"')]
+    if sd.validate(o, seed) != "unencodable text (lone surrogate)":
+        bad.append(f"validate does not reject a lone surrogate in user_facts: {sd.validate(o, seed)!r}")
+    return bad
+
+
 def check_prompt_framing() -> list[str]:
     """A system prompt introduced as one ("Here are the instructions for the assistant.") is rejected in every
     language (trial 2: 24 of 702); prompts that merely mention instructions or settings pass."""
@@ -754,6 +768,7 @@ MUTANTS = {
         r"марус|marusya|салют|\bsalut[e]?\b|\bsber|jarvis|джарвис|贾维斯|\bfriday\b|пятниц"))),
     "no name shape": (check_name_shape, dict(draw_name_shape=lambda lang, rng: None)),
     "name shape not in the brief": (check_name_shape, dict(_shape_text=lambda sh: "")),
+    "lone surrogate allowed": (check_unencodable, dict(_unencodable=lambda obj: False)),
     "prompt framing allowed": (check_prompt_framing, dict(_SP_FRAMING=__import__("re").compile(r"(?!x)x"))),
     "Chinese fact units per text": (check_tutor_target_zh, dict(_fact_units=lambda x: (
         [c for c in sd._norm_fact(x) if c != " "] if sd._CJK.search(sd._norm_fact(x)) else sd._norm_fact(x).split()))),
@@ -768,7 +783,7 @@ MUTANTS = {
 
 if __name__ == "__main__":
     fails = (check_identity() + check_tutor() + check_repair() + check_structure_repair() + check_round6()
-             + check_review_loop() + check_anchors() + check_language_and_identity() + check_name_shape() + check_tutor_target_zh() + check_prompt_framing() + check_safety() + check_retry_feedback() + check_versions())
+             + check_review_loop() + check_anchors() + check_language_and_identity() + check_name_shape() + check_tutor_target_zh() + check_prompt_framing() + check_unencodable() + check_safety() + check_retry_feedback() + check_versions())
     for f in fails:
         print("FAIL", f)
     for name, (fn, over) in MUTANTS.items():

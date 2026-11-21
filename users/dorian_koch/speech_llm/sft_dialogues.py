@@ -993,10 +993,22 @@ _SP_FRAMING = re.compile(
     r"以下是.{0,10}(?:指令|设定|设置|说明|配置|要求)|以上(?:为|就是|是).{0,4}(?:全部|所有)?(?:指令|设定|设置|说明|配置|要求)")
 
 
+def _unencodable(obj) -> bool:
+    """Text Arrow cannot store: a lone surrogate (the model's JSON had an unpaired ``\\udXXX`` escape). Two full-run
+    zh shards crashed at save time on one, losing every kept row of the shard."""
+    try:
+        json.dumps(obj, ensure_ascii=False, default=str).encode("utf-8")
+    except UnicodeEncodeError:
+        return True
+    return False
+
+
 def validate(obj: dict, seed: dict) -> str | None:
     """Why the writer's ``obj`` is unusable for ``seed`` (None = fine)."""
     from .chatterbox_v2_core import parse_segments, plain_text, speech_units
 
+    if _unencodable(obj):
+        return "unencodable text (lone surrogate)"
     turns, sp = obj.get("turns") or [], (obj.get("system_prompt") or "").strip()
     if not sp:
         return "empty system prompt"
