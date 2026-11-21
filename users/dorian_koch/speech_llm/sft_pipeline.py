@@ -967,7 +967,8 @@ def build_sft_corpus(*, name: str, rows: dict, env: dict, cell_seeds: int, shard
                      group: str = "cell", shards_per_job: int = 1,
                      job_hours: dict | None = None,
                      cell_sizes: dict | None = None,
-                     scenarios: list[str] | None = None, langs: list[str] | None = None) -> SftCorpus:  # fmt: skip
+                     scenarios: list[str] | None = None, langs: list[str] | None = None,
+                     voice_personas: tk.Path | None = None) -> SftCorpus:  # fmt: skip
     """Every (scenario, language) cell: ``cell_seeds`` seeds (``cell_sizes`` overrides per ``(scenario, lang)``) in
     shards of ``shard_seeds``, each its own seeds -> cast -> stats chain, written and spoken in GPU jobs over
     :func:`job_groups` (``group``, ``shards_per_job``; one output per shard; ``job_hours``: their SLURM time,
@@ -980,13 +981,14 @@ def build_sft_corpus(*, name: str, rows: dict, env: dict, cell_seeds: int, shard
     ``writer`` / ``tts``: ``SftWriteDialogues`` / ``ChatterboxInferenceV2`` settings; ``tagger``: ``SftTagRequests``
     settings (one job per language over its request pool); ``fallback``: ``{lang: other lang}``, a cell's request draw
     continues into the other language's pool (German: its usable pool is small); ``scenario_smoothing``: the uniform
-    share mixed into each request's scenario distribution (``sft_dialogues.request_prob``)."""
+    share mixed into each request's scenario distribution (``sft_dialogues.request_prob``); ``voice_personas``: the
+    voice texts' personas when not ``rows``' English ones (a corpus with a bigger persona pool keeps its voices)."""
     from ..jobs.hf import HfMergeShards
     from .tts import ChatterboxInferenceV2
 
     scenarios, langs = list(scenarios or sd.SCENARIOS), list(langs or sd.LANGS)
     assert set(scenarios) <= set(scenario_weights) and set(langs) <= set(lang_weights), "a cell without a weight"
-    pool = build_voice_pool(personas=rows[("personas", "en")], env=env, langs=langs, **voices)
+    pool = build_voice_pool(personas=voice_personas or rows[("personas", "en")], env=env, langs=langs, **voices)
     out = SftCorpus(pool=pool)
     max_err = dict(tts.get("max_err") or {"*": 0.1})
     tag_langs = sorted(set(langs) | set((fallback or {}).values()))
