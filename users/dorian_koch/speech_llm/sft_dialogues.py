@@ -86,7 +86,7 @@ SCENARIO_VERSIONS = {
     "safety": 2,
 }  # fmt: skip (+1 each: a seeded shape for invented names, ``draw_name_shape``)
 #: the writer prompt / validation (every scenario): hashed into SftWriteDialogues
-WRITER_VERSION = 15
+WRITER_VERSION = 16
 #: who the system prompt says the assistant is (one fixed identity in every dialogue would teach a fixed context, not
 #: to follow the prompt): ``none`` the prompt names no assistant (it is ``PRODUCT``, learned), ``haru``
 #: the prompt names ``PRODUCT``, ``custom`` a name and operator the writer invents for the setting
@@ -774,7 +774,8 @@ def _identity_lines(seed: dict) -> str:
 def _system_prompt_text(seed: dict) -> str:
     if seed.get("general_prompt"):
         return f"""SYSTEM PROMPT (fixed: the general assistant's instructions; copy it into "system_prompt" exactly, with
-at most one sentence of yours before it and one after it for the points below, nothing else)
+at most one sentence of yours before it and one after it for the points below, nothing else; no introduction such
+as "Here are the instructions": the prompt starts with the assistant's own instructions)
 {seed["general_prompt"]}
 {_identity_lines(seed)}- Nothing about this conversation's topic is in it: the assistant states only general knowledge and what the user
   says; asked for anything specific beyond that, it says it does not have that information.
@@ -980,6 +981,18 @@ def _script_ok(text: str, lang: str) -> bool:
     return hit >= 0.6 * len(letters)
 
 
+#: an introduction to the system prompt instead of the prompt ("Here are the instructions for the assistant.", "Ниже
+#: приведены инструкции", "以下是该助手的通用指令"): trial 2, 24 of 702 prompts, the general prompts' "one sentence
+#: before it" used as a heading
+_SP_FRAMING = re.compile(
+    r"(?i)\b(?:here (?:is|are) (?:the|your)(?: \w+){0,2} (?:instructions?|configuration|system prompt|setup|role description|settings)"
+    r"|the following (?:is|are)(?: \w+){0,2} (?:instructions?|configuration|system prompt))\b|"
+    r"\bhier (?:ist|sind) (?:die|deine|eure)(?: \w+){0,2} (?:anweisung|konfiguration|instruktion|rollenbeschreibung|einstellung|vorgabe)|"
+    r"\bvorgaben für den assistenten|"
+    r"\bвот (?:\w+ ){0,2}(?:инструкц|настройк|указани)|(?:ниже|далее) (?:приведены|указаны|следуют) (?:\w+ )?(?:инструкц|настройк)|"
+    r"以下是.{0,10}(?:指令|设定|设置|说明|配置|要求)|以上(?:为|就是|是).{0,4}(?:全部|所有)?(?:指令|设定|设置|说明|配置|要求)")
+
+
 def validate(obj: dict, seed: dict) -> str | None:
     """Why the writer's ``obj`` is unusable for ``seed`` (None = fine)."""
     from .chatterbox_v2_core import parse_segments, plain_text, speech_units
@@ -1042,6 +1055,8 @@ def validate(obj: dict, seed: dict) -> str | None:
         return "garbled characters"
     if _SP_MARKUP.search(sp):
         return "markup (language tags / cut marks) in the system prompt"
+    if _SP_FRAMING.search(sp):
+        return "an introduction (here are the instructions) in the system prompt"
     if seed["lang"] == "zh" and _pinyin_name(turns):
         return "a Chinese name in pinyin inside Chinese text"
     if "cast" in seed and _early_user_name(sp, turns, seed["cast"]["user"], seed["lang"]) is not None:
@@ -1432,10 +1447,15 @@ def _norm_fact(x: str) -> str:
     return re.sub(r"[\W_]+", " ", x.lower()).strip()
 
 
+#: a Chinese character on its own, or a run of anything else between spaces / Chinese characters
+_FACT_UNIT = re.compile(r"[\u3400-\u9fff]|[^\s\u3400-\u9fff]+")
+
+
 def _fact_units(x: str) -> list[str]:
-    """A fact's matching units: its words, or its characters where there are no spaces (Chinese)."""
-    n = _norm_fact(x)
-    return [c for c in n if c != " "] if _CJK.search(n) else n.split()
+    """A fact's matching units: each Chinese character (no spaces in Chinese) and every other word. Per run, not per
+    text (writer v15 and before: one Chinese character anywhere made the whole text characters, so the English /
+    German / Russian facts of a learner practising ``<zh>`` never matched: tutor x->zh kept 1 of 33 in trial 2)."""
+    return _FACT_UNIT.findall(_norm_fact(x))
 
 
 def _covered(fact: str, text: str, share: float = 0.7) -> bool:

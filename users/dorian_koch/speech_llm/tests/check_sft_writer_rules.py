@@ -477,6 +477,70 @@ def check_name_shape() -> list[str]:
     return bad
 
 
+def check_prompt_framing() -> list[str]:
+    """A system prompt introduced as one ("Here are the instructions for the assistant.") is rejected in every
+    language (trial 2: 24 of 702); prompts that merely mention instructions or settings pass."""
+    bad = []
+    seed = {"scenario": "help", "lang": "en", "prompt_lang": "en", "policy": "same", "turns": 2, "identity": "none"}
+    for sp, framed in (("Here are the instructions for the assistant. You are a helpful voice assistant.", True),
+                       ("Here is the general configuration for the assistant. You are a voice assistant.", True),
+                       ("Hier ist die Anweisung für den Assistenten. Du bist ein Sprachassistent.", True),
+                       ("Ниже приведены инструкции для ассистента. Ты — голосовой ассистент.", True),
+                       ("Вот общие инструкции для ассистента. Ты — голосовой ассистент.", True),
+                       ("以下是该助手的通用指令。你是一个语音助手。", True),
+                       ("You are a voice assistant for a bike shop. Explain the assembly instructions in plain words.", False),
+                       ("Du bist der Assistent einer Bank. Hier ist die Filiale in der Hauptstraße geöffnet.", False),
+                       ("你是一个语音助手。以下是本店的营业时间：早九点到晚六点。", False)):  # fmt: skip
+        got = sd._SP_FRAMING.search(sp) is not None
+        if got != framed:
+            bad.append(f"system prompt framing {sp[:45]!r}: found {got}, want {framed}")
+    o = _safety_dlg("Hi, can you help me?", "Sure, what do you need?")
+    plain = sd.validate(o, seed)  # whatever else this stand-in trips comes after the framing check
+    o["system_prompt"] = "Here are the instructions for the assistant. " + o["system_prompt"]
+    if sd.validate(o, seed) != "an introduction (here are the instructions) in the system prompt":
+        bad.append(f"validate does not reject a framed prompt: {sd.validate(o, seed)!r} (plain: {plain!r})")
+    if "no introduction" not in sd._system_prompt_text({**seed, "general_prompt": sd.GENERAL_PROMPTS["en"][0]}):
+        bad.append("the general-prompt brief does not forbid an introduction")
+    return bad
+
+
+def check_tutor_target_zh() -> list[str]:
+    """A learner's facts count as said when the user's turns also practise Chinese (trial 2: tutor x->zh kept 1 of 33,
+    every non-Chinese fact read as characters once a ``<zh>`` try was in the text); every target language is drawn
+    evenly per cell."""
+    bad = []
+    seed = {"policy": "tutor", "lang": "en", "l2": "zh"}
+    cases = [  # (facts, user turns, said?)
+        (["landlord, Joseph Walker", "apartment has a massive leak"],
+         ["I'm writing to my landlord, Joseph Walker, because my apartment has a massive leak.",
+          "So <zh>由于住房问题，我无法去上班</zh>?"], True),
+        (["пишу письмо подруге Анне"], ["Я пишу письмо подруге Анне. Как сказать <zh>你好</zh>?"], True),
+        (["Ich fliege im Oktober nach Peking"], ["Ich fliege im Oktober nach Peking, ist <zh>北京</zh> richtig?"], True),
+        (["我在准备雅思考试"], ["我在准备雅思考试，<en>ielts</en> writing is hard."], True),
+        (["my sister Lena runs a bakery"], ["How do I say bread? Is it <zh>面包</zh>?"], False),
+    ]  # fmt: skip
+    for facts, users, said in cases:
+        o = {"system_prompt": "You are a language tutor.", "user_facts": facts,
+             "turns": [t for u in users for t in ({"speaker": "user", "lang": "en", "text": u},
+                                                  {"speaker": "assistant", "lang": "en", "text": "Good."})]}  # fmt: skip
+        got = sd._user_facts_problem(o, seed)
+        if (got is None) != said:
+            bad.append(f"user facts {facts[0]!r} with a Chinese try: {got!r}, want {'said' if said else 'rejected'}")
+    from i6_experiments.users.dorian_koch.speech_llm import sft_pipeline as sp
+
+    flags = {"needs_document": False, "needs_business_facts": False, "unsafe": False, "not_speakable": False}
+    for lg in sd.LANGS:
+        rows = {"personas": [{"id": f"p{k}", "text": f"A {30 + k}-year-old nurse {k}."} for k in range(9)],
+                "tagged": [{"id": f"{lg}{i}", "lang": lg, "text": f"How do I say word {i}?", "gist": f"word {i}",
+                            "weights": {k: 1.0 for k in sp.TAG_TYPES}, "flags": flags} for i in range(40)]}  # fmt: skip
+        got = {}
+        for s in sd.make_seeds("tutor", lg, 30, 100, rows):
+            got[s["l2"]] = got.get(s["l2"], 0) + 1
+        if sorted(got.values()) != [10, 10, 10]:
+            bad.append(f"tutor/{lg}: target languages not drawn evenly: {got}")
+    return bad
+
+
 def _safety_dlg(user, asst, lang="en"):
     return {"system_prompt": "You are a helpful voice assistant.", "assistant_name": "", "user_facts": [],
             "turns": [{"speaker": "user", "lang": lang, "text": user}, {"speaker": "assistant", "lang": lang, "text": asst}]}
@@ -690,6 +754,9 @@ MUTANTS = {
         r"марус|marusya|салют|\bsalut[e]?\b|\bsber|jarvis|джарвис|贾维斯|\bfriday\b|пятниц"))),
     "no name shape": (check_name_shape, dict(draw_name_shape=lambda lang, rng: None)),
     "name shape not in the brief": (check_name_shape, dict(_shape_text=lambda sh: "")),
+    "prompt framing allowed": (check_prompt_framing, dict(_SP_FRAMING=__import__("re").compile(r"(?!x)x"))),
+    "Chinese fact units per text": (check_tutor_target_zh, dict(_fact_units=lambda x: (
+        [c for c in sd._norm_fact(x) if c != " "] if sd._CJK.search(sd._norm_fact(x)) else sd._norm_fact(x).split()))),
     "safety prompt unchecked": (check_safety, dict(_SAFETY_IN_PROMPT=__import__("re").compile(r"(?!x)x"))),
     "no over-refusal share": (check_safety, dict(SAFETY_KINDS={"refusal": 0.75, "crisis": 0.25})),
     "minors content allowed": (check_safety, dict(_MINORS_SEXUAL=__import__("re").compile(r"(?!x)x"))),
@@ -701,7 +768,7 @@ MUTANTS = {
 
 if __name__ == "__main__":
     fails = (check_identity() + check_tutor() + check_repair() + check_structure_repair() + check_round6()
-             + check_review_loop() + check_anchors() + check_language_and_identity() + check_name_shape() + check_safety() + check_retry_feedback() + check_versions())
+             + check_review_loop() + check_anchors() + check_language_and_identity() + check_name_shape() + check_tutor_target_zh() + check_prompt_framing() + check_safety() + check_retry_feedback() + check_versions())
     for f in fails:
         print("FAIL", f)
     for name, (fn, over) in MUTANTS.items():
