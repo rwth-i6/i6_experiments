@@ -963,7 +963,7 @@ def _render_haru_lib_config(job: "SpeechFinetune", batch_size: int, max_steps: i
     ``tk.Path``), ``lr``, ``warmup_steps``, ``grad_accum``, ``audio_weight``, ``text_pad_weight``, the text layout
     (``text_segment_gap`` / ``text_at`` / ``text_offset``: ``rl_spec.components.HARU_TEXT_LAYOUT``), ``lead_in_frames``,
     ``max_s``, ``save_every``; optional ``micro_batch``, ``lr_schedule``, ``weight_decay``, ``grad_clip``, ``lora_scaling``,
-    ``word_overlap``, ``eval_every``, ``heldout_every``, ``heldout_seed``, the user-stream augmentation
+    ``word_overlap``, ``eval_every``, ``heldout_every``, ``heldout_max``, ``heldout_seed``, the user-stream augmentation
     (``aug_{gain,noise,echo_reverb,telephone,codec}_prob``, ``aug_clip_peak``, ``aug_noise_dir`` a ``tk.Path``) and the
     run-side ``gradient_checkpointing`` / ``log_every``."""
     hp = dict(getattr(job, "hparams", None) or {})
@@ -972,7 +972,7 @@ def _render_haru_lib_config(job: "SpeechFinetune", batch_size: int, max_steps: i
     missing = [k for k in need if k not in hp]
     assert not missing, f"Haru lib: hparams lacks {missing}"
     known = set(need) | {"micro_batch", "lr_schedule", "weight_decay", "grad_clip", "lora_scaling", "word_overlap",
-                         "eval_every", "heldout_every", "heldout_seed", "aug_gain_prob", "aug_noise_prob",
+                         "eval_every", "heldout_every", "heldout_max", "heldout_seed", "aug_gain_prob", "aug_noise_prob",
                          "aug_echo_reverb_prob", "aug_telephone_prob", "aug_codec_prob", "aug_clip_peak",
                          "aug_noise_dir", "gradient_checkpointing", "log_every"}  # fmt: skip
     unknown = sorted(set(hp) - known)
