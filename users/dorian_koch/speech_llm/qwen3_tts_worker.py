@@ -10,9 +10,10 @@ codes (``en``, ``de``, ``zh``, ``ru``, ...). ``modes``: per item ``"clone"`` (de
 embedding only: for text in another language than the voice prompt's, which ICL would speak with the prompt's
 accent; ``qwen3_tts_fast.prompt``). Argument: JSON ``{"model", "device", "slots"}``.
 
-Memory: each call collects garbage first (a finished call's decoder state can sit in reference cycles until a full
-collection; the full SFT run's TTS jobs held ~77 GB of live tensors and failed every retry, 2026-11-21), and a CUDA
-out of memory retries the same request at half the slots, which then stay halved for the worker's later requests.
+Memory: a CUDA out of memory retries the same request at half the slots, which then stay halved for the worker's
+later requests; each call collects garbage and empties the cache first. (The full SFT run's TTS jobs held ~64 GB of
+live tensors after a call and failed every retry, 2026-11-21: ``qwen3_tts_fast`` captured its step graphs with
+autograd on, so each call's KV cache stayed allocated; fixed there.)
 """
 
 import gc

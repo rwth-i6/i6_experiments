@@ -14,10 +14,14 @@ Asserted against the real modules:
     transcript beside the voice file, ISO codes become Qwen3's language names, a voice without a transcript is an
     error, results come back in request order, ``modes`` "timbre" builds a speaker-embedding-only prompt (no
     transcript needed) and leaves "clone" items on the ICL prompt;
-  * ``qwen3_tts_fast.decode`` decodes a timbre-only item (no reference codes) without cutting anything off.
+  * ``qwen3_tts_fast.decode`` decodes a timbre-only item (no reference codes) without cutting anything off;
+  * ``ContinuousTalker.precapture`` called with autograd on (as ``synthesize`` calls it) runs the captured step without
+    autograd (CUDA graph calls stood in on CPU): a capture that records the backward graph keeps the KV cache and every
+    step intermediate allocated after the call (a 64-slot call left ~64 GB, every later call ran out of memory).
 
 Shown failing on the inference script before the backend existed (no ``q3`` kind) and on a worker that ignores the
-transcript sidecar; the timbre-only parts on the code before 2026-11-19 (no voice modes).
+transcript sidecar; the timbre-only parts on the code before 2026-11-19 (no voice modes); the capture part on the code
+before 2026-11-21 (step graphs captured with autograd on).
 
 Run from the setup root:
     CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_qwen3_tts_backend.py
@@ -210,6 +214,45 @@ def check_decode():
         bad.append(f"decode with / without reference codes: lengths {[len(w) for w in out]} (want 300, 400)")
 
 
+def check_capture_no_autograd():
+    import contextlib
+
+    import torch
+
+    import qwen3_tts_fast as q3
+
+    class _Stream:
+        def wait_stream(self, other):
+            pass
+
+    stand_ins = {"Stream": _Stream, "current_stream": _Stream, "stream": lambda s: contextlib.nullcontext(),
+                 "CUDAGraph": object, "graph": lambda g: contextlib.nullcontext(), "synchronize": lambda: None}  # fmt: skip
+    saved = {k: getattr(torch.cuda, k) for k in stand_ins}
+    lin = torch.nn.Linear(2, 2)  # parameters require grad, as the loaded model's do
+    t = types.SimpleNamespace(graphs={}, bucket=128, lmax=256)
+    for k in ("bias", "h", "code0", "g", "pos", "done", "seen", "out"):
+        setattr(t, k, torch.zeros(2))
+    grad_on = []
+
+    def step(w):  # as ContinuousTalker._step: persistent state updated in place from the model's output
+        grad_on.append(torch.is_grad_enabled())
+        t.h.copy_(lin(t.h))
+
+    t._step = step
+    t._graph = lambda w: q3.ContinuousTalker._graph(t, w)
+    try:
+        for k, v in stand_ins.items():
+            setattr(torch.cuda, k, v)
+        with torch.enable_grad():
+            q3.ContinuousTalker.precapture(t)
+    finally:
+        for k, v in saved.items():
+            setattr(torch.cuda, k, v)
+    if not grad_on or any(grad_on) or t.h.grad_fn is not None:
+        bad.append(f"step graphs captured with autograd on (per step {grad_on}, state grad_fn {t.h.grad_fn}): the "
+                   "backward graph keeps the KV cache and the step intermediates allocated after the call")
+
+
 with tempfile.TemporaryDirectory() as tmp:
     try:
         p = check_plan(tmp)
@@ -221,6 +264,10 @@ try:
     check_decode()
 except Exception as e:  # noqa: BLE001 -- a guard failure, reported below
     bad.append(f"decode raised {type(e).__name__}: {e}")
+try:
+    check_capture_no_autograd()
+except Exception as e:  # noqa: BLE001 -- a guard failure, reported below
+    bad.append(f"capture check raised {type(e).__name__}: {e}")
 for b in bad:
     print("FAIL", b)
 print("check_qwen3_tts_backend:", "FAIL" if bad else "ok")

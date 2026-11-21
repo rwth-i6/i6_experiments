@@ -297,7 +297,12 @@ class ContinuousTalker:
         self.pos += live.long()
         self.done |= (nxt == self.eos) | (self.g >= self.cap)
 
+    @torch.inference_mode()
     def _graph(self, w):
+        """The step graph of attention window ``w`` (captured on first use). Captured in inference mode: a capture
+        with autograd on (``precapture`` from ``synthesize``) recorded the step's backward graph, whose saved tensors
+        (the KV cache and every step intermediate) outlived the talker and the call: each call left its state
+        allocated, ~64 GB after a 64-slot call, and every later call ran out of memory (2026-11-21)."""
         if w not in self.graphs:
             state = (self.bias, self.h, self.code0, self.g, self.pos, self.done, self.seen, self.out)
             snap = [t.clone() for t in state]
@@ -428,6 +433,7 @@ def decode(model, codes: list[torch.Tensor], ref_codes: list[torch.Tensor]) -> l
     return out
 
 
+@torch.inference_mode()
 def synthesize(model, items: list[dict], *, slots: int = 64, dec_batch: int = 8, dec_pool: int = 64,
                overlap: bool = True, gen: dict | None = None, timing: dict | None = None,
                codes_out: list | None = None, log_every: float = 60.0) -> tuple[list[np.ndarray], int]:  # fmt: skip
