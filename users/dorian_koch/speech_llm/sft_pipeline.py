@@ -59,7 +59,10 @@ VOICE_TEXTS_VERSION = 1
 #: (en) while the annotators took a whole chunk's clips in one call; with the calls sliced
 #: (``chatterbox_v2_inference.ANN_CALL``) the job tree peaked at 12.1 GB (48 dialogues), 14.3 GB (192 in chunks of
 #: 48) and 17.7 GB (192 in one chunk of 192, the default), 2026-11-20 (``/hpcwork/tt201262/sbatch/sft_trial/mem``)
-TTS_MEM_GB = 32
+#: The full run (2026-11-21, qwen3 TTS, 192 dialogues per job): finished jobs peaked at 15.4-29.7 GB (median 18.2, n=51)
+#: and 4 of 55 were OOM-killed at 32 GB in the qwen3 worker, hence 1.5x the measured peak.
+TTS_PEAK_GB = 29.7
+TTS_MEM_GB = 48
 TTS_KEEP = ["sft_id", "scenario", "lang", "prompt_lang", "policy", "level", "system_prompt", "user_facts", "seed",
             "dialogue", "tries"]  # fmt: skip
 

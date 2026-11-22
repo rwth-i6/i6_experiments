@@ -537,6 +537,13 @@ def _split_ids_across(path, prefixes, outs):  # mutant: ids counted across the w
         sub.add_column("id", [f"{pre}dialogue_{j}" for j in idx]).save_to_disk(out)
 
 
+def check_tts_mem() -> list[str]:
+    """Every TTS job of the corpus asks for at least 1.5x the measured host-memory peak (``sp.TTS_PEAK_GB``)."""
+    mems = {j["tts"].rqmt.get("mem") for js in _build().shards.values() for j in js}
+    low = sorted(m for m in mems if m is None or m < 1.5 * sp.TTS_PEAK_GB)
+    return [f"TTS jobs ask for {low} GB host memory, want >= {1.5 * sp.TTS_PEAK_GB:.0f}"] if low else []
+
+
 MUTANTS = {
     "seeds keyed by the shard's own index": (check_shards, sd,
                                              dict(make_seeds=lambda sc, lg, n, seed, rows, start=0: _make_seeds(sc, lg, n, seed, rows))),
@@ -555,6 +562,7 @@ MUTANTS = {
     "speech_llm looked up at run time": (check_task_cwd, sys.modules[__name__], dict(_TASK_CWD_MUTANT=True)),
     "voice texts retried blind": (check_voice_texts, sp, dict(voice_text_retry=lambda text, why, lang: None)),
     "silence never counted": (check_stats, sp, dict(SILENT_DBFS=-400.0)),
+    "TTS host memory as in the trial": (check_tts_mem, sp, dict(TTS_MEM_GB=32)),
     "no duplicate detection": (check_stats, sp, dict(_digest=lambda x: os.urandom(8).hex())),
 }  # fmt: skip
 
@@ -569,6 +577,7 @@ if __name__ == "__main__":
         + check_voice_texts()
         + check_task_cwd()
         + check_stats()
+        + check_tts_mem()
     )
     for f in fails:
         print("FAIL", f)
