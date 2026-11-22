@@ -116,6 +116,9 @@
   "env": "setup",
   "graph": true
  },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_finetune_sft_corpus.py": {
+  "env": "setup"
+ },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_mfdb_protocol.py": {
   "env": "setup",
   "graph": true

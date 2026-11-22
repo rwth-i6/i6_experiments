@@ -67,23 +67,49 @@ from .finetune_adapters import (  # noqa: F401 -- re-exported: callers and job p
 # --------------------------------------------------------------------------- #
 # Shared harness helpers (used by both SpeechFinetune and the MoshiFinetune shim).
 # --------------------------------------------------------------------------- #
+def corpus_durations(path: str):
+    """Seconds of audio per row of a training corpus on disk, without decoding audio.
+
+    A ``duration`` column if the corpus has one (the dialogue corpora); else, for an SFT dialogue corpus
+    (``chatterbox_v2_inference`` rows: ``speaker_audio`` + ``turns``), the last turn's ``end_time``: its tracks end
+    there by construction (``chatterbox_v2_core.render``: track length = max turn start + length)."""
+    import numpy as np
+    from datasets import load_from_disk
+
+    ds = load_from_disk(path)
+    if "duration" in ds.column_names:
+        return np.asarray(ds["duration"], dtype=float)
+    if not {"turns", "speaker_audio"} <= set(ds.column_names):
+        raise ValueError(f"{path}: no 'duration' column and not an SFT dialogue corpus (columns {ds.column_names})")
+    col = ds.select_columns(["turns"]).with_format("arrow")[:].column("turns")
+    # ``Sequence({...})`` is a struct of lists in datasets 4: only the end_time lists reach Python
+    ends = [max(e) if e else 0.0 for chunk in col.chunks for e in chunk.field("end_time").to_pylist()]
+    return np.asarray(ends, dtype=float)
+
+
+def read_cut_sec(job) -> float:
+    """Seconds of each row one training read keeps: Haru's SFT reader cuts at ``hparams["max_s"]`` (``haru/sft_data.py``;
+    no other renderer reads ``max_s``, ``check_finetune_hparams_read``), every other loader at ``duration_sec``."""
+    hp = getattr(job, "hparams", None) or {}
+    return float(hp["max_s"]) if "max_s" in hp else job.duration_sec
+
+
 def resolve_max_steps(*, train_data, duration_sec: int, num_epochs, max_steps: int, batch_size: int) -> int:
     """Sanity-check durations and, if ``num_epochs`` is set, size ``max_steps`` to
     cover that many epochs over the whole dataset.
 
-    Raises if >1% of dialogues are longer than ``duration_sec`` (otherwise the
+    Raises if >1% of dialogues are longer than ``duration_sec`` (the read cut, :func:`read_cut_sec`; otherwise the
     loader would silently truncate content and the window count below would be
-    wrong). Assumes single-GPU training (world_size == 1).
+    wrong). Row lengths from :func:`corpus_durations`. Assumes single-GPU training (world_size == 1).
     """
     import numpy as np
-    from datasets import load_from_disk
 
     # Validate EVERY corpus in the mix: a row longer than duration_sec is silently truncated by
     # build_codes, so this guard is the only thing standing between a too-small window and quietly
     # training on cut-off dialogues.
     all_durations = []
     for path, _weight, window_sec in train_data_specs(train_data):
-        durations = np.asarray(load_from_disk(path.get())["duration"], dtype=float)
+        durations = corpus_durations(path.get())
         if window_sec:
             # full-conversation corpus: rows are longer than the window BY DESIGN (the loader cuts a
             # random window_sec window per draw), so the truncation guard does not apply; count each
@@ -136,7 +162,7 @@ def write_finetune_config(job: "SpeechFinetune", adapter: FinetuneAdapter) -> No
     batch_size = adapter.batch_size
     max_steps = resolve_max_steps(
         train_data=job.train_data,
-        duration_sec=job.duration_sec,
+        duration_sec=read_cut_sec(job),
         num_epochs=job.num_epochs,
         max_steps=job.max_steps,
         batch_size=batch_size,

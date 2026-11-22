@@ -966,7 +966,7 @@ def _render_haru_lib_config(job: "SpeechFinetune", batch_size: int, max_steps: i
     ``word_overlap``, ``eval_every``, ``heldout_every``, ``heldout_max``, ``heldout_seed``, the user-stream augmentation
     (``aug_{gain,noise,echo_reverb,telephone,codec}_prob``, ``aug_clip_peak``, ``aug_noise_dir`` a ``tk.Path``) and the
     run-side ``gradient_checkpointing`` / ``log_every``."""
-    hp = dict(getattr(job, "hparams", None) or {})
+    hp = getattr(job, "hparams", None) or {}  # not a copy: unread_hparams tracks the reads on the job's dict
     need = ("voice_dir", "lr", "warmup_steps", "grad_accum", "audio_weight", "text_pad_weight", "text_segment_gap",
             "text_at", "text_offset", "lead_in_frames", "max_s", "save_every")  # fmt: skip
     missing = [k for k in need if k not in hp]
