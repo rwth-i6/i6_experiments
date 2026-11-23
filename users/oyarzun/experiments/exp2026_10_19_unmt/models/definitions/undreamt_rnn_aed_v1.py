@@ -19,7 +19,7 @@ Architecture:
       Language-specific LinearGenerator (or EmbeddingGenerator) projecting 600 -> V+4 log-probabilities.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 import os
 import random
 import torch
@@ -173,9 +173,46 @@ class StackedGRU(nn.Module):
         return cur, torch.stack(next_hidden, dim=0)
 
 
+class StackedLSTM(nn.Module):
+    """
+    Multi-layer step-by-step LSTM with inter-layer dropout.
+    """
+
+    def __init__(self, layers: int, input_size: int, hidden_size: int, dropout: float = 0.3):
+        super().__init__()
+        self.dropout = nn.Dropout(dropout)
+        self.num_layers = layers
+        self.layers = nn.ModuleList()
+        cur_in = input_size
+        for _ in range(layers):
+            self.layers.append(nn.LSTMCell(cur_in, hidden_size))
+            cur_in = hidden_size
+
+    def forward(
+        self, x: torch.Tensor, hidden: Tuple[torch.Tensor, torch.Tensor]
+    ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        :param x: (batch, input_size)
+        :param hidden: (h: (num_layers, batch, hidden_size), c: (num_layers, batch, hidden_size))
+        :return: (top_output: (batch, hidden_size), (new_h, new_c))
+        """
+        h_prev, c_prev = hidden
+        next_h = []
+        next_c = []
+        cur = x
+        for i, layer in enumerate(self.layers):
+            h_i, c_i = layer(cur, (h_prev[i], c_prev[i]))
+            next_h.append(h_i)
+            next_c.append(c_i)
+            cur = h_i
+            if i + 1 != self.num_layers:
+                cur = self.dropout(cur)
+        return cur, (torch.stack(next_h, dim=0), torch.stack(next_c, dim=0))
+
+
 class UNdreaMTRNNEncoder(nn.Module):
     """
-    2-layer Bidirectional GRU Encoder from undreamt/encoder.py.
+    Bidirectional GRU / LSTM Encoder.
     """
 
     def __init__(
@@ -185,6 +222,7 @@ class UNdreaMTRNNEncoder(nn.Module):
         layers: int = 2,
         bidirectional: bool = True,
         dropout: float = 0.3,
+        cell_type: str = "gru",
     ):
         super().__init__()
         if bidirectional and hidden_size % 2 != 0:
@@ -194,8 +232,10 @@ class UNdreaMTRNNEncoder(nn.Module):
         self.layers = layers
         self.hidden_size = hidden_size // self.directions
         self.total_hidden_size = hidden_size
+        self.cell_type = cell_type.lower()
         self.dropout = nn.Dropout(dropout)
-        self.rnn = nn.GRU(
+        rnn_cls = nn.LSTM if self.cell_type == "lstm" else nn.GRU
+        self.rnn = rnn_cls(
             embedding_size,
             self.hidden_size,
             num_layers=layers,
@@ -208,14 +248,14 @@ class UNdreaMTRNNEncoder(nn.Module):
         ids: torch.Tensor,
         lengths: torch.Tensor,
         word_embeddings: CrossLingualWordEmbedding,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]], torch.Tensor]:
         """
         :param ids: (src_len, batch) LongTensor of token IDs
         :param lengths: (batch,) LongTensor of valid sequence lengths
         :param word_embeddings: language-specific CrossLingualWordEmbedding module
         :return:
           - output: (src_len, batch, hidden_size)
-          - hidden: (layers, batch, hidden_size)
+          - hidden: (layers, batch, hidden_size) for GRU or tuple of (h, c) for LSTM
           - mask: (batch, src_len) BoolTensor (True on padded positions)
         """
         max_len, batch_size = ids.shape
@@ -231,19 +271,33 @@ class UNdreaMTRNNEncoder(nn.Module):
 
         packed = nn.utils.rnn.pack_padded_sequence(embs, sorted_lengths.tolist(), batch_first=False)
         h0 = torch.zeros(self.layers * self.directions, batch_size, self.hidden_size, device=device, dtype=embs.dtype)
-        output, hidden = self.rnn(packed, h0)
-        output, _ = nn.utils.rnn.pad_packed_sequence(output, total_length=max_len, batch_first=False)
-
-        if self.bidirectional:
-            # Concatenate forward and backward final states per layer: (layers, batch, 2 * hidden_size)
-            hidden = torch.stack(
-                [torch.cat((hidden[2 * i], hidden[2 * i + 1]), dim=1) for i in range(self.layers)],
-                dim=0,
-            )
-
-        # Unsort back to original batch order
-        output = output[:, unsort_idx, :]
-        hidden = hidden[:, unsort_idx, :]
+        if self.cell_type == "lstm":
+            c0 = torch.zeros_like(h0)
+            packed_out, (h_n, c_n) = self.rnn(packed, (h0, c0))
+            output, _ = nn.utils.rnn.pad_packed_sequence(packed_out, total_length=max_len, batch_first=False)
+            if self.bidirectional:
+                h_n = torch.stack(
+                    [torch.cat((h_n[2 * i], h_n[2 * i + 1]), dim=1) for i in range(self.layers)],
+                    dim=0,
+                )
+                c_n = torch.stack(
+                    [torch.cat((c_n[2 * i], c_n[2 * i + 1]), dim=1) for i in range(self.layers)],
+                    dim=0,
+                )
+            output = output[:, unsort_idx, :]
+            h_n = h_n[:, unsort_idx, :]
+            c_n = c_n[:, unsort_idx, :]
+            hidden = (h_n, c_n)
+        else:
+            packed_out, h_n = self.rnn(packed, h0)
+            output, _ = nn.utils.rnn.pad_packed_sequence(packed_out, total_length=max_len, batch_first=False)
+            if self.bidirectional:
+                h_n = torch.stack(
+                    [torch.cat((h_n[2 * i], h_n[2 * i + 1]), dim=1) for i in range(self.layers)],
+                    dim=0,
+                )
+            output = output[:, unsort_idx, :]
+            hidden = h_n[:, unsort_idx, :]
 
         # Padding mask: True where step >= length
         steps = torch.arange(max_len, device=device).unsqueeze(0)  # (1, max_len)
@@ -254,7 +308,7 @@ class UNdreaMTRNNEncoder(nn.Module):
 
 class UNdreaMTRNNAttentionDecoder(nn.Module):
     """
-    2-layer StackedGRU Decoder with GlobalAttention and input feeding from undreamt/decoder.py.
+    Stacked RNN (GRU or LSTM) Decoder with GlobalAttention and input feeding from undreamt/decoder.py.
     """
 
     def __init__(
@@ -265,39 +319,48 @@ class UNdreaMTRNNAttentionDecoder(nn.Module):
         dropout: float = 0.3,
         input_feeding: bool = True,
         alignment_function: str = "general",
+        cell_type: str = "gru",
     ):
         super().__init__()
         self.embedding_size = embedding_size
         self.hidden_size = hidden_size
         self.layers = layers
+        self.cell_type = cell_type.lower()
         self.dropout = nn.Dropout(dropout)
         self.input_feeding = input_feeding
         rnn_input_size = embedding_size + hidden_size if input_feeding else embedding_size
-        self.stacked_rnn = StackedGRU(layers, rnn_input_size, hidden_size, dropout=dropout)
+        if self.cell_type == "lstm":
+            self.stacked_rnn = StackedLSTM(layers, rnn_input_size, hidden_size, dropout=dropout)
+        else:
+            self.stacked_rnn = StackedGRU(layers, rnn_input_size, hidden_size, dropout=dropout)
         self.attention = GlobalAttention(hidden_size, alignment_function=alignment_function)
 
     def forward_step(
         self,
         input_ids: torch.Tensor,
-        prev_hidden: torch.Tensor,
+        prev_hidden: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
         prev_output: torch.Tensor,
         context: torch.Tensor,
         context_mask: torch.Tensor,
         word_embeddings: CrossLingualWordEmbedding,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]]:
         """
         Executes a single decoder step.
         :param input_ids: (batch,) LongTensor
-        :param prev_hidden: (layers, batch, hidden_size)
+        :param prev_hidden: (layers, batch, hidden_size) or tuple (h, c) for LSTM
         :param prev_output: (batch, hidden_size)
         :param context: (src_len, batch, hidden_size)
         :param context_mask: (batch, src_len) BoolTensor
         :param word_embeddings: CrossLingualWordEmbedding
-        :return: (output: (batch, hidden_size), hidden: (layers, batch, hidden_size))
+        :return: (output: (batch, hidden_size), hidden: new state)
         """
         emb = self.dropout(word_embeddings(input_ids))  # (batch, emb_dim)
         if self.input_feeding:
             emb = torch.cat([emb, prev_output], dim=1)
+        rnn_out, hidden = self.stacked_rnn(emb, prev_hidden)
+        att_out = self.attention(rnn_out, context, context_mask)
+        att_out = self.dropout(att_out)
+        return att_out, hidden
         rnn_out, hidden = self.stacked_rnn(emb, prev_hidden)
         att_out = self.attention(rnn_out, context, context_mask)
         att_out = self.dropout(att_out)
@@ -420,7 +483,7 @@ class EmbeddingGenerator(nn.Module):
 class UNdreaMTModel(nn.Module):
     """
     Complete UNdreaMT Unsupervised Neural Machine Translation model in PyTorch/RETURNN.
-    Shares a single 2-layer BiGRU encoder across source (e.g. German) and target (e.g. English),
+    Shares a bidirectional RNN (GRU or LSTM) encoder across source and target,
     with frozen pre-trained cross-lingual encoder embeddings and language-specific decoders & generators.
     """
 
@@ -431,6 +494,9 @@ class UNdreaMTModel(nn.Module):
         embedding_size: int = 300,
         hidden_size: int = 600,
         layers: int = 2,
+        encoder_layers: Optional[int] = None,
+        decoder_layers: Optional[int] = None,
+        cell_type: str = "gru",
         dropout: float = 0.3,
         param_init: float = 0.1,
         src_pretrained_emb_path: Optional[str] = None,
@@ -447,7 +513,10 @@ class UNdreaMTModel(nn.Module):
         self.trg_vocab_size = trg_vocab_size
         self.embedding_size = embedding_size
         self.hidden_size = hidden_size
-        self.layers = layers
+        self.encoder_layers = encoder_layers if encoder_layers is not None else layers
+        self.decoder_layers = decoder_layers if decoder_layers is not None else layers
+        self.layers = self.decoder_layers
+        self.cell_type = cell_type.lower()
         self.dropout = dropout
         self.param_init = param_init
 
@@ -479,31 +548,34 @@ class UNdreaMTModel(nn.Module):
                 freeze_word_embeddings=freeze_decoder_embeddings,
             )
 
-        # 3. Shared 2-layer BiGRU encoder
+        # 3. Shared BiRNN encoder
         self.encoder = UNdreaMTRNNEncoder(
             embedding_size=embedding_size,
             hidden_size=hidden_size,
-            layers=layers,
+            layers=self.encoder_layers,
             bidirectional=True,
             dropout=dropout,
+            cell_type=self.cell_type,
         )
 
-        # 4. Language-specific 2-layer StackedGRU attention decoders
+        # 4. Language-specific StackedRNN attention decoders
         self.src_decoder = UNdreaMTRNNAttentionDecoder(
             embedding_size=embedding_size,
             hidden_size=hidden_size,
-            layers=layers,
+            layers=self.decoder_layers,
             dropout=dropout,
             input_feeding=True,
             alignment_function=alignment_function,
+            cell_type=self.cell_type,
         )
         self.trg_decoder = UNdreaMTRNNAttentionDecoder(
             embedding_size=embedding_size,
             hidden_size=hidden_size,
-            layers=layers,
+            layers=self.decoder_layers,
             dropout=dropout,
             input_feeding=True,
             alignment_function=alignment_function,
+            cell_type=self.cell_type,
         )
 
         # 5. Language-specific generators
@@ -534,6 +606,32 @@ class UNdreaMTModel(nn.Module):
             self.trg_encoder_embeddings.load_pretrained_npy(trg_pretrained_emb_path)
             if freeze_decoder_embeddings and not share_encoder_decoder_embeddings:
                 self.trg_decoder_embeddings.load_pretrained_npy(trg_pretrained_emb_path)
+
+    def adapt_hidden(
+        self,
+        enc_hidden: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        Adapts the encoder hidden state(s) from encoder_layers to decoder_layers.
+        - If enc_layers == dec_layers: returns enc_hidden unchanged.
+        - If enc_layers > dec_layers: slices top dec_layers (enc_hidden[-dec_layers:]).
+        - If enc_layers < dec_layers: replicates the state to match dec_layers.
+        Works for both GRU (Tensor) and LSTM (Tuple[Tensor, Tensor]).
+        """
+        def _adapt_tensor(h: torch.Tensor) -> torch.Tensor:
+            enc_l = h.shape[0]
+            dec_l = self.decoder_layers
+            if enc_l == dec_l:
+                return h
+            elif enc_l > dec_l:
+                return h[-dec_l:]
+            else:
+                reps = (dec_l + enc_l - 1) // enc_l
+                return h.repeat(reps, 1, 1)[:dec_l]
+
+        if isinstance(enc_hidden, tuple):
+            return (_adapt_tensor(enc_hidden[0]), _adapt_tensor(enc_hidden[1]))
+        return _adapt_tensor(enc_hidden)
 
     def get_lang_modules(self, lang: str):
         """
@@ -620,8 +718,9 @@ class UNdreaMTModel(nn.Module):
         trg_ids_tb = trg_labels_bt.long().transpose(0, 1).contiguous()
 
         enc_out, enc_hidden, enc_mask = self.encoder(src_ids_tb, src_lengths_b.long(), src_enc_emb)
+        dec_init_hidden = self.adapt_hidden(enc_hidden)
         logprobs, att_weights = trg_decoder.forward_with_attention(
-            trg_ids_tb, enc_hidden, enc_out, enc_mask, trg_dec_emb, trg_generator
+            trg_ids_tb, dec_init_hidden, enc_out, enc_mask, trg_dec_emb, trg_generator
         )
         # att_weights: (batch, trg_len, src_len) -> (batch, 1, 1, trg_len, src_len)
         att_weights_b11qk = att_weights.unsqueeze(1).unsqueeze(2)
@@ -646,7 +745,8 @@ class UNdreaMTModel(nn.Module):
         _, trg_dec_emb, trg_decoder, trg_generator, _ = self.get_lang_modules(trg_lang)
 
         enc_out, enc_hidden, enc_mask = self.encoder(src_ids, src_lengths, src_enc_emb)
-        logprobs = trg_decoder(trg_input_ids, enc_hidden, enc_out, enc_mask, trg_dec_emb, trg_generator)
+        dec_init_hidden = self.adapt_hidden(enc_hidden)
+        logprobs = trg_decoder(trg_input_ids, dec_init_hidden, enc_out, enc_mask, trg_dec_emb, trg_generator)
         return logprobs
 
     @torch.no_grad()
@@ -671,7 +771,8 @@ class UNdreaMTModel(nn.Module):
             max_src_len, batch_size = src_ids.shape
             device = src_ids.device
 
-            enc_out, hidden, enc_mask = self.encoder(src_ids, src_lengths, src_enc_emb)
+            enc_out, enc_hidden, enc_mask = self.encoder(src_ids, src_lengths, src_enc_emb)
+            hidden = self.adapt_hidden(enc_hidden)
             prev_out = torch.zeros(batch_size, self.hidden_size, device=device, dtype=enc_out.dtype)
             cur_input = torch.full((batch_size,), SOS_ID, dtype=torch.long, device=device)
 
@@ -759,6 +860,9 @@ class UNdreaMTModel(nn.Module):
         batch_size = src_ids.shape[1]
         device = src_ids.device
 
+        dec_init_hidden = self.adapt_hidden(enc_hidden)
+        is_lstm = isinstance(dec_init_hidden, tuple)
+
         def _lp(length: int) -> float:
             if lp_alpha <= 0.0:
                 return 1.0
@@ -770,7 +874,11 @@ class UNdreaMTModel(nn.Module):
             max_len = max(4, int(s_len * max_ratio))
             ctx_b = enc_out[:s_len, b : b + 1, :].repeat(1, beam_size, 1)  # (s_len, beam, H)
             mask_b = enc_mask[b : b + 1, :s_len].repeat(beam_size, 1)  # (beam, s_len)
-            hid_b = enc_hidden[:, b : b + 1, :].repeat(1, beam_size, 1)  # (layers, beam, H)
+            if is_lstm:
+                h_b = dec_init_hidden[0][:, b : b + 1, :].repeat(1, beam_size, 1)  # (layers, beam, H)
+                c_b = dec_init_hidden[1][:, b : b + 1, :].repeat(1, beam_size, 1)  # (layers, beam, H)
+            else:
+                hid_b = dec_init_hidden[:, b : b + 1, :].repeat(1, beam_size, 1)  # (layers, beam, H)
             prev_out_b = torch.zeros(beam_size, self.hidden_size, device=device, dtype=enc_out.dtype)
 
             # Active hypotheses: list of (tokens, raw_logprob, beam_row_idx)
@@ -782,7 +890,10 @@ class UNdreaMTModel(nn.Module):
                 in_ids = torch.tensor([h[0][-1] for h in beams], dtype=torch.long, device=device)
                 row_indices = torch.tensor([h[2] for h in beams], dtype=torch.long, device=device)
 
-                cur_hid = hid_b[:, row_indices, :]
+                if is_lstm:
+                    cur_hid = (h_b[:, row_indices, :], c_b[:, row_indices, :])
+                else:
+                    cur_hid = hid_b[:, row_indices, :]
                 cur_prev_out = prev_out_b[row_indices, :]
                 cur_ctx = ctx_b[:, :num_active, :]
                 cur_mask = mask_b[:num_active, :]
@@ -819,7 +930,11 @@ class UNdreaMTModel(nn.Module):
 
                 # Update hidden and prev_out buffers for new_beams
                 sel = torch.tensor([nb[2] for nb in new_beams], dtype=torch.long, device=device)
-                hid_b[:, : len(new_beams), :] = next_hid[:, sel, :]
+                if is_lstm:
+                    h_b[:, : len(new_beams), :] = next_hid[0][:, sel, :]
+                    c_b[:, : len(new_beams), :] = next_hid[1][:, sel, :]
+                else:
+                    hid_b[:, : len(new_beams), :] = next_hid[:, sel, :]
                 prev_out_b[: len(new_beams), :] = next_out[sel, :]
                 beams = [(nb[0], nb[1], idx) for idx, nb in enumerate(new_beams)]
 

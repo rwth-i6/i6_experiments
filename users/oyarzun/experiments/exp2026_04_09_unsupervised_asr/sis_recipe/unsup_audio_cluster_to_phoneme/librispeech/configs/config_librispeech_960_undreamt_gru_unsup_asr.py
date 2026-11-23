@@ -544,6 +544,9 @@ def run_undreamt_gru_unsup_asr_pipeline(
     alignment_method: str = "gan",
     hidden_size: int = 600,
     layers: int = 2,
+    encoder_layers: Optional[int] = None,
+    decoder_layers: Optional[int] = None,
+    cell_type: str = "gru",
     dropout: float = 0.3,
     num_epochs: int = 100,
     eval_epochs: Optional[Sequence[int]] = None,
@@ -564,6 +567,10 @@ def run_undreamt_gru_unsup_asr_pipeline(
     if cluster is not None:
         set_cluster(cluster)
     active_cluster = get_cluster()
+
+    enc_l = encoder_layers if encoder_layers is not None else layers
+    dec_l = decoder_layers if decoder_layers is not None else layers
+    cell = cell_type.lower()
 
     if eval_epochs is None:
         eval_epochs = [25, 50, 75, num_epochs] if num_epochs >= 50 else [num_epochs]
@@ -652,9 +659,14 @@ def run_undreamt_gru_unsup_asr_pipeline(
         else:
             trg_vocab_size = 483 if code_type == "diphone" else (6161 if code_type == "triphone" else 100)
 
+        arch_subfolder = f"undreamt_{cell}"
+        if enc_l == 2 and dec_l == 2:
+            arch_suffix = ""
+        else:
+            arch_suffix = f"_enc{enc_l}_dec{dec_l}"
         prefix_name = (
-            f"unsup_audio_cluster_to_phoneme/librispeech/undreamt_gru/{setup_version}_{norm_tag}/"
-            f"{code_type}_{clus_str}_d{w2v_dim}_w{w2v_win}_{metric}"
+            f"unsup_audio_cluster_to_phoneme/librispeech/{arch_subfolder}/{setup_version}_{norm_tag}/"
+            f"{code_type}_{clus_str}_d{w2v_dim}_w{w2v_win}_{metric}{arch_suffix}"
         )
 
         # 1. RETURNN Vocabularies
@@ -834,6 +846,9 @@ def run_undreamt_gru_unsup_asr_pipeline(
             "embedding_size": w2v_dim,
             "hidden_size": hidden_size,
             "layers": layers,
+            "encoder_layers": enc_l,
+            "decoder_layers": dec_l,
+            "cell_type": cell,
             "dropout": dropout,
             "param_init": 0.1,
             "src_pretrained_emb_path": src_pretrained_emb,
@@ -1046,6 +1061,9 @@ def run_undreamt_gru_unsup_asr_pipeline(
             src_text_file=dev_src_txt,
             trg_text_file=dev_ref_txt,
             seq_tags_file=dev_tags_file,
+            plot_all_sequences=True,
+            join_lines=False,
+            mark_sequence_ends=True,
             extra_forward_config=ReturnnConfig(
                 config={},
                 python_prolog=[
@@ -1056,6 +1074,45 @@ def run_undreamt_gru_unsup_asr_pipeline(
             rqmt={"device": device, "gpu": 1 if device == "gpu" else 0, "cpu": 4, "mem": 16, "time": 2},
         )
         pipeline_outputs[f"{code_type}_pca_jobs"] = pca_jobs
+
+        # 7b. Shared-Encoder 2D PCA Representation Alignment: Audio vs. Model Hypothesis
+        # (Plots all sequences without joining with lines, indicating starts with * and ends with X)
+        pca_hyp_jobs = analyze_encoder_states(
+            config={
+                "default_data_key": "data",
+                "default_target_key": "target",
+                "batch_size": 3000,
+                "max_seqs": 16,
+            },
+            training_name=undreamt_train_name,
+            train_job=train_job,
+            train_args=train_args,
+            train_data=training_datasets,
+            test_data_dict={"dev3k": test_s2t_dataset},
+            checkpoints=pca_checkpoints,
+            analysis_name=f"vis_encoder_pca_audio_vs_hyp_phn",
+            compare_to_hypothesis=True,
+            cosine_similarity_summary=True,
+            src_label=f"audio_{code_type}",
+            trg_label="text_phonemes (hyp)",
+            src_vocab_file=src_returnn_vocab,
+            trg_vocab_file=trg_returnn_vocab,
+            src_text_file=dev_src_txt,
+            trg_text_file=dev_ref_txt,
+            seq_tags_file=dev_tags_file,
+            plot_all_sequences=True,
+            join_lines=False,
+            mark_sequence_ends=True,
+            extra_forward_config=ReturnnConfig(
+                config={},
+                python_prolog=[
+                    "import os, sys",
+                    'os.environ["PYTHONPATH"] = ":".join(sys.path)',
+                ],
+            ),
+            rqmt={"device": device, "gpu": 1 if device == "gpu" else 0, "cpu": 4, "mem": 16, "time": 2},
+        )
+        pipeline_outputs[f"{code_type}_pca_hyp_jobs"] = pca_hyp_jobs
 
         # 7b. Comparative / Contrastive BERTScore Shared-Encoder 2D PCA Visualization
         # (Compares utterances that are semantically close vs. semantically far apart via BERTScore)
@@ -1086,9 +1143,36 @@ def run_undreamt_gru_unsup_asr_pipeline(
         )
         pipeline_outputs[f"{code_type}_contrastive_pca_jobs"] = contrastive_pca_jobs
 
-        # 8. Note: Cross-Attention visualization (analyze_cross_attention) is omitted here
-        # because UNdreaMT GRU uses single-layer GlobalAttention (Bahdanau/Luong dot/general)
-        # rather than multi-head CrossAttentionV1 layers found in Conformer/Transformer AED models.
+        # 8. Cross-Attention alignment heatmaps and .npz array exports
+        att_checkpoints = sorted(set(list(eval_epochs) + [num_epochs]))
+        att_jobs = analyze_cross_attention(
+            config={
+                "default_data_key": "data",
+                "default_target_key": "target",
+                "batch_size": 3000,
+                "max_seqs": 16,
+            },
+            training_name=undreamt_train_name,
+            train_job=train_job,
+            train_args=train_args,
+            train_data=training_datasets,
+            test_data_dict={"dev3k": test_s2t_dataset},
+            checkpoints=att_checkpoints,
+            analysis_name="cross_att",
+            input_modality="audio",
+            output_modality="text",
+            max_plotted_seqs=20,
+            plot_head_average=True,
+            extra_forward_config=ReturnnConfig(
+                config={},
+                python_prolog=[
+                    "import os, sys",
+                    'os.environ["PYTHONPATH"] = ":".join(sys.path)',
+                ],
+            ),
+            rqmt={"device": device, "gpu": 1 if device == "gpu" else 0, "cpu": 4, "mem": 16, "time": 2},
+        )
+        pipeline_outputs[f"{code_type}_att_jobs"] = att_jobs
 
     return pipeline_outputs
 
@@ -1105,13 +1189,16 @@ def run_v5_9_2_wo_sil_undreamt_gru_unsup_asr_pipeline(
     audio_layer: int = 12,
     d_value: int = 2,
     code_types: Tuple[str, ...] = ("diphone", "triphone"),
+    cell_type: str = "gru",
+    encoder_layers: Optional[int] = None,
+    decoder_layers: Optional[int] = None,
     num_epochs: int = 100,
     eval_epochs: Optional[Sequence[int]] = None,
     alignment_results: Optional[Dict[Any, Any]] = None,
     **kwargs,
 ) -> Dict[str, Any]:
     """
-    Unsupervised ASR with UNdreaMT RNN AED (BiGRU Encoder + StackedGRU Decoder with GlobalAttention)
+    Unsupervised ASR with UNdreaMT RNN AED (BiRNN Encoder + StackedRNN Decoder with GlobalAttention)
     initialized with v5.9.2 Spin-HuBERT 2048 + Compositional Audio N-Grams without Silence
     (100% symmetric, D=2, Unit-Sphere Normalization, PCA 512):
       - Audio: 40 base clusters -> 2-grams (432 clusters) and 3-grams (7325 clusters) with 80% coverage
@@ -1172,10 +1259,76 @@ def run_v5_9_2_wo_sil_undreamt_gru_unsup_asr_pipeline(
         w2v_win=2,
         metric="csls",
         alignment_method="gan",
+        cell_type=cell_type,
+        encoder_layers=encoder_layers,
+        decoder_layers=decoder_layers,
         num_epochs=num_epochs,
         eval_epochs=eval_epochs,
         alignment_results=alignment_results,
         **kwargs,
     )
+
+
+def run_v5_9_2_wo_sil_undreamt_asr_ablations(
+    cluster: Optional[str] = None,
+    pca_dim: int = 512,
+    base_cluster_count: int = 40,
+    spin_codebook_size: int = 2048,
+    audio_layer: int = 12,
+    d_value: int = 2,
+    code_types: Tuple[str, ...] = ("diphone", "triphone"),
+    num_epochs: int = 100,
+    eval_epochs: Optional[Sequence[int]] = None,
+    alignment_results: Optional[Dict[Any, Any]] = None,
+    **kwargs,
+) -> Dict[str, Any]:
+    """
+    Constructs the complete Sisyphus graphs for the v5.9.2 ASR GRU/LSTM ablations:
+      1. Grid of encoder and decoder layers in {1, 2}:
+         - enc1_dec1 (GRU)
+         - enc1_dec2 (GRU)
+         - enc2_dec1 (GRU)
+         - enc2_dec2 (GRU, baseline)
+      2. LSTM ablation maintaining baseline layers:
+         - enc2_dec2 (LSTM)
+    """
+    results = {}
+    for enc_l in (1, 2):
+        for dec_l in (1, 2):
+            tag = f"gru_enc{enc_l}_dec{dec_l}"
+            results[tag] = run_v5_9_2_wo_sil_undreamt_gru_unsup_asr_pipeline(
+                cluster=cluster,
+                pca_dim=pca_dim,
+                base_cluster_count=base_cluster_count,
+                spin_codebook_size=spin_codebook_size,
+                audio_layer=audio_layer,
+                d_value=d_value,
+                code_types=code_types,
+                cell_type="gru",
+                encoder_layers=enc_l,
+                decoder_layers=dec_l,
+                num_epochs=num_epochs,
+                eval_epochs=eval_epochs,
+                alignment_results=alignment_results,
+                **kwargs,
+            )
+
+    results["lstm_enc2_dec2"] = run_v5_9_2_wo_sil_undreamt_gru_unsup_asr_pipeline(
+        cluster=cluster,
+        pca_dim=pca_dim,
+        base_cluster_count=base_cluster_count,
+        spin_codebook_size=spin_codebook_size,
+        audio_layer=audio_layer,
+        d_value=d_value,
+        code_types=code_types,
+        cell_type="lstm",
+        encoder_layers=2,
+        decoder_layers=2,
+        num_epochs=num_epochs,
+        eval_epochs=eval_epochs,
+        alignment_results=alignment_results,
+        **kwargs,
+    )
+    return results
 
 

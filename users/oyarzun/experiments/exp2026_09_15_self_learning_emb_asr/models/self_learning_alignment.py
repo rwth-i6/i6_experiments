@@ -49,12 +49,98 @@ def compute_optimal_orthogonal_mapping(
     :return: Orthogonal transformation matrix W* (d x d)
     """
     if D.ndim == 1:
-        M = X.T @ Z[D]
+        valid = D >= 0
+        M = X[valid].T @ Z[D[valid]]
     else:
         M = X.T @ D @ Z  # (d x d)
     U, _, Vt = np.linalg.svd(M)
     W = U @ Vt
     return W
+
+
+def compute_nn_and_col_argmax(
+    X_mapped: np.ndarray,
+    Z: np.ndarray,
+    retrieval_metric: str = "cosine",
+    csls_k: int = 10,
+    compatibility_mask: Optional[np.ndarray] = None,
+    need_col_argmax: bool = False,
+    chunk_size: int = 8192,
+) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+    """
+    Memory-efficient nearest-neighbor retrieval (cosine or CSLS) in row chunks of size `chunk_size`.
+    Avoids allocating multiple multi-gigabyte (K x P) similarity matrices when K is large (e.g. K > 300k).
+    """
+    K = X_mapped.shape[0]
+    P = Z.shape[0]
+
+    if retrieval_metric == "csls":
+        X_use = (X_mapped / np.maximum(np.linalg.norm(X_mapped, axis=1, keepdims=True), 1e-12)).astype(
+            np.float32, copy=False
+        )
+        Z_use = (Z / np.maximum(np.linalg.norm(Z, axis=1, keepdims=True), 1e-12)).astype(np.float32, copy=False)
+        k_T = min(csls_k, P)
+        k_S = min(csls_k, K)
+
+        r_T = np.zeros(K, dtype=np.float32)
+        running_top_S: Optional[np.ndarray] = None
+
+        for start in range(0, K, chunk_size):
+            end = min(start + chunk_size, K)
+            sim_chunk = X_use[start:end] @ Z_use.T  # (B, P)
+            if k_T > 0:
+                topk_T = np.partition(sim_chunk, -k_T, axis=1)[:, -k_T:]
+                r_T[start:end] = np.mean(topk_T, axis=1)
+            if k_S > 0:
+                b_len = end - start
+                k_chunk = min(k_S, b_len)
+                chunk_top = np.partition(sim_chunk, -k_chunk, axis=0)[-k_chunk:, :]
+                if running_top_S is None:
+                    running_top_S = chunk_top.copy()
+                else:
+                    combined = np.concatenate([running_top_S, chunk_top], axis=0)
+                    if combined.shape[0] > k_S:
+                        running_top_S = np.partition(combined, -k_S, axis=0)[-k_S:, :].copy()
+                    else:
+                        running_top_S = combined
+
+        if k_S > 0 and running_top_S is not None:
+            r_S = np.mean(running_top_S, axis=0, keepdims=True)  # (1, P)
+        else:
+            r_S = np.zeros((1, P), dtype=np.float32)
+    else:
+        X_use = X_mapped.astype(np.float32, copy=False)
+        Z_use = Z.astype(np.float32, copy=False)
+        r_T = None
+        r_S = None
+
+    best_t_for_s = np.empty(K, dtype=np.int64)
+    best_sim_for_s = np.empty(K, dtype=np.float32)
+    best_s_for_t = np.zeros(P, dtype=np.int64) if need_col_argmax else None
+    best_col_sim = np.full(P, -np.inf, dtype=np.float32) if need_col_argmax else None
+
+    for start in range(0, K, chunk_size):
+        end = min(start + chunk_size, K)
+        sim_chunk = X_use[start:end] @ Z_use.T  # (B, P)
+        if retrieval_metric == "csls":
+            sim_chunk *= 2.0
+            sim_chunk -= r_T[start:end, None]
+            sim_chunk -= r_S
+        if compatibility_mask is not None:
+            sim_chunk = np.where(compatibility_mask[start:end], sim_chunk, -1e9)
+
+        row_best_t = np.argmax(sim_chunk, axis=1)
+        best_t_for_s[start:end] = row_best_t
+        best_sim_for_s[start:end] = sim_chunk[np.arange(end - start), row_best_t]
+
+        if need_col_argmax:
+            col_argmax_local = np.argmax(sim_chunk, axis=0)
+            col_max_local = sim_chunk[col_argmax_local, np.arange(P)]
+            better = col_max_local > best_col_sim
+            best_col_sim[better] = col_max_local[better]
+            best_s_for_t[better] = start + col_argmax_local[better]
+
+    return best_t_for_s, best_sim_for_s, best_s_for_t
 
 
 def compute_csls_similarity(
@@ -133,21 +219,14 @@ def induce_dictionary_nn(
     # Transformed source embeddings
     X_mapped = X @ W  # (K x d)
 
-    if retrieval_metric == "csls":
-        # Normalize rows to unit norm for dot products
-        X_norm = X_mapped / np.maximum(np.linalg.norm(X_mapped, axis=1, keepdims=True), 1e-12)
-        Z_norm = Z / np.maximum(np.linalg.norm(Z, axis=1, keepdims=True), 1e-12)
-        sim_matrix = compute_csls_similarity(X_norm, Z_norm, k=csls_k)
-    else:
-        sim_matrix = X_mapped @ Z.T  # (K x P)
-
-    if compatibility_mask is not None:
-        sim_matrix = np.where(compatibility_mask, sim_matrix, -1e9)
-
-    best_targets = np.argmax(sim_matrix, axis=1)  # (K,)
-    best_sims = np.max(sim_matrix, axis=1)  # (K,)
-
-    del sim_matrix
+    best_targets, best_sims, _ = compute_nn_and_col_argmax(
+        X_mapped,
+        Z,
+        retrieval_metric=retrieval_metric,
+        csls_k=csls_k,
+        compatibility_mask=compatibility_mask,
+        need_col_argmax=False,
+    )
 
     if not return_dense:
         return best_targets, best_sims

@@ -11,7 +11,9 @@ from sisyphus import tk
 from .data.librispeech import text as lbs_text
 from .data.hubert import (
     DownloadSpinHuBERTCheckpointJob,
+    DownloadFactoCheckpointsJob,
     ExtractHuBERTLayerFeaturesJob,
+    ExtractFactoFeaturesJob,
     HuBERTClusterAndCollapseJob,
     HuBERTCheatingSegmentAveragingAndClusterJob,
     HuBERTCheatingSegmentCOPClusterJob,
@@ -91,13 +93,14 @@ def build_self_learning_asr_alignment_pipeline(
     clustering_method: str = "kmeans",
     spectral_n_neighbors: int = 30,
     spectral_sample_size: int = 25000,
+    facto_variant: Optional[str] = None,
 ):
     """
     Constructs the end-to-end cross-modal embedding alignment ASR pipeline across
     diphone and triphone cross-modal codes, cluster sizes K, dimensions d, windows w,
     and dictionary retrieval metrics (Cosine & CSLS) with Artetxe frequency-based initialization
     or Domain-Adversarial (GAN) alignment (Chung et al., 2018, arXiv:1805.07467).
-    Supports HuBERT, Spin-HuBERT (Chang et al., 2023, arXiv:2305.11072), and Wav2Vec 2.0 backbones.
+    Supports HuBERT, Spin-HuBERT (Chang et al., 2023, arXiv:2305.11072), Wav2Vec 2.0, and Facto (WavLM Layer 6) backbones.
     """
     if hubert_model_name is not None:
         audio_model_name = hubert_model_name
@@ -105,7 +108,9 @@ def build_self_learning_asr_alignment_pipeline(
         audio_layer = hubert_layer
 
     if model_tag is None:
-        if spin_codebook_size is not None:
+        if facto_variant is not None:
+            model_tag = f"facto_{facto_variant.replace('-', '_')}_l{audio_layer}"
+        elif spin_codebook_size is not None:
             model_tag = f"spin_hubert_{int(spin_codebook_size)}_l{audio_layer}"
         elif "wav2vec2" in audio_model_name or "lv60" in audio_model_name:
             model_tag = f"w2v2_large60k_l{audio_layer}"
@@ -275,28 +280,59 @@ def build_self_learning_asr_alignment_pipeline(
     # -------------------------------------------------------------
     audio_dir = tk.Path(os.path.join("/u/corpora/speech/LibriSpeech/LibriSpeech", librispeech_key))
 
-    spin_ckpt_path = None
-    if spin_codebook_size is not None:
-        dl_spin_job = DownloadSpinHuBERTCheckpointJob(codebook_size=int(spin_codebook_size))
-        dl_spin_job.add_alias(f"{audio_shared_prefix}/download_spin_hubert_{int(spin_codebook_size)}")
+    if facto_variant is not None:
+        v_clean = facto_variant.replace("-", "_")
+        dl_facto_job = DownloadFactoCheckpointsJob(variant=facto_variant)
+        dl_facto_job.add_alias(f"{audio_shared_prefix}/download_facto_{v_clean}")
         tk.register_output(
-            f"{alias_prefix}/spin_ckpt/spin_hubert_{int(spin_codebook_size)}.ckpt",
-            dl_spin_job.out_ckpt,
+            f"{alias_prefix}/facto_ckpt/encoder.ckpt",
+            dl_facto_job.out_encoder_ckpt,
         )
-        spin_ckpt_path = dl_spin_job.out_ckpt
+        tk.register_output(
+            f"{alias_prefix}/facto_ckpt/content_proj.ckpt",
+            dl_facto_job.out_content_proj_ckpt,
+        )
+        tk.register_output(
+            f"{alias_prefix}/facto_ckpt/patch_proj.ckpt",
+            dl_facto_job.out_patch_proj_ckpt,
+        )
+        tk.register_output(
+            f"{alias_prefix}/facto_ckpt/kmeans_{v_clean}.ckpt",
+            dl_facto_job.out_kmeans_ckpt,
+        )
+        feat_job = ExtractFactoFeaturesJob(
+            audio_dir=audio_dir,
+            encoder_ckpt=dl_facto_job.out_encoder_ckpt,
+            content_proj_ckpt=dl_facto_job.out_content_proj_ckpt,
+            patch_proj_ckpt=dl_facto_job.out_patch_proj_ckpt,
+            kmeans_ckpt=dl_facto_job.out_kmeans_ckpt,
+            variant=facto_variant,
+        )
+        feat_job.add_alias(f"{audio_shared_prefix}/{model_tag}_features")
+    else:
+        spin_ckpt_path = None
+        if spin_codebook_size is not None:
+            dl_spin_job = DownloadSpinHuBERTCheckpointJob(codebook_size=int(spin_codebook_size))
+            dl_spin_job.add_alias(f"{audio_shared_prefix}/download_spin_hubert_{int(spin_codebook_size)}")
+            tk.register_output(
+                f"{alias_prefix}/spin_ckpt/spin_hubert_{int(spin_codebook_size)}.ckpt",
+                dl_spin_job.out_ckpt,
+            )
+            spin_ckpt_path = dl_spin_job.out_ckpt
 
-    feat_job = ExtractHuBERTLayerFeaturesJob(
-        audio_dir=audio_dir,
-        model_name=audio_model_name,
-        layer=audio_layer,
-        spin_ckpt=spin_ckpt_path,
-    )
-    feat_job.add_alias(f"{audio_shared_prefix}/{model_tag}_features")
+        feat_job = ExtractHuBERTLayerFeaturesJob(
+            audio_dir=audio_dir,
+            model_name=audio_model_name,
+            layer=audio_layer,
+            spin_ckpt=spin_ckpt_path,
+        )
+        feat_job.add_alias(f"{audio_shared_prefix}/{model_tag}_features")
 
     # Optional 2b. Frame-level PCA Fitting (before segment pooling / clustering)
+    # Facto representations are already low-dimensional (19-D / 12-D <= 512), so skip PCA-512 when facto_variant is active.
     pca_components = None
     pca_mean = None
-    if pca_dim is not None:
+    if pca_dim is not None and facto_variant is None:
         pca_fit_job = HuBERTFramePCAFitJob(
             features_npy=feat_job.out_features_npy,
             n_components=pca_dim,
@@ -395,10 +431,31 @@ def build_self_learning_asr_alignment_pipeline(
         )
 
         if use_audio_ngrams:
-            # 3b. Compositional Audio N-Grams (2-grams / 3-grams built on top of base monophone clusters)
+            # 3b. Compositional Audio N-Grams (2-grams / 3-grams / 4-grams built on top of base monophone clusters)
+            ngram_entries = []
             for code_type in code_types:
-                ngram_order = 2 if code_type == "diphone" else 3
-                cluster_name = f"clus_{K}_{ngram_order}gram"
+                if code_cluster_map is not None and code_type in code_cluster_map:
+                    for k_map, c_name in code_cluster_map[code_type]:
+                        if k_map == K and c_name.endswith("gram") and "_" in c_name:
+                            try:
+                                ord_val = int(c_name.split("_")[-1].replace("gram", ""))
+                            except ValueError:
+                                ord_val = 2 if code_type == "diphone" else 3
+                            ngram_entries.append((code_type, ord_val, c_name))
+                else:
+                    ord_val = 2 if code_type == "diphone" else 3
+                    ngram_entries.append((code_type, ord_val, f"clus_{K}_{ord_val}gram"))
+
+            built_audio_ngram_clusters = set()
+            for code_type, ngram_order, cluster_name in ngram_entries:
+                if cluster_name in built_audio_ngram_clusters:
+                    for d in word2vec_dims:
+                        for w in word2vec_windows:
+                            if (code_type, K, d, w) not in audio_pipelines:
+                                audio_pipelines[(code_type, K, d, w)] = audio_pipelines[(cluster_name, K, d, w)]
+                    continue
+                built_audio_ngram_clusters.add(cluster_name)
+
                 cluster_job = GenerateAudioClusterNgramsJob(
                     base_clusters_txt=base_cluster_job.out_collapsed_tokens_txt,
                     ngram_order=ngram_order,
@@ -490,12 +547,15 @@ def build_self_learning_asr_alignment_pipeline(
                             )
                             active_audio_w2v_job = abtt_audio_job
 
-                        audio_pipelines[(code_type, K, d, w)] = {
+                        pipe_info = {
                             "cluster_job": cluster_job,
                             "base_cluster_job": base_cluster_job,
                             "w2v_job": active_audio_w2v_job,
                             "raw_w2v_job": raw_audio_w2v_job,
+                            "cluster_name": cluster_name,
                         }
+                        audio_pipelines[(cluster_name, K, d, w)] = pipe_info
+                        audio_pipelines[(code_type, K, d, w)] = pipe_info
         else:
             cluster_name = base_cluster_name
             cluster_job = base_cluster_job
@@ -596,7 +656,13 @@ def build_self_learning_asr_alignment_pipeline(
                     raw_t_w2v = t_info.get("raw_w2v_job", t_w2v)
                     t_vocab = t_info["vocab_file"]
 
-                    a_info = audio_pipelines.get((code_type, K, d, w)) or audio_pipelines[(K, d, w)]
+                    a_info = (
+                        audio_pipelines.get((cluster_name, K, d, w))
+                        or audio_pipelines.get((code_type, K, d, w))
+                        or audio_pipelines[(K, d, w)]
+                    )
+                    if use_audio_ngrams and "cluster_name" in a_info:
+                        base_audio_clus = a_info["cluster_name"]
                     a_clus = a_info["cluster_job"]
                     a_w2v = a_info["w2v_job"]
                     raw_a_w2v = a_info.get("raw_w2v_job", a_w2v)

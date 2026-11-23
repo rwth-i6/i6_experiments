@@ -60,6 +60,35 @@ def compute_phoneme_coverage_and_entropy(
     }
 
 
+def _fast_pca_basis(X: np.ndarray, chunk_size: int = 131072) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Computes mean vector `mean_X` (1, d), singular values `s` (d,), and right singular vectors `vt` (d, d)
+    of centered matrix `X - mean_X` using chunked Gram-matrix eigendecomposition when N > 2*d.
+    """
+    N, d = X.shape
+    if N <= d * 2:
+        X_f = np.asarray(X, dtype=np.float64)
+        mean_X = np.mean(X_f, axis=0, keepdims=True)
+        centered = X_f - mean_X
+        _, s, vt = np.linalg.svd(centered, full_matrices=False)
+        return mean_X, s, vt
+
+    sum_x = np.zeros(d, dtype=np.float64)
+    G_unc = np.zeros((d, d), dtype=np.float64)
+    for start in range(0, N, chunk_size):
+        chunk = np.asarray(X[start : start + chunk_size], dtype=np.float64)
+        sum_x += np.sum(chunk, axis=0)
+        G_unc += chunk.T @ chunk
+
+    mean_X = (sum_x / max(N, 1)).reshape(1, d)
+    G_cent = G_unc - float(N) * (mean_X.T @ mean_X)
+    eigvals, eigvecs = np.linalg.eigh(G_cent)
+    order = np.argsort(eigvals)[::-1]
+    s = np.sqrt(np.maximum(eigvals[order], 0.0))
+    vt = eigvecs[:, order].T
+    return mean_X, s, vt
+
+
 def compute_joint_cross_modal_pca(
     mapped_X: np.ndarray,
     Z: np.ndarray,
@@ -68,22 +97,21 @@ def compute_joint_cross_modal_pca(
     cluster_to_phoneme_map: Optional[list] = None,
     audio_counts: Optional[Dict[int, float]] = None,
     text_counts: Optional[Dict[int, float]] = None,
+    max_plot_items: int = 25000,
 ) -> Dict:
     """
     Joint 2D Principal Component Analysis (Metric 3A).
     Stacks mapped audio clusters X W* (K x d) and target phonemes Z (P x d)
     to project both modalities into a shared 2D subspace.
+    For very large source vocabularies (K > max_plot_items), fits the 2D PCA subspace over all K+P
+    vectors and subsamples the top `max_plot_items` most frequent items for 2D scatter serialization.
     """
     K, d_x = mapped_X.shape
     P, d_z = Z.shape
     assert d_x == d_z, f"Dimension mismatch: {d_x} vs {d_z}"
 
-    joint_mat = np.vstack([mapped_X, Z]).astype(np.float64)  # (K+P, d)
-    mean_joint = np.mean(joint_mat, axis=0, keepdims=True)
-    centered = joint_mat - mean_joint
-
-    # SVD for PCA components
-    _, s, vt = np.linalg.svd(centered, full_matrices=False)
+    joint_mat = np.vstack([mapped_X, Z])
+    mean_joint, s, vt = _fast_pca_basis(joint_mat)
     components = vt[:2].T  # (d, 2)
 
     total_var = float(np.sum(s ** 2))
@@ -91,14 +119,23 @@ def compute_joint_cross_modal_pca(
     var_pc2 = float((s[1] ** 2) / total_var) if total_var > 0 else 0.0
     evr_2d = float(var_pc1 + var_pc2)
 
-    # 2D Projections
-    proj_audio = ((mapped_X - mean_joint) @ components).tolist()  # K x 2
-    proj_text = ((Z - mean_joint) @ components).tolist()          # P x 2
+    if K > max_plot_items:
+        if audio_counts:
+            a_freqs = np.array([float(audio_counts.get(i, 1.0)) for i in range(K)], dtype=np.float64)
+            sel_audio_indices = np.argsort(a_freqs)[::-1][:max_plot_items]
+        else:
+            sel_audio_indices = np.arange(max_plot_items)
+    else:
+        sel_audio_indices = np.arange(K)
+
+    proj_audio = ((np.asarray(mapped_X[sel_audio_indices], dtype=np.float64) - mean_joint) @ components).tolist()
+    proj_text = ((np.asarray(Z, dtype=np.float64) - mean_joint) @ components).tolist()
 
     audio_items = []
-    for idx, (px, py) in enumerate(proj_audio):
+    for raw_idx, (px, py) in zip(sel_audio_indices, proj_audio):
+        idx = int(raw_idx)
         a_name = audio_vocab.get(idx, f"clus_{idx}") if audio_vocab else f"clus_{idx}"
-        assigned_p = cluster_to_phoneme_map[idx] if cluster_to_phoneme_map else None
+        assigned_p = cluster_to_phoneme_map[idx] if (cluster_to_phoneme_map and idx < len(cluster_to_phoneme_map)) else None
         p_name = text_vocab.get(assigned_p, f"phoneme_{assigned_p}") if (text_vocab and assigned_p is not None) else None
         cnt = float(audio_counts.get(idx, 1.0)) if audio_counts is not None else 1.0
         audio_items.append({
@@ -137,18 +174,16 @@ def compute_single_modality_pca(
     vocab: Optional[Dict[int, str]] = None,
     counts: Optional[Dict[int, float]] = None,
     prefix_label: str = "item",
+    max_plot_items: int = 25000,
 ) -> Dict:
     """
     Computes standard 2D PCA on a single embedding matrix X (N x d).
     Returns 2D projected coordinates, explained variance, and per-item metadata (counts, labels).
+    When N > max_plot_items, computes exact PCA components over all N items and subsamples the
+    top `max_plot_items` most frequent items for 2D scatter plotting.
     """
     N, d = X.shape
-    X_f = X.astype(np.float64)
-    mean_X = np.mean(X_f, axis=0, keepdims=True)
-    centered = X_f - mean_X
-
-    # SVD for PCA components
-    _, s, vt = np.linalg.svd(centered, full_matrices=False)
+    mean_X, s, vt = _fast_pca_basis(X)
     components = vt[:2].T  # (d, 2)
 
     total_var = float(np.sum(s ** 2))
@@ -156,10 +191,20 @@ def compute_single_modality_pca(
     var_pc2 = float((s[1] ** 2) / total_var) if total_var > 0 else 0.0
     evr_2d = float(var_pc1 + var_pc2)
 
-    proj = (centered @ components).tolist()
+    if N > max_plot_items:
+        if counts:
+            freqs = np.array([float(counts.get(i, 1.0)) for i in range(N)], dtype=np.float64)
+            sel_indices = np.argsort(freqs)[::-1][:max_plot_items]
+        else:
+            sel_indices = np.arange(max_plot_items)
+    else:
+        sel_indices = np.arange(N)
+
+    proj = ((np.asarray(X[sel_indices], dtype=np.float64) - mean_X) @ components).tolist()
 
     items = []
-    for idx, (px, py) in enumerate(proj):
+    for raw_idx, (px, py) in zip(sel_indices, proj):
+        idx = int(raw_idx)
         name = vocab.get(idx, f"{prefix_label}_{idx}") if vocab else f"{prefix_label}_{idx}"
         cnt = float(counts.get(idx, 1.0)) if counts is not None else 1.0
         items.append({
@@ -928,7 +973,7 @@ class EmbeddingAlignmentAnalysisJob(Job):
         self.out_alignment_comparison_panel_plot = self.output_path("alignment_comparison_panel.png")
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", mini_task=True)
+        yield Task("run", resume="run", mini_task=True)
 
     def run(self):
         logging.basicConfig(level=logging.INFO)
@@ -1522,29 +1567,39 @@ class Word2VecIsotropyAndPcaAnalysisJob(Job):
         self.out_isotropy_spectrum_plot = self.out_isotropy_and_spectrum_plot
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", mini_task=True)
+        yield Task("run", resume="run", mini_task=True)
 
     def run(self):
         import matplotlib
         matplotlib.rcParams["text.parse_math"] = False
-        from ...sis_recipe.data.word2vec import compute_isotropy_measure, apply_all_but_the_top
+        from ...sis_recipe.data.word2vec import (
+            compute_isotropy_measure,
+            apply_all_but_the_top,
+            _fast_right_svd,
+            _chunked_logsumexp_projections,
+        )
 
         logging.basicConfig(level=logging.INFO)
 
         src_raw = np.load(self.src_raw_embeddings_npy.get_path())
         trg_raw = np.load(self.trg_raw_embeddings_npy.get_path())
 
+        src_mean_B, src_s_B, src_vt_B = _fast_pca_basis(src_raw)
+        trg_mean_B, trg_s_B, trg_vt_B = _fast_pca_basis(trg_raw)
+        src_precomp = (src_mean_B, src_s_B, src_vt_B)
+        trg_precomp = (trg_mean_B, trg_s_B, trg_vt_B)
+
         if self.src_post_embeddings_npy is not None and os.path.exists(self.src_post_embeddings_npy.get_path()):
             src_post = np.load(self.src_post_embeddings_npy.get_path())
-            _, src_abtt_meta = apply_all_but_the_top(src_raw, d_remove=self.d_remove)
+            _, src_abtt_meta = apply_all_but_the_top(src_raw, d_remove=self.d_remove, precomputed_pca=src_precomp)
         else:
-            src_post, src_abtt_meta = apply_all_but_the_top(src_raw, d_remove=self.d_remove)
+            src_post, src_abtt_meta = apply_all_but_the_top(src_raw, d_remove=self.d_remove, precomputed_pca=src_precomp)
 
         if self.trg_post_embeddings_npy is not None and os.path.exists(self.trg_post_embeddings_npy.get_path()):
             trg_post = np.load(self.trg_post_embeddings_npy.get_path())
-            _, trg_abtt_meta = apply_all_but_the_top(trg_raw, d_remove=self.d_remove)
+            _, trg_abtt_meta = apply_all_but_the_top(trg_raw, d_remove=self.d_remove, precomputed_pca=trg_precomp)
         else:
-            trg_post, trg_abtt_meta = apply_all_but_the_top(trg_raw, d_remove=self.d_remove)
+            trg_post, trg_abtt_meta = apply_all_but_the_top(trg_raw, d_remove=self.d_remove, precomputed_pca=trg_precomp)
 
         # Load vocabs and frequency counts
         src_vocab = load_vocab_dict(self.src_vocab_file.get_path() if self.src_vocab_file is not None else None)
@@ -1562,34 +1617,53 @@ class Word2VecIsotropyAndPcaAnalysisJob(Job):
         trg_iso_before = compute_isotropy_measure(trg_raw)
         trg_iso_after = compute_isotropy_measure(trg_post)
 
-        # Sweep D in [0, 1, 2, 3, 5, 7, 10]
+        # Fast D-sweep in [0, 1, 2, 3, 5, 7, 10] using centered eigenprojections
+        src_centered, _ = apply_all_but_the_top(src_raw, d_remove=0, precomputed_pca=src_precomp)
+        trg_centered, _ = apply_all_but_the_top(trg_raw, d_remove=0, precomputed_pca=trg_precomp)
+        src_lzc, src_lzc_neg = _chunked_logsumexp_projections(src_centered, src_vt_B, also_neg=True)
+        trg_lzc, trg_lzc_neg = _chunked_logsumexp_projections(trg_centered, trg_vt_B, also_neg=True)
+        src_evr_B = (src_s_B ** 2) / max(float(np.sum(src_s_B ** 2)), 1e-12)
+        trg_evr_B = (trg_s_B ** 2) / max(float(np.sum(trg_s_B ** 2)), 1e-12)
+        log_V_src = float(np.log(max(src_raw.shape[0], 1)))
+        log_V_trg = float(np.log(max(trg_raw.shape[0], 1)))
+
         src_sweep_d = {}
         trg_sweep_d = {}
         src_sweep_details = {}
         trg_sweep_details = {}
         for d_val in (0, 1, 2, 3, 5, 7, 10):
-            s_emb_d, s_m = apply_all_but_the_top(src_raw, d_remove=d_val)
-            s_iso = compute_isotropy_measure(s_emb_d)
-            src_sweep_d[d_val] = s_iso["isotropy_measure"]
+            s_rem = np.concatenate([src_lzc[d_val:], np.full(d_val, log_V_src)]) if d_val > 0 else src_lzc
+            s_rem_neg = np.concatenate([src_lzc_neg[d_val:], np.full(d_val, log_V_src)]) if d_val > 0 else src_lzc_neg
+            s_min_lz = float(np.min(s_rem))
+            s_max_lz = float(np.max(s_rem))
+            s_iso_val = float(np.exp(s_min_lz - s_max_lz))
+            s_sym = np.concatenate([s_rem, s_rem_neg])
+            s_iso_sym = float(np.exp(np.min(s_sym) - np.max(s_sym)))
+            src_sweep_d[d_val] = s_iso_val
             src_sweep_details[f"D={d_val}"] = {
                 "d_remove": d_val,
-                "isotropy_measure": s_iso["isotropy_measure"],
-                "isotropy_measure_symmetric": s_iso["isotropy_measure_symmetric"],
-                "min_log_Z": s_iso["min_log_Z"],
-                "max_log_Z": s_iso["max_log_Z"],
-                "removed_variance_ratio": s_m["removed_variance_ratio"],
+                "isotropy_measure": s_iso_val,
+                "isotropy_measure_symmetric": s_iso_sym,
+                "min_log_Z": s_min_lz,
+                "max_log_Z": s_max_lz,
+                "removed_variance_ratio": float(np.sum(src_evr_B[:d_val])) if d_val > 0 else 0.0,
             }
 
-            t_emb_d, t_m = apply_all_but_the_top(trg_raw, d_remove=d_val)
-            t_iso = compute_isotropy_measure(t_emb_d)
-            trg_sweep_d[d_val] = t_iso["isotropy_measure"]
+            t_rem = np.concatenate([trg_lzc[d_val:], np.full(d_val, log_V_trg)]) if d_val > 0 else trg_lzc
+            t_rem_neg = np.concatenate([trg_lzc_neg[d_val:], np.full(d_val, log_V_trg)]) if d_val > 0 else trg_lzc_neg
+            t_min_lz = float(np.min(t_rem))
+            t_max_lz = float(np.max(t_rem))
+            t_iso_val = float(np.exp(t_min_lz - t_max_lz))
+            t_sym = np.concatenate([t_rem, t_rem_neg])
+            t_iso_sym = float(np.exp(np.min(t_sym) - np.max(t_sym)))
+            trg_sweep_d[d_val] = t_iso_val
             trg_sweep_details[f"D={d_val}"] = {
                 "d_remove": d_val,
-                "isotropy_measure": t_iso["isotropy_measure"],
-                "isotropy_measure_symmetric": t_iso["isotropy_measure_symmetric"],
-                "min_log_Z": t_iso["min_log_Z"],
-                "max_log_Z": t_iso["max_log_Z"],
-                "removed_variance_ratio": t_m["removed_variance_ratio"],
+                "isotropy_measure": t_iso_val,
+                "isotropy_measure_symmetric": t_iso_sym,
+                "min_log_Z": t_min_lz,
+                "max_log_Z": t_max_lz,
+                "removed_variance_ratio": float(np.sum(trg_evr_B[:d_val])) if d_val > 0 else 0.0,
             }
 
         # Optional: Isotropy of aligned embeddings if provided

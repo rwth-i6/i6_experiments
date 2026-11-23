@@ -799,6 +799,9 @@ def load_vocab_dict(vocab_path: Optional[str]) -> Dict[int, str]:
     """
     Loads vocabulary from either a Python dict string file (e.g. {'AH': 0, ...})
     or a standard whitespace/newline-separated token file.
+    Automatically detects RETURNN vocab dictionaries offset by 4 special tokens
+    (<pad>: 0, <unk>: 1, </s>: 2, <s>: 3) and shifts indices by -4 to align with
+    embedding matrix rows 0..V-1.
     """
     if vocab_path is None or not os.path.exists(vocab_path):
         return {}
@@ -810,6 +813,13 @@ def load_vocab_dict(vocab_path: Optional[str]) -> Dict[int, str]:
         import ast
         try:
             vocab_dict = ast.literal_eval(content)
+            if (
+                vocab_dict.get("<pad>") == 0
+                and vocab_dict.get("<unk>") == 1
+                and vocab_dict.get("</s>") == 2
+                and vocab_dict.get("<s>") == 3
+            ):
+                return {int(idx) - 4: str(tok) for tok, idx in vocab_dict.items() if int(idx) >= 4}
             return {int(idx): str(tok) for tok, idx in vocab_dict.items()}
         except Exception:
             pass
@@ -928,7 +938,7 @@ class EmbeddingAlignmentAnalysisJob(Job):
         self.out_alignment_comparison_panel_plot = self.output_path("alignment_comparison_panel.png")
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", mini_task=True)
+        yield Task("run", resume="run", mini_task=True)
 
     def run(self):
         logging.basicConfig(level=logging.INFO)
@@ -936,10 +946,14 @@ class EmbeddingAlignmentAnalysisJob(Job):
         Z_raw = np.load(self.text_embeddings_npy.get_path())
         Z = normalize_and_center(Z_raw)
 
-        # Load dictionary mapping
+        # Load dictionary mapping (supports both ASR cluster_index_to_phoneme_index and UNMT src_index_to_trg_index)
         with open(self.dictionary_json.get_path(), "r") as f:
             dict_data = json.load(f)
-            cluster_to_phoneme_map = dict_data.get("cluster_index_to_phoneme_index", [])
+            cluster_to_phoneme_map = (
+                dict_data.get("cluster_index_to_phoneme_index")
+                or dict_data.get("src_index_to_trg_index")
+                or []
+            )
 
         # Load vocabs if provided
         audio_vocab_path = self.audio_vocab_file.get_path() if self.audio_vocab_file is not None else None
@@ -1517,10 +1531,12 @@ class Word2VecIsotropyAndPcaAnalysisJob(Job):
         self.out_trg_before_pca_plot = self.output_path("target_en_w2v_pca_before_abtt.png")
         self.out_trg_after_pca_plot = self.output_path("target_en_w2v_pca_after_abtt.png")
         self.out_before_after_comparison_panel_plot = self.output_path("w2v_pca_before_vs_after_abtt_panel.png")
+        self.out_before_after_panel_plot = self.out_before_after_comparison_panel_plot
         self.out_isotropy_and_spectrum_plot = self.output_path("w2v_isotropy_and_spectrum_panel.png")
+        self.out_isotropy_spectrum_plot = self.out_isotropy_and_spectrum_plot
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", mini_task=True)
+        yield Task("run", resume="run", mini_task=True)
 
     def run(self):
         import matplotlib
@@ -1813,4 +1829,247 @@ class Word2VecIsotropyAndPcaAnalysisJob(Job):
 
         with open(self.out_isotropy_report_txt.get_path(), "w", encoding="utf-8") as f:
             f.write("\n".join(txt_lines) + "\n")
+
+
+class CompareAlignmentAblationsPcaPanelJob(Job):
+    """
+    Renders a multi-panel 2D PCA comparison across alignment optimizer and isotropy ablations
+    (e.g., Baseline Artetxe vs. All-but-the-Top vs. GAN vs. GeoWarP vs. ABTT+GAN vs. ABTT+GeoWarP)
+    for EN+Blank <-> Phoneme UNMT setups, alongside a comparative metrics summary report.
+    """
+    _version = 1
+
+    def __init__(
+        self,
+        ablation_entries: Dict[str, Dict[str, tk.Path]],
+        src_vocab_file: tk.Path,
+        trg_vocab_file: tk.Path,
+        src_counts_file: Optional[tk.Path] = None,
+        trg_counts_file: Optional[tk.Path] = None,
+        src_label: str = "EN+Blank Codes",
+        trg_label: str = "EN Phonemes",
+        title: str = "EN+Blank <-> EN Phonemes (d=300): Isotropy (ABTT) & Optimizer (Artetxe / GAN / GeoWarP) Ablations — 2D PCA",
+    ):
+        super().__init__()
+        self.ablation_entries = ablation_entries
+        self.src_vocab_file = src_vocab_file
+        self.trg_vocab_file = trg_vocab_file
+        self.src_counts_file = src_counts_file
+        self.trg_counts_file = trg_counts_file
+        self.src_label = src_label
+        self.trg_label = trg_label
+        self.title = title
+
+        self.out_comparison_panel_plot = self.output_path("optimizer_and_isotropy_ablation_pca_panel.png")
+        self.out_comparison_report_json = self.output_path("ablation_comparison_report.json")
+        self.out_comparison_report_txt = self.output_path("ablation_comparison_report.txt")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", resume="run", mini_task=True)
+
+    def run(self):
+        import math
+        import matplotlib
+        matplotlib.use("Agg")
+        matplotlib.rcParams["text.parse_math"] = False
+        import matplotlib.pyplot as plt
+        from scipy.ndimage import gaussian_filter
+        from ...sis_recipe.data.word2vec import compute_isotropy_measure
+
+        logging.basicConfig(level=logging.INFO)
+
+        src_vocab = load_vocab_dict(self.src_vocab_file.get_path() if self.src_vocab_file is not None else None)
+        trg_vocab = load_vocab_dict(self.trg_vocab_file.get_path() if self.trg_vocab_file is not None else None)
+        src_counts = load_counts_dict(
+            self.src_counts_file.get_path() if self.src_counts_file is not None else None, vocab_dict=src_vocab
+        )
+        trg_counts = load_counts_dict(
+            self.trg_counts_file.get_path() if self.trg_counts_file is not None else None, vocab_dict=trg_vocab
+        )
+
+        names = list(self.ablation_entries.keys())
+        n_panels = len(names)
+        ncols = min(3, max(1, n_panels))
+        nrows = max(1, math.ceil(n_panels / ncols))
+
+        fig, axes = plt.subplots(nrows, ncols, figsize=(8.2 * ncols, 7.2 * nrows), dpi=180, squeeze=False)
+
+        summary_data = {}
+        txt_rows = []
+
+        for idx, name in enumerate(names):
+            r, c = divmod(idx, ncols)
+            ax = axes[r][c]
+            entry = self.ablation_entries[name]
+
+            mapped_X = np.load(entry["mapped_src_embeddings_npy"].get_path())
+            Z_raw = np.load(entry["normalized_trg_embeddings_npy"].get_path())
+            Z = normalize_and_center(Z_raw)
+
+            dict_data = {}
+            if "dictionary_json" in entry and os.path.exists(entry["dictionary_json"].get_path()):
+                with open(entry["dictionary_json"].get_path(), "r", encoding="utf-8") as f:
+                    dict_data = json.load(f)
+            s2t_map = (
+                dict_data.get("cluster_index_to_phoneme_index")
+                or dict_data.get("src_index_to_trg_index")
+                or []
+            )
+
+            rep_data = {}
+            if "alignment_report_json" in entry and os.path.exists(entry["alignment_report_json"].get_path()):
+                with open(entry["alignment_report_json"].get_path(), "r", encoding="utf-8") as f:
+                    rep_data = json.load(f)
+
+            cov_info = compute_phoneme_coverage_and_entropy(
+                cluster_to_phoneme_map=s2t_map,
+                num_phonemes=Z.shape[0],
+                phoneme_vocab=trg_vocab,
+            )
+            pca_res = compute_joint_cross_modal_pca(
+                mapped_X=mapped_X,
+                Z=Z,
+                audio_vocab=src_vocab,
+                text_vocab=trg_vocab,
+                cluster_to_phoneme_map=s2t_map,
+                audio_counts=src_counts,
+                text_counts=trg_counts,
+            )
+            iso_src = compute_isotropy_measure(mapped_X)
+            iso_trg = compute_isotropy_measure(Z)
+
+            a_items = pca_res["audio_clusters_2d"]
+            t_items = pca_res["text_phonemes_2d"]
+            a_x = np.array([p["x"] for p in a_items])
+            a_y = np.array([p["y"] for p in a_items])
+            t_x = np.array([p["x"] for p in t_items])
+            t_y = np.array([p["y"] for p in t_items])
+
+            all_x = np.concatenate([a_x, t_x]) if (len(a_x) and len(t_x)) else np.array([-1.0, 1.0])
+            all_y = np.concatenate([a_y, t_y]) if (len(a_y) and len(t_y)) else np.array([-1.0, 1.0])
+            x_pad = (all_x.max() - all_x.min()) * 0.08 if len(all_x) else 1.0
+            y_pad = (all_y.max() - all_y.min()) * 0.08 if len(all_y) else 1.0
+            x_rng = (float(all_x.min() - x_pad), float(all_x.max() + x_pad))
+            y_rng = (float(all_y.min() - y_pad), float(all_y.max() + y_pad))
+
+            if len(a_x) >= 20:
+                Ha, xe, ye = np.histogram2d(a_x, a_y, bins=80, range=[x_rng, y_rng])
+                Ha_s = gaussian_filter(Ha.T, sigma=1.8)
+                xc = 0.5 * (xe[:-1] + xe[1:])
+                yc = 0.5 * (ye[:-1] + ye[1:])
+                ax.contour(xc, yc, Ha_s, levels=5, colors="#1b4975", alpha=0.5, linewidths=0.9, zorder=2)
+
+            if len(t_x) >= 20:
+                Ht, xe, ye = np.histogram2d(t_x, t_y, bins=80, range=[x_rng, y_rng])
+                Ht_s = gaussian_filter(Ht.T, sigma=1.8)
+                xc = 0.5 * (xe[:-1] + xe[1:])
+                yc = 0.5 * (ye[:-1] + ye[1:])
+                ax.contour(xc, yc, Ht_s, levels=5, colors="#b32d29", alpha=0.5, linewidths=0.9, zorder=2)
+
+            for a_pt in a_items:
+                t_idx = a_pt.get("assigned_phoneme_index")
+                if t_idx is not None and 0 <= t_idx < len(t_items):
+                    target = t_items[t_idx]
+                    ax.plot(
+                        [a_pt["x"], target["x"]],
+                        [a_pt["y"], target["y"]],
+                        color="#555555",
+                        alpha=0.45,
+                        linestyle="--",
+                        linewidth=0.8,
+                        zorder=3,
+                    )
+
+            ax.scatter(
+                a_x, a_y,
+                color="#2b5c8f", marker="o", s=45, alpha=0.78,
+                label=f"{self.src_label} (N={len(a_x)})", zorder=4,
+            )
+            ax.scatter(
+                t_x, t_y,
+                color="#d9534f", marker="s", s=55, alpha=0.85,
+                edgecolors="#7a1816", linewidth=0.5,
+                label=f"{self.trg_label} (N={len(t_x)})", zorder=5,
+            )
+
+            if len(t_items) <= 60:
+                for p in t_items:
+                    ax.annotate(
+                        p["label"],
+                        (p["x"], p["y"]),
+                        fontsize=7.0,
+                        fontweight="bold",
+                        color="#4a0e0c",
+                        xytext=(2, 2),
+                        textcoords="offset points",
+                        zorder=6,
+                    )
+
+            sim_val = float(rep_data.get("final_avg_similarity", 0.0))
+            cov_pct = cov_info["coverage_ratio"] * 100.0
+            ent_val = cov_info["normalized_entropy"]
+            evr_pct = pca_res["total_2d_explained_variance_ratio"] * 100.0
+
+            ax.set_title(
+                f"{name}\n"
+                f"CSLS={sim_val:.4f} | Cov={cov_info['unique_phonemes_covered']}/{cov_info['num_phonemes']} ({cov_pct:.1f}%) | "
+                f"H_norm={ent_val:.3f} | 2D Var={evr_pct:.1f}%",
+                fontsize=10.5,
+                fontweight="bold",
+            )
+            ax.set_xlabel(f"PC 1 ({pca_res['explained_variance_ratio_pc1']*100:.1f}%)", fontsize=9.5)
+            ax.set_ylabel(f"PC 2 ({pca_res['explained_variance_ratio_pc2']*100:.1f}%)", fontsize=9.5)
+            ax.set_xlim(x_rng)
+            ax.set_ylim(y_rng)
+            ax.grid(True, linestyle=":", alpha=0.5)
+            ax.legend(loc="best", fontsize=8.5, frameon=True, facecolor="white", edgecolor="#cccccc")
+
+            summary_data[name] = {
+                "final_avg_csls_similarity": sim_val,
+                "unique_phonemes_covered": cov_info["unique_phonemes_covered"],
+                "total_phonemes": cov_info["num_phonemes"],
+                "coverage_ratio": cov_info["coverage_ratio"],
+                "entropy": cov_info["entropy"],
+                "normalized_entropy": ent_val,
+                "pca_2d_explained_variance_ratio": pca_res["total_2d_explained_variance_ratio"],
+                "mapped_src_isotropy": iso_src["isotropy_measure"],
+                "normalized_trg_isotropy": iso_trg["isotropy_measure"],
+                "phoneme_assignment_counts": cov_info["phoneme_assignment_counts"],
+            }
+            txt_rows.append(
+                f"{name:<38} | {sim_val:>10.4f} | "
+                f"{cov_info['unique_phonemes_covered']:>2d}/{cov_info['num_phonemes']:<2d} ({cov_pct:>5.1f}%) | "
+                f"{ent_val:>8.4f} | {iso_src['isotropy_measure']:>9.4f} | {iso_trg['isotropy_measure']:>9.4f} | "
+                f"{evr_pct:>8.2f}%"
+            )
+
+        for idx in range(n_panels, nrows * ncols):
+            r, c = divmod(idx, ncols)
+            axes[r][c].axis("off")
+
+        fig.suptitle(self.title, fontsize=13.5, fontweight="bold", y=0.99)
+        fig.tight_layout()
+        fig.subplots_adjust(top=0.93)
+        fig.savefig(self.out_comparison_panel_plot.get_path(), bbox_inches="tight")
+        plt.close(fig)
+
+        with open(self.out_comparison_report_json.get_path(), "w", encoding="utf-8") as fj:
+            json.dump(summary_data, fj, indent=2)
+
+        header = (
+            f"{'Ablation Setup':<38} | {'Mean CSLS':>10} | {'Phoneme Cov':>14} | "
+            f"{'H_norm':>8} | {'I(X W*)':>9} | {'I(Z)':>9} | {'2D PCA Var':>9}"
+        )
+        lines = [
+            "=" * len(header),
+            self.title,
+            "=" * len(header),
+            header,
+            "-" * len(header),
+            *txt_rows,
+            "=" * len(header),
+        ]
+        with open(self.out_comparison_report_txt.get_path(), "w", encoding="utf-8") as ft:
+            ft.write("\n".join(lines) + "\n")
+
 

@@ -36,7 +36,7 @@ def _avg_pairwise_cosine_similarity(x: np.ndarray, y: Optional[np.ndarray] = Non
     Operates on the raw (pre-PCA) encoder states, so it is not affected by the 2D PCA collapse.
 
     :param x: ``[N, F]`` states.
-    :param y: if given, ``[M, F]`` states from the other modality -> average over all cross pairs
+    :param y: if given, ``[M, F]`` states from the other language -> average over all cross pairs
         (x_i, y_j). If ``None`` -> average over all distinct within-set pairs (i < j) of ``x``.
     :return: mean cosine similarity, or ``nan`` if there are no valid pairs.
     """
@@ -46,7 +46,6 @@ def _avg_pairwise_cosine_similarity(x: np.ndarray, y: Optional[np.ndarray] = Non
         if n < 2:
             return float("nan")
         sims = x_norm @ x_norm.T
-        # sum over off-diagonal entries = sum over ordered pairs i!=j; divide by their count
         off_diag_sum = float(sims.sum() - np.trace(sims))
         mean_sim = off_diag_sum / (n * (n - 1))
         return mean_sim
@@ -83,18 +82,16 @@ def _avg_pairwise_l2_distance(x: np.ndarray, y: Optional[np.ndarray] = None) -> 
 
 class EncoderStatePcaCallback(ForwardCallbackIface):
     """
-    Forward callback for the shared-encoder state PCA analysis.
+    Forward callback for the cross-lingual shared-encoder state PCA analysis.
 
-    Collects the per-frame shared-encoder states of both modalities (the ``audio_states`` /
-    ``text_states`` outputs produced by the analysis forward_step), fits a single 2D PCA over the
-    pooled states of *both* modalities, and writes, for every sequence seen in both modalities,
-    a scatter plot (audio vs. text) plus the projected coordinates. This mirrors
-    ``notebooks/visualize_embeds.py`` but lets RETURNN handle all data loading.
-
-    Modalities are accumulated independently per ``seq_tag``, so this works both for a paired
-    ``MetaDataset`` (both modalities in the same batch) and for a ``CombinedDataset`` where the
-    audio and text views of the same ``seq_tag`` arrive in different (audio-only / text-only)
-    batches.
+    Collects the per-token shared-encoder states of both languages (e.g. ``de`` vs. ``en``),
+    fits a single 2D PCA over the pooled states of *both* languages, and writes:
+      1. A global cross-lingual PCA scatter plot (``global_language_pca.png``) comparing the
+         pooled token representations of both languages.
+      2. For every sequence seen in both languages, a per-sentence scatter + trajectory plot
+         comparing source language (e.g. ``de``) vs. target language (e.g. ``en``) encoder states,
+         plus projected coordinates (``*.npz``) and original-space pairwise cosine similarity
+         and L2 distance summaries (``cosine_similarities.txt`` and ``summary.txt``).
     """
 
     def __init__(
@@ -104,202 +101,448 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
         max_points_per_modality: int = 50_000,
         plot_seq_tags: Optional[List[str]] = None,
         max_plotted_seqs: int = 20,
+        plot_all_sequences: bool = False,
+        join_lines: bool = False,
+        mark_sequence_ends: bool = True,
         cosine_similarity_summary: bool = False,
+        src_label: str = "de",
+        trg_label: str = "en",
         audio_output: str = "audio_states",
         text_output: str = "text_states",
+        src_vocab_file: Optional[str] = None,
+        trg_vocab_file: Optional[str] = None,
+        src_text_file: Optional[str] = None,
+        trg_text_file: Optional[str] = None,
+        seq_tags_file: Optional[str] = None,
+        use_hypothesis: bool = False,
+        ref_label: Optional[str] = None,
         vocab=None,  # injected by serialize_forward; unused here (we plot states, not labels)
     ):
         self.out_dir = out_dir
         self.max_points_per_modality = max_points_per_modality
         self.plot_seq_tags = set(plot_seq_tags) if plot_seq_tags is not None else None
         self.max_plotted_seqs = max_plotted_seqs
-        # if True, also summarize avg pairwise cosine similarities (within/between modalities) in
-        # the original feature space, which -- unlike the 2D PCA -- is not distorted by dim reduction.
+        self.plot_all_sequences = plot_all_sequences
+        self.join_lines = join_lines
+        self.mark_sequence_ends = mark_sequence_ends
         self.cosine_similarity_summary = cosine_similarity_summary
+        self.src_label = src_label
+        self.trg_label = trg_label
         self.audio_output = audio_output
         self.text_output = text_output
+        self.src_vocab_file = src_vocab_file
+        self.trg_vocab_file = trg_vocab_file
+        self.src_text_file = src_text_file
+        self.trg_text_file = trg_text_file
+        self.seq_tags_file = seq_tags_file
+        self.use_hypothesis = use_hypothesis
+        self.ref_label = ref_label
 
-        # which seq_tags we keep states for / plot. With plot_seq_tags=None we lazily select the
-        # first `max_plotted_seqs` distinct seq_tags (bounded memory on large datasets).
         self._plot_selected: set = set()
 
-        # capped pools used for fitting the shared PCA
-        self._audio_pool: List[np.ndarray] = []
-        self._text_pool: List[np.ndarray] = []
-        self._audio_pool_size = 0
-        self._text_pool_size = 0
+        # Capped pools used for fitting the shared cross-lingual PCA
+        self._src_pool: List[np.ndarray] = []
+        self._trg_pool: List[np.ndarray] = []
+        self._src_pool_size = 0
+        self._trg_pool_size = 0
 
-        # per-seq states kept for plotting (only for seq_tags we actually plot)
-        self._audio_seqs: Dict[str, np.ndarray] = {}
-        self._text_seqs: Dict[str, np.ndarray] = {}
+        # Per-seq states kept for plotting
+        self._src_seqs: Dict[str, np.ndarray] = {}
+        self._trg_seqs: Dict[str, np.ndarray] = {}
+        self._src_tokens: Dict[str, np.ndarray] = {}
+        self._trg_tokens: Dict[str, np.ndarray] = {}
+
+        self._src_vocab: Dict[int, str] = {}
+        self._trg_vocab: Dict[int, str] = {}
+        self._tag_to_src_text: Dict[str, str] = {}
+        self._tag_to_trg_text: Dict[str, str] = {}
+
+    @staticmethod
+    def _load_vocab(vocab_path: Optional[str]) -> Dict[int, str]:
+        if not vocab_path or not os.path.exists(vocab_path):
+            return {}
+        try:
+            with open(vocab_path, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+            if content.startswith("{") and content.endswith("}"):
+                import ast
+                d = ast.literal_eval(content)
+                return {int(idx): str(tok) for tok, idx in d.items()}
+            res = {}
+            for idx, line in enumerate(content.splitlines()):
+                line = line.strip()
+                if line:
+                    res[idx] = line.split()[0]
+            return res
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _load_text_by_tag(text_path: Optional[str], tags_path: Optional[str]) -> Dict[str, str]:
+        if not text_path or not os.path.exists(text_path):
+            return {}
+        with open(text_path, "r", encoding="utf-8", errors="replace") as f:
+            texts = [l.strip() for l in f]
+        if tags_path and os.path.exists(tags_path):
+            with open(tags_path, "r", encoding="utf-8", errors="replace") as f:
+                tags = [l.strip() for l in f]
+            return {tag: text for tag, text in zip(tags, texts)}
+        return {f"line-{i}": text for i, text in enumerate(texts)}
 
     def init(self, *args, **kwargs):
         os.makedirs(self.out_dir, exist_ok=True)
+        self._src_vocab = self._load_vocab(self.src_vocab_file)
+        self._trg_vocab = self._load_vocab(self.trg_vocab_file)
+        self._tag_to_src_text = self._load_text_by_tag(self.src_text_file, self.seq_tags_file)
+        self._tag_to_trg_text = self._load_text_by_tag(self.trg_text_file, self.seq_tags_file)
 
     def _should_plot(self, seq_tag: str) -> bool:
+        if self.plot_all_sequences:
+            return True
         if self.plot_seq_tags is not None:
             return seq_tag in self.plot_seq_tags
         if seq_tag in self._plot_selected:
             return True
-        if len(self._plot_selected) < self.max_plotted_seqs:
+        if self.max_plotted_seqs is not None and len(self._plot_selected) < self.max_plotted_seqs:
             self._plot_selected.add(seq_tag)
             return True
         return False
 
-    def _add_to_pool(self, states: np.ndarray, *, audio: bool) -> None:
-        pool = self._audio_pool if audio else self._text_pool
-        size = self._audio_pool_size if audio else self._text_pool_size
+    def _add_to_pool(self, states: np.ndarray, *, is_src: bool) -> None:
+        pool = self._src_pool if is_src else self._trg_pool
+        size = self._src_pool_size if is_src else self._trg_pool_size
         remaining = self.max_points_per_modality - size
         if remaining <= 0:
             return
         if states.shape[0] > remaining:
             states = states[:remaining]
         pool.append(states)
-        if audio:
-            self._audio_pool_size += states.shape[0]
+        if is_src:
+            self._src_pool_size += states.shape[0]
         else:
-            self._text_pool_size += states.shape[0]
+            self._trg_pool_size += states.shape[0]
 
     def process_seq(self, *, seq_tag: str, outputs: TensorDict, **kwargs):
-        # the forward_step only marks an output for a modality that is present in the batch,
-        # so a given seq may carry audio_states, text_states, or both.
         if self.audio_output in outputs.data:
-            audio = np.asarray(outputs[self.audio_output].raw_tensor, dtype=np.float32)
-            if audio.shape[0] > 0:
-                self._add_to_pool(audio, audio=True)
+            src_arr = np.asarray(outputs[self.audio_output].raw_tensor, dtype=np.float32)
+            if src_arr.shape[0] > 0:
+                self._add_to_pool(src_arr, is_src=True)
                 if self._should_plot(seq_tag):
-                    self._audio_seqs[seq_tag] = audio
+                    self._src_seqs[seq_tag] = src_arr
         if self.text_output in outputs.data:
-            text = np.asarray(outputs[self.text_output].raw_tensor, dtype=np.float32)
-            if text.shape[0] > 0:
-                self._add_to_pool(text, audio=False)
+            trg_arr = np.asarray(outputs[self.text_output].raw_tensor, dtype=np.float32)
+            if trg_arr.shape[0] > 0:
+                self._add_to_pool(trg_arr, is_src=False)
                 if self._should_plot(seq_tag):
-                    self._text_seqs[seq_tag] = text
+                    self._trg_seqs[seq_tag] = trg_arr
+        if "src_indices" in outputs.data and self._should_plot(seq_tag):
+            self._src_tokens[seq_tag] = np.asarray(outputs["src_indices"].raw_tensor, dtype=np.int64).reshape(-1)
+        if "trg_indices" in outputs.data and self._should_plot(seq_tag):
+            self._trg_tokens[seq_tag] = np.asarray(outputs["trg_indices"].raw_tensor, dtype=np.int64).reshape(-1)
+
+    def _get_seq_string(self, seq_tag: str, *, is_src: bool) -> str:
+        if is_src:
+            if seq_tag in self._tag_to_src_text:
+                return self._tag_to_src_text[seq_tag]
+            tokens_dict = self._src_tokens
+            vocab = self._src_vocab
+        else:
+            if not self.use_hypothesis and seq_tag in self._tag_to_trg_text:
+                return self._tag_to_trg_text[seq_tag]
+            tokens_dict = self._trg_tokens
+            vocab = self._trg_vocab
+
+        if seq_tag in tokens_dict and vocab:
+            token_ids = tokens_dict[seq_tag]
+            toks = [vocab.get(int(i), f"<{i}>") for i in token_ids if int(i) not in (0, 2, 3)]
+            clean_str = " ".join(toks).replace("@@ ", "")
+            return clean_str
+        return ""
 
     def finish(self, **kwargs):
         import matplotlib
 
         matplotlib.use("Agg")
+        if "text.parse_math" in matplotlib.rcParams:
+            matplotlib.rcParams["text.parse_math"] = False
         import matplotlib.pyplot as plt
 
-        if not self._audio_pool or not self._text_pool:
+        if not self._src_pool or not self._trg_pool:
             raise ValueError(
-                "Need encoder states from both audio and text to fit the shared PCA"
-                f" (audio_points={self._audio_pool_size}, text_points={self._text_pool_size})."
+                f"Need encoder states from both languages ({self.src_label} and {self.trg_label}) to fit the shared PCA "
+                f"({self.src_label}_points={self._src_pool_size}, {self.trg_label}_points={self._trg_pool_size})."
             )
 
-        mean, components = _fit_pca_2d(np.concatenate(self._audio_pool + self._text_pool, axis=0))
+        all_src = np.concatenate(self._src_pool, axis=0)
+        all_trg = np.concatenate(self._trg_pool, axis=0)
+        mean, components = _fit_pca_2d(np.concatenate([all_src, all_trg], axis=0))
 
-        paired_seq_tags = sorted(set(self._audio_seqs) & set(self._text_seqs))
+        paired_seq_tags = sorted(set(self._src_seqs) & set(self._trg_seqs))
 
-        # seq_tag -> {"audio_audio", "text_text", "audio_text"} avg pairwise cosine similarities
+        # Plot global cross-lingual / cross-modal PCA over all sequences
+        # (without joining with lines, indicating sequence start with * and end with X)
+        plt.figure(figsize=(9, 9))
+        src_dot_labeled = False
+        trg_dot_labeled = False
+        src_start_labeled = False
+        src_end_labeled = False
+        trg_start_labeled = False
+        trg_end_labeled = False
+
+        if paired_seq_tags:
+            for seq_tag in paired_seq_tags:
+                s_st = self._src_seqs[seq_tag]
+                t_st = self._trg_seqs[seq_tag]
+                s_c = _project(s_st, mean, components)
+                t_c = _project(t_st, mean, components)
+
+                if len(s_c) > 0:
+                    plt.scatter(
+                        s_c[:, 0], s_c[:, 1],
+                        s=10, alpha=0.35, c="#1f77b4",
+                        edgecolors="none",
+                        label=f"lang: {self.src_label}" if not src_dot_labeled else None,
+                    )
+                    src_dot_labeled = True
+                    if self.mark_sequence_ends:
+                        plt.scatter(
+                            s_c[0, 0], s_c[0, 1],
+                            s=90, marker="*", c="#1f77b4",
+                            edgecolors="black", linewidths=0.7, zorder=6,
+                            label=f"{self.src_label} start (*)" if not src_start_labeled else None,
+                        )
+                        src_start_labeled = True
+                        if len(s_c) > 1:
+                            plt.scatter(
+                                s_c[-1, 0], s_c[-1, 1],
+                                s=70, marker="X", c="#1f77b4",
+                                edgecolors="black", linewidths=0.7, zorder=6,
+                                label=f"{self.src_label} end (X)" if not src_end_labeled else None,
+                            )
+                            src_end_labeled = True
+
+                if len(t_c) > 0:
+                    plt.scatter(
+                        t_c[:, 0], t_c[:, 1],
+                        s=10, alpha=0.35, c="#d62728",
+                        edgecolors="none",
+                        label=f"lang: {self.trg_label}" if not trg_dot_labeled else None,
+                    )
+                    trg_dot_labeled = True
+                    if self.mark_sequence_ends:
+                        plt.scatter(
+                            t_c[0, 0], t_c[0, 1],
+                            s=90, marker="*", c="#d62728",
+                            edgecolors="black", linewidths=0.7, zorder=6,
+                            label=f"{self.trg_label} start (*)" if not trg_start_labeled else None,
+                        )
+                        trg_start_labeled = True
+                        if len(t_c) > 1:
+                            plt.scatter(
+                                t_c[-1, 0], t_c[-1, 1],
+                                s=70, marker="X", c="#d62728",
+                                edgecolors="black", linewidths=0.7, zorder=6,
+                                label=f"{self.trg_label} end (X)" if not trg_end_labeled else None,
+                            )
+                            trg_end_labeled = True
+        else:
+            # Fallback to pooled random subsample if no paired per-sequence states
+            rng = np.random.RandomState(42)
+            src_sample = all_src[rng.choice(len(all_src), size=min(5000, len(all_src)), replace=False)]
+            trg_sample = all_trg[rng.choice(len(all_trg), size=min(5000, len(all_trg)), replace=False)]
+            src_global_coords = _project(src_sample, mean, components)
+            trg_global_coords = _project(trg_sample, mean, components)
+
+            plt.scatter(
+                src_global_coords[:, 0], src_global_coords[:, 1],
+                s=10, alpha=0.4, label=f"lang: {self.src_label}", c="#1f77b4",
+            )
+            plt.scatter(
+                trg_global_coords[:, 0], trg_global_coords[:, 1],
+                s=10, alpha=0.4, label=f"lang: {self.trg_label}", c="#d62728",
+            )
+
+        plt.title(f"Global Shared Encoder PCA ({self.src_label} vs. {self.trg_label})")
+        plt.xlabel("PC1")
+        plt.ylabel("PC2")
+        plt.legend(loc="best")
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.out_dir, "global_language_pca.png"), dpi=200)
+        plt.savefig(os.path.join(self.out_dir, "all_sequences_pca.png"), dpi=200)
+        plt.close()
+
         cosine_similarities: Dict[str, Dict[str, float]] = {}
 
+        if self.plot_seq_tags is not None:
+            individual_plot_tags = set(t for t in paired_seq_tags if t in self.plot_seq_tags)
+        elif self.max_plotted_seqs is not None and self.max_plotted_seqs >= 0:
+            individual_plot_tags = set(paired_seq_tags[: self.max_plotted_seqs])
+        else:
+            individual_plot_tags = set(paired_seq_tags)
+
         with open(os.path.join(self.out_dir, "summary.txt"), "w") as summary:
-            summary.write(f"pooled_audio_points={self._audio_pool_size}\n")
-            summary.write(f"pooled_text_points={self._text_pool_size}\n")
+            summary.write(f"src_lang={self.src_label}\n")
+            summary.write(f"trg_lang={self.trg_label}\n")
+            summary.write(f"pooled_{self.src_label}_points={self._src_pool_size}\n")
+            summary.write(f"pooled_{self.trg_label}_points={self._trg_pool_size}\n")
             summary.write(f"num_paired_seqs={len(paired_seq_tags)}\n")
 
             for seq_tag in paired_seq_tags:
-                audio_states = self._audio_seqs[seq_tag]
-                text_states = self._text_seqs[seq_tag]
-                audio_coords = _project(audio_states, mean, components)
-                text_coords = _project(text_states, mean, components)
+                src_states = self._src_seqs[seq_tag]
+                trg_states = self._trg_seqs[seq_tag]
+                src_coords = _project(src_states, mean, components)
+                trg_coords = _project(trg_states, mean, components)
+
+                src_seq_str = self._get_seq_string(seq_tag, is_src=True)
+                trg_seq_str = self._get_seq_string(seq_tag, is_src=False)
 
                 npz_data = dict(
                     seq_tag=seq_tag,
-                    audio_coords=audio_coords,
-                    text_coords=text_coords,
-                    audio_time_idx=np.arange(audio_coords.shape[0]),
-                    text_time_idx=np.arange(text_coords.shape[0]),
+                    src_lang=self.src_label,
+                    trg_lang=self.trg_label,
+                    src_coords=src_coords,
+                    trg_coords=trg_coords,
+                    src_sequence=src_seq_str,
+                    trg_sequence=trg_seq_str,
+                    # Keep backward-compatible keys as well
+                    audio_coords=src_coords,
+                    text_coords=trg_coords,
+                    src_time_idx=np.arange(src_coords.shape[0]),
+                    trg_time_idx=np.arange(trg_coords.shape[0]),
                 )
+                if self.use_hypothesis:
+                    npz_data["hyp_sequence"] = trg_seq_str
+                    if seq_tag in self._tag_to_trg_text:
+                        npz_data["ref_sequence"] = self._tag_to_trg_text[seq_tag]
 
                 if self.cosine_similarity_summary:
-                    # computed on the raw encoder states (original feature space), not on the
-                    # 2D PCA coordinates.
                     cos = {
-                        "audio_audio": _avg_pairwise_cosine_similarity(audio_states),
-                        "text_text": _avg_pairwise_cosine_similarity(text_states),
-                        "audio_text": _avg_pairwise_cosine_similarity(audio_states, text_states),
+                        "src_src": _avg_pairwise_cosine_similarity(src_states),
+                        "trg_trg": _avg_pairwise_cosine_similarity(trg_states),
+                        "src_trg": _avg_pairwise_cosine_similarity(src_states, trg_states),
                     }
                     cosine_similarities[seq_tag] = cos
                     npz_data.update(
-                        audio_audio_cos_sim=cos["audio_audio"],
-                        text_text_cos_sim=cos["text_text"],
-                        audio_text_cos_sim=cos["audio_text"],
+                        src_src_cos_sim=cos["src_src"],
+                        trg_trg_cos_sim=cos["trg_trg"],
+                        src_trg_cos_sim=cos["src_trg"],
                     )
 
                 safe_seq_tag = seq_tag.replace("/", "_")
                 np.savez(os.path.join(self.out_dir, f"{safe_seq_tag}.npz"), **npz_data)
 
-                plt.figure(figsize=(8, 8))
-                plt.scatter(audio_coords[:, 0], audio_coords[:, 1], s=18, alpha=0.7, label="audio", c="#1f77b4")
-                plt.scatter(text_coords[:, 0], text_coords[:, 1], s=18, alpha=0.7, label="text", c="#d62728")
-                if len(audio_coords) > 1:
-                    plt.plot(audio_coords[:, 0], audio_coords[:, 1], alpha=0.35, c="#1f77b4")
-                if len(text_coords) > 1:
-                    plt.plot(text_coords[:, 0], text_coords[:, 1], alpha=0.35, c="#d62728")
-                # highlight seq start/end so the temporal direction is visible in the scatter.
-                self._mark_start_end(plt, audio_coords, label_prefix="audio")
-                self._mark_start_end(plt, text_coords, label_prefix="text")
-                title = f"Shared encoder PCA for {seq_tag}"
-                if self.cosine_similarity_summary:
-                    cos = cosine_similarities[seq_tag]
-                    dist = {
-                        "audio_audio": _avg_pairwise_l2_distance(audio_states),
-                        "text_text": _avg_pairwise_l2_distance(text_states),
-                        "audio_text": _avg_pairwise_l2_distance(audio_states, text_states),
-                    }
-                    title += (
-                        f"\navg cos-sim (orig. space)  a-a {cos['audio_audio']:.3f}"
-                        f"  t-t {cos['text_text']:.3f}  a-t {cos['audio_text']:.3f}"
-                        f"\navg L2-dist (orig. space)  a-a {dist['audio_audio']:.3f}"
-                        f"  t-t {dist['text_text']:.3f}  a-t {dist['audio_text']:.3f}"
-                    )
-                plt.title(title)
-                plt.xlabel("PC1")
-                plt.ylabel("PC2")
-                plt.legend()
-                plt.tight_layout()
-                plt.savefig(os.path.join(self.out_dir, f"{safe_seq_tag}.png"), dpi=200)
-                plt.close()
+                if seq_tag in individual_plot_tags:
+                    fig, ax = plt.subplots(figsize=(9, 9))
+                    ax.scatter(src_coords[:, 0], src_coords[:, 1], s=18, alpha=0.7, label=self.src_label, c="#1f77b4")
+                    ax.scatter(trg_coords[:, 0], trg_coords[:, 1], s=18, alpha=0.7, label=self.trg_label, c="#d62728")
+                    if len(src_coords) > 1 and self.join_lines:
+                        ax.plot(src_coords[:, 0], src_coords[:, 1], alpha=0.35, c="#1f77b4")
+                    if len(trg_coords) > 1 and self.join_lines:
+                        ax.plot(trg_coords[:, 0], trg_coords[:, 1], alpha=0.35, c="#d62728")
+                    if self.mark_sequence_ends:
+                        self._mark_start_end(ax, src_coords, label_prefix=self.src_label)
+                        self._mark_start_end(ax, trg_coords, label_prefix=self.trg_label)
+                    title = f"Shared encoder PCA ({self.src_label} vs. {self.trg_label})\nSequence ID: {seq_tag}"
+                    if self.cosine_similarity_summary:
+                        cos = cosine_similarities[seq_tag]
+                        dist = {
+                            "src_src": _avg_pairwise_l2_distance(src_states),
+                            "trg_trg": _avg_pairwise_l2_distance(trg_states),
+                            "src_trg": _avg_pairwise_l2_distance(src_states, trg_states),
+                        }
+                        title += (
+                            f"\navg cos-sim: {self.src_label}-{self.src_label} {cos['src_src']:.3f} | "
+                            f"{self.trg_label}-{self.trg_label} {cos['trg_trg']:.3f} | "
+                            f"{self.src_label}-{self.trg_label} {cos['src_trg']:.3f}\n"
+                            f"avg L2-dist: {self.src_label}-{self.src_label} {dist['src_src']:.3f} | "
+                            f"{self.trg_label}-{self.trg_label} {dist['trg_trg']:.3f} | "
+                            f"{self.src_label}-{self.trg_label} {dist['src_trg']:.3f}"
+                        )
+                    ax.set_title(title, fontsize=10)
+                    ax.set_xlabel("PC1")
+                    ax.set_ylabel("PC2")
+                    ax.legend(loc="best")
+                    ax.grid(True, linestyle=":", alpha=0.4)
+
+                    import textwrap
+                    src_disp = (src_seq_str[:300] + "...") if len(src_seq_str) > 300 else src_seq_str
+                    trg_disp = (trg_seq_str[:300] + "...") if len(trg_seq_str) > 300 else trg_seq_str
+                    lines = []
+                    if src_disp:
+                        lines.append(f"[{self.src_label}]: " + "\n  ".join(textwrap.wrap(src_disp, width=85)))
+                    if trg_disp:
+                        lines.append(f"[{self.trg_label}]: " + "\n  ".join(textwrap.wrap(trg_disp, width=85)))
+                    if self.use_hypothesis and seq_tag in self._tag_to_trg_text:
+                        ref_text = self._tag_to_trg_text[seq_tag]
+                        ref_disp = (ref_text[:300] + "...") if len(ref_text) > 300 else ref_text
+                        r_lbl = self.ref_label or (self.trg_label.replace(" (hyp)", "").replace("(hyp)", "").strip() + " (ref)")
+                        lines.append(f"[{r_lbl}]: " + "\n  ".join(textwrap.wrap(ref_disp, width=85)))
+                    seq_box_text = "\n".join(lines)
+
+                    if seq_box_text:
+                        text_kwargs = dict(
+                            ha="center",
+                            va="bottom",
+                            fontsize=7.5,
+                            family="monospace",
+                            bbox=dict(boxstyle="round,pad=0.5", facecolor="#f8f9fa", edgecolor="#ced4da", alpha=0.9),
+                        )
+                        try:
+                            fig.text(0.5, 0.02, seq_box_text, parse_math=False, **text_kwargs)
+                        except TypeError:
+                            fig.text(0.5, 0.02, seq_box_text.replace("$", "\uff04"), **text_kwargs)
+                        fig.subplots_adjust(bottom=0.22 if (self.use_hypothesis and seq_tag in self._tag_to_trg_text) else 0.20)
+                    else:
+                        fig.tight_layout()
+
+                    fig.savefig(os.path.join(self.out_dir, f"{safe_seq_tag}.png"), dpi=200)
+                    plt.close(fig)
 
                 summary.write(
-                    f"{seq_tag} audio_points={audio_coords.shape[0]} text_points={text_coords.shape[0]}\n"
+                    f"{seq_tag} {self.src_label}_points={src_coords.shape[0]} {self.trg_label}_points={trg_coords.shape[0]}\n"
                 )
+                if src_seq_str:
+                    summary.write(f"  {self.src_label}: {src_seq_str}\n")
+                if trg_seq_str:
+                    summary.write(f"  {self.trg_label}: {trg_seq_str}\n")
+                if self.use_hypothesis and seq_tag in self._tag_to_trg_text:
+                    summary.write(f"  ref: {self._tag_to_trg_text[seq_tag]}\n")
 
         if self.cosine_similarity_summary:
             self._write_cosine_summary(cosine_similarities)
 
     @staticmethod
-    def _mark_start_end(plt, coords: np.ndarray, *, label_prefix: str) -> None:
-        """Overlay distinct markers on the first (start) and last (end) frame of a modality."""
+    def _mark_start_end(ax, coords: np.ndarray, *, label_prefix: str) -> None:
         if len(coords) == 0:
             return
-        # green = start, black = end; consistent across both modalities.
-        plt.scatter(
+        ax.scatter(
             coords[0, 0], coords[0, 1], s=120, marker="*", c="#2ca02c",
             edgecolors="black", linewidths=0.8, zorder=5, label=f"{label_prefix} start",
         )
         if len(coords) > 1:
-            plt.scatter(
+            ax.scatter(
                 coords[-1, 0], coords[-1, 1], s=120, marker="X", c="black",
                 edgecolors="white", linewidths=0.8, zorder=5, label=f"{label_prefix} end",
             )
 
     def _write_cosine_summary(self, cosine_similarities: Dict[str, Dict[str, float]]) -> None:
-        """Write a human-readable table of avg pairwise cosine similarities + overall means."""
-        keys = ("audio_audio", "text_text", "audio_text")
+        keys = ("src_src", "trg_trg", "src_trg")
+        s_s = f"{self.src_label}-{self.src_label}"
+        t_t = f"{self.trg_label}-{self.trg_label}"
+        s_t = f"{self.src_label}-{self.trg_label}"
         with open(os.path.join(self.out_dir, "cosine_similarities.txt"), "w") as f:
-            f.write("# average pairwise cosine similarity in the original feature space\n")
-            f.write("# (NOT the 2D PCA space); a-a = within audio, t-t = within text, a-t = audio<->text\n")
-            f.write(f"{'seq_tag':<60} {'a-a':>8} {'t-t':>8} {'a-t':>8}\n")
+            f.write("# average pairwise cosine similarity in the original encoder feature space\n")
+            f.write(
+                f"# (NOT the 2D PCA space); {s_s} = within {self.src_label}, "
+                f"{t_t} = within {self.trg_label}, {s_t} = {self.src_label}<->{self.trg_label}\n"
+            )
+            f.write(f"{'seq_tag':<60} {s_s:>8} {t_t:>8} {s_t:>8}\n")
             for seq_tag in sorted(cosine_similarities):
                 cos = cosine_similarities[seq_tag]
-                f.write(f"{seq_tag:<60} {cos['audio_audio']:>8.4f} {cos['text_text']:>8.4f} {cos['audio_text']:>8.4f}\n")
+                f.write(f"{seq_tag:<60} {cos['src_src']:>8.4f} {cos['trg_trg']:>8.4f} {cos['src_trg']:>8.4f}\n")
             f.write("-" * 88 + "\n")
             means = {
                 k: float(np.nanmean([cos[k] for cos in cosine_similarities.values()])) if cosine_similarities else float("nan")
                 for k in keys
             }
-            f.write(f"{'MEAN over seqs':<60} {means['audio_audio']:>8.4f} {means['text_text']:>8.4f} {means['audio_text']:>8.4f}\n")
+            f.write(f"{'MEAN over seqs':<60} {means['src_src']:>8.4f} {means['trg_trg']:>8.4f} {means['src_trg']:>8.4f}\n")

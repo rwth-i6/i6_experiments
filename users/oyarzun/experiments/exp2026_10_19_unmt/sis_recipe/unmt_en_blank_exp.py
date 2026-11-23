@@ -70,7 +70,10 @@ from .data.wmt14_de_en import (
     DumpTextToReturnnHdfJob,
     PrepareWmt14MonolingualNewsCrawlJob,
 )
-from .data.word2vec import TrainWord2VecJob
+from .data.word2vec import (
+    TrainWord2VecJob,
+    PostprocessWord2VecAllButTheTopJob,
+)
 from .bleu_eval import ComputeBleuJob, JoinScoresJob, SummarizeEpochCheckpointsJob
 from .per_eval import ComputePerJob
 from .eval_word_by_word_baseline import WordByWordCrossLingualEvalJob
@@ -80,7 +83,12 @@ from .pipeline import training, forward_single, get_checkpoint
 from .config import get_forward_config
 from .default_tools import RETURNN_EXE, RETURNN_ROOT
 from ..models.self_learning_alignment import SelfLearningEmbeddingAlignmentJob
-from ..models.analysis import EmbeddingAlignmentAnalysisJob
+from ..models.gan_alignment import GANEmbeddingAlignmentJob
+from ..models.geowarp_alignment import GeoWarPEmbeddingAlignmentJob
+from ..models.analysis import (
+    EmbeddingAlignmentAnalysisJob,
+    Word2VecIsotropyAndPcaAnalysisJob,
+)
 
 
 def run_en_blank_phoneme_unmt_pipeline(
@@ -104,6 +112,10 @@ def run_en_blank_phoneme_unmt_pipeline(
     w2v_sg: int = 1,
     w2v_epochs: int = 10,
     w2v_sample: Optional[float] = 1e-3,
+    w2v_all_but_the_top: bool = False,
+    w2v_abtt_d: Optional[int] = None,
+    run_w2v_isotropy_analysis: bool = True,
+    alignment_method: str = "artetxe",  # "artetxe", "gan", or "geowarp"
     alignment_retrieval_metric: str = "csls",
     alignment_csls_k: int = 5,
     num_epochs: int = 20,
@@ -119,6 +131,8 @@ def run_en_blank_phoneme_unmt_pipeline(
     device: str = "gpu",
     run_undreamt_training: bool = True,
     enable_comet: bool = False,
+    run_contrastive_pca: bool = True,
+    run_cross_attention_analysis: bool = True,
 ) -> Dict[str, Any]:
     """
     Builds the complete Sisyphus graph for Phoneme-Level EN+Blank <-> EN or EN+Blank <-> DE UNMT.
@@ -223,6 +237,8 @@ def run_en_blank_phoneme_unmt_pipeline(
         trg_dev_txt = ls_eval_job.out_dev_en_phn_txt
         src_test_txt = ls_eval_job.out_test_en_blank_txt
         trg_test_txt = ls_eval_job.out_test_en_phn_txt
+        dev_raw_txt = ls_eval_job.out_dev_en_raw_txt
+        test_raw_txt = ls_eval_job.out_test_en_raw_txt
         dev_tags_file = ls_eval_job.out_dev_utt_ids_txt
         test_tags_file = ls_eval_job.out_test_utt_ids_txt
     else:
@@ -296,14 +312,16 @@ def run_en_blank_phoneme_unmt_pipeline(
         trg_dev_txt = covost_dev_aligned_job.out_trg_txt
         src_test_txt = covost_test_aligned_job.out_src_txt
         trg_test_txt = covost_test_aligned_job.out_trg_txt
+        dev_raw_txt = covost_dev_aligned_job.out_raw_trg_txt
+        test_raw_txt = covost_test_aligned_job.out_raw_trg_txt
         dev_tags_file = covost_dev_aligned_job.out_clip_ids_txt
         test_tags_file = covost_test_aligned_job.out_clip_ids_txt
 
     # -------------------------------------------------------------------------
-    # 4. Stage 1 — Cross-Modal Codes Learning (Independent 300-dim Skip-gram Word2Vec
-    #    + Self-Learning Orthogonal Procrustes Alignment)
+    # 4. Stage 1 — Cross-Modal Codes Learning (Independent 300-dim Skip-gram Word2Vec,
+    #    Optional All-but-the-Top Isotropy Postprocessing, & Alignment via Artetxe / GAN / GeoWarP)
     # -------------------------------------------------------------------------
-    w2v_src_job = TrainWord2VecJob(
+    raw_w2v_src_job = TrainWord2VecJob(
         token_text_file=src_train_txt,
         vector_size=w2v_dim,
         window=src_w2v_window,
@@ -316,12 +334,9 @@ def run_en_blank_phoneme_unmt_pipeline(
         workers=8,
         fixed_vocab_file=fixed_src_vocab_job.out_vocab_txt,
     )
-    w2v_src_job.add_alias(f"{prefix_name}/word2vec/en_blank_win{src_w2v_window}_d{w2v_dim}")
-    tk.register_output(f"{prefix_name}/word2vec/en_blank_embeddings.vec", w2v_src_job.out_embeddings_vec)
-    tk.register_output(f"{prefix_name}/word2vec/en_blank_vocab.txt", w2v_src_job.out_vocab_txt)
-    tk.register_output(f"{prefix_name}/word2vec/en_blank_counts.txt", w2v_src_job.out_counts_txt)
+    raw_w2v_src_job.add_alias(f"{prefix_name}/word2vec/en_blank_win{src_w2v_window}_d{w2v_dim}")
 
-    w2v_trg_job = TrainWord2VecJob(
+    raw_w2v_trg_job = TrainWord2VecJob(
         token_text_file=trg_train_txt,
         vector_size=w2v_dim,
         window=trg_w2v_window,
@@ -334,25 +349,108 @@ def run_en_blank_phoneme_unmt_pipeline(
         workers=8,
         fixed_vocab_file=fixed_trg_vocab_job.out_vocab_txt,
     )
-    w2v_trg_job.add_alias(f"{prefix_name}/word2vec/{target_lang}_phn_win{trg_w2v_window}_d{w2v_dim}")
-    tk.register_output(f"{prefix_name}/word2vec/{target_lang}_phn_embeddings.vec", w2v_trg_job.out_embeddings_vec)
-    tk.register_output(f"{prefix_name}/word2vec/{target_lang}_phn_vocab.txt", w2v_trg_job.out_vocab_txt)
-    tk.register_output(f"{prefix_name}/word2vec/{target_lang}_phn_counts.txt", w2v_trg_job.out_counts_txt)
+    raw_w2v_trg_job.add_alias(f"{prefix_name}/word2vec/{target_lang}_phn_win{trg_w2v_window}_d{w2v_dim}")
 
-    align_job = SelfLearningEmbeddingAlignmentJob(
-        src_embeddings_npy=w2v_src_job.out_embeddings_npy,
-        trg_embeddings_npy=w2v_trg_job.out_embeddings_npy,
-        src_vocab_file=w2v_src_job.out_vocab_txt,
-        trg_vocab_file=w2v_trg_job.out_vocab_txt,
-        src_counts_file=w2v_src_job.out_counts_txt,
-        trg_counts_file=w2v_trg_job.out_counts_txt,
-        init_method="frequency",
-        max_iters=100,
-        tol=1e-6,
-        retrieval_metric=alignment_retrieval_metric,
-        csls_k=alignment_csls_k,
-    )
-    align_job.add_alias(f"{prefix_name}/alignment/en_blank_{target_lang}_freq_{alignment_retrieval_metric}")
+    effective_abtt_d = int(w2v_abtt_d) if w2v_abtt_d is not None else max(1, w2v_dim // 100)
+
+    if w2v_all_but_the_top:
+        tk.register_output(f"{prefix_name}/word2vec/en_blank_raw_embeddings.vec", raw_w2v_src_job.out_embeddings_vec)
+        tk.register_output(f"{prefix_name}/word2vec/en_blank_raw_embeddings.npy", raw_w2v_src_job.out_embeddings_npy)
+        tk.register_output(f"{prefix_name}/word2vec/{target_lang}_phn_raw_embeddings.vec", raw_w2v_trg_job.out_embeddings_vec)
+        tk.register_output(f"{prefix_name}/word2vec/{target_lang}_phn_raw_embeddings.npy", raw_w2v_trg_job.out_embeddings_npy)
+
+        w2v_src_job = PostprocessWord2VecAllButTheTopJob(
+            embeddings_npy=raw_w2v_src_job.out_embeddings_npy,
+            vocab_txt=raw_w2v_src_job.out_vocab_txt,
+            returnn_vocab=raw_w2v_src_job.out_returnn_vocab,
+            counts_txt=raw_w2v_src_job.out_counts_txt,
+            num_components_to_remove=effective_abtt_d,
+        )
+        w2v_src_job.add_alias(f"{prefix_name}/word2vec/en_blank_win{src_w2v_window}_d{w2v_dim}_abtt_d{effective_abtt_d}")
+        tk.register_output(f"{prefix_name}/word2vec/en_blank_embeddings.vec", w2v_src_job.out_embeddings_vec)
+        tk.register_output(f"{prefix_name}/word2vec/en_blank_embeddings.npy", w2v_src_job.out_embeddings_npy)
+        tk.register_output(f"{prefix_name}/word2vec/en_blank_vocab.txt", w2v_src_job.out_vocab_txt)
+        tk.register_output(f"{prefix_name}/word2vec/en_blank_counts.txt", w2v_src_job.out_counts_txt)
+        tk.register_output(f"{prefix_name}/word2vec/en_blank_isotropy_report.json", w2v_src_job.out_isotropy_report_json)
+        tk.register_output(f"{prefix_name}/word2vec/en_blank_isotropy_report.txt", w2v_src_job.out_isotropy_report_txt)
+
+        w2v_trg_job = PostprocessWord2VecAllButTheTopJob(
+            embeddings_npy=raw_w2v_trg_job.out_embeddings_npy,
+            vocab_txt=raw_w2v_trg_job.out_vocab_txt,
+            returnn_vocab=raw_w2v_trg_job.out_returnn_vocab,
+            counts_txt=raw_w2v_trg_job.out_counts_txt,
+            num_components_to_remove=effective_abtt_d,
+        )
+        w2v_trg_job.add_alias(f"{prefix_name}/word2vec/{target_lang}_phn_win{trg_w2v_window}_d{w2v_dim}_abtt_d{effective_abtt_d}")
+        tk.register_output(f"{prefix_name}/word2vec/{target_lang}_phn_embeddings.vec", w2v_trg_job.out_embeddings_vec)
+        tk.register_output(f"{prefix_name}/word2vec/{target_lang}_phn_embeddings.npy", w2v_trg_job.out_embeddings_npy)
+        tk.register_output(f"{prefix_name}/word2vec/{target_lang}_phn_vocab.txt", w2v_trg_job.out_vocab_txt)
+        tk.register_output(f"{prefix_name}/word2vec/{target_lang}_phn_counts.txt", w2v_trg_job.out_counts_txt)
+        tk.register_output(f"{prefix_name}/word2vec/{target_lang}_phn_isotropy_report.json", w2v_trg_job.out_isotropy_report_json)
+        tk.register_output(f"{prefix_name}/word2vec/{target_lang}_phn_isotropy_report.txt", w2v_trg_job.out_isotropy_report_txt)
+    else:
+        w2v_src_job = raw_w2v_src_job
+        w2v_trg_job = raw_w2v_trg_job
+        tk.register_output(f"{prefix_name}/word2vec/en_blank_embeddings.vec", w2v_src_job.out_embeddings_vec)
+        tk.register_output(f"{prefix_name}/word2vec/en_blank_vocab.txt", w2v_src_job.out_vocab_txt)
+        tk.register_output(f"{prefix_name}/word2vec/en_blank_counts.txt", w2v_src_job.out_counts_txt)
+        tk.register_output(f"{prefix_name}/word2vec/{target_lang}_phn_embeddings.vec", w2v_trg_job.out_embeddings_vec)
+        tk.register_output(f"{prefix_name}/word2vec/{target_lang}_phn_vocab.txt", w2v_trg_job.out_vocab_txt)
+        tk.register_output(f"{prefix_name}/word2vec/{target_lang}_phn_counts.txt", w2v_trg_job.out_counts_txt)
+
+    align_method_clean = alignment_method.strip().lower()
+    if align_method_clean in ("artetxe", "self_learning", "frequency", "freq"):
+        align_job = SelfLearningEmbeddingAlignmentJob(
+            src_embeddings_npy=w2v_src_job.out_embeddings_npy,
+            trg_embeddings_npy=w2v_trg_job.out_embeddings_npy,
+            src_vocab_file=w2v_src_job.out_vocab_txt,
+            trg_vocab_file=w2v_trg_job.out_vocab_txt,
+            src_counts_file=w2v_src_job.out_counts_txt,
+            trg_counts_file=w2v_trg_job.out_counts_txt,
+            init_method="frequency",
+            max_iters=100,
+            tol=1e-6,
+            retrieval_metric=alignment_retrieval_metric,
+            csls_k=alignment_csls_k,
+        )
+        align_job.add_alias(f"{prefix_name}/alignment/en_blank_{target_lang}_freq_{alignment_retrieval_metric}")
+    elif align_method_clean == "gan":
+        align_job = GANEmbeddingAlignmentJob(
+            src_embeddings_npy=w2v_src_job.out_embeddings_npy,
+            trg_embeddings_npy=w2v_trg_job.out_embeddings_npy,
+            src_vocab_file=w2v_src_job.out_vocab_txt,
+            trg_vocab_file=w2v_trg_job.out_vocab_txt,
+            src_counts_file=w2v_src_job.out_counts_txt,
+            trg_counts_file=w2v_trg_job.out_counts_txt,
+            disc_hidden_dim=512,
+            disc_num_layers=2,
+            lr=1e-3,
+            retrieval_metric=alignment_retrieval_metric,
+            csls_k=alignment_csls_k,
+        )
+        align_job.add_alias(f"{prefix_name}/alignment/en_blank_{target_lang}_gan_{alignment_retrieval_metric}")
+        tk.register_output(f"{prefix_name}/alignment/W_star.npy", align_job.out_mapping_matrix_npy)
+        tk.register_output(f"{prefix_name}/alignment/W_adv.npy", align_job.out_adv_mapping_matrix_npy)
+        tk.register_output(f"{prefix_name}/alignment/gan_training_curves.png", align_job.out_gan_loss_plot)
+    elif align_method_clean == "geowarp":
+        align_job = GeoWarPEmbeddingAlignmentJob(
+            src_embeddings_npy=w2v_src_job.out_embeddings_npy,
+            trg_embeddings_npy=w2v_trg_job.out_embeddings_npy,
+            src_vocab_file=w2v_src_job.out_vocab_txt,
+            trg_vocab_file=w2v_trg_job.out_vocab_txt,
+            src_counts_file=w2v_src_job.out_counts_txt,
+            trg_counts_file=w2v_trg_job.out_counts_txt,
+            retrieval_metric=alignment_retrieval_metric,
+            csls_k=alignment_csls_k,
+        )
+        align_job.add_alias(f"{prefix_name}/alignment/en_blank_{target_lang}_geowarp_{alignment_retrieval_metric}")
+        tk.register_output(f"{prefix_name}/alignment/W_star.npy", align_job.out_mapping_matrix_npy)
+        tk.register_output(f"{prefix_name}/alignment/W_init.npy", align_job.out_init_mapping_matrix_npy)
+        tk.register_output(f"{prefix_name}/alignment/W_wp.npy", align_job.out_wp_mapping_matrix_npy)
+        tk.register_output(f"{prefix_name}/alignment/geowarp_training_curves.png", align_job.out_geowarp_loss_plot)
+    else:
+        raise ValueError(f"Unsupported alignment_method: {alignment_method!r}. Expected 'artetxe', 'gan', or 'geowarp'.")
+
     tk.register_output(f"{prefix_name}/alignment/mapped_en_blank_embeddings.npy", align_job.out_mapped_src_emb_npy)
     tk.register_output(f"{prefix_name}/alignment/normalized_{target_lang}_embeddings.npy", align_job.out_normalized_trg_emb_npy)
     tk.register_output(f"{prefix_name}/alignment/mapped_en_blank_embeddings.vec", align_job.out_mapped_src_vec_txt)
@@ -378,6 +476,7 @@ def run_en_blank_phoneme_unmt_pipeline(
     )
     align_analysis_job.add_alias(f"{prefix_name}/alignment/pca_analysis")
     tk.register_output(f"{prefix_name}/alignment/pca_analysis/cross_modal_pca.png", align_analysis_job.out_cross_modal_pca_plot)
+    tk.register_output(f"{prefix_name}/alignment/pca_analysis/cross_modal_pca.json", align_analysis_job.out_cross_modal_pca_json)
     tk.register_output(f"{prefix_name}/alignment/pca_analysis/source_modality_pca.png", align_analysis_job.out_source_pca_plot)
     tk.register_output(f"{prefix_name}/alignment/pca_analysis/target_modality_pca.png", align_analysis_job.out_target_pca_plot)
     tk.register_output(f"{prefix_name}/alignment/pca_analysis/cross_modal_pca_panel.png", align_analysis_job.out_cross_modal_panel_plot)
@@ -386,6 +485,69 @@ def run_en_blank_phoneme_unmt_pipeline(
     tk.register_output(f"{prefix_name}/alignment/pca_analysis/unaligned_cross_modal_pca.png", align_analysis_job.out_unaligned_joint_pca_plot)
     tk.register_output(f"{prefix_name}/alignment/pca_analysis/alignment_comparison_panel.png", align_analysis_job.out_alignment_comparison_panel_plot)
     tk.register_output(f"{prefix_name}/alignment/pca_analysis/analysis_report.json", align_analysis_job.out_analysis_report_json)
+
+    # 4b. Word2Vec Isotropy Measure & Before/After All-but-the-Top 2D PCA Visualization Panels (as for ASR)
+    w2v_isotropy_job = None
+    if run_w2v_isotropy_analysis or w2v_all_but_the_top:
+        w2v_isotropy_job = Word2VecIsotropyAndPcaAnalysisJob(
+            src_raw_embeddings_npy=raw_w2v_src_job.out_embeddings_npy,
+            trg_raw_embeddings_npy=raw_w2v_trg_job.out_embeddings_npy,
+            src_post_embeddings_npy=w2v_src_job.out_embeddings_npy if w2v_all_but_the_top else None,
+            trg_post_embeddings_npy=w2v_trg_job.out_embeddings_npy if w2v_all_but_the_top else None,
+            mapped_src_embeddings_npy=align_job.out_mapped_src_emb_npy,
+            normalized_trg_embeddings_npy=align_job.out_normalized_trg_emb_npy,
+            src_vocab_file=raw_w2v_src_job.out_vocab_txt,
+            trg_vocab_file=raw_w2v_trg_job.out_vocab_txt,
+            src_counts_file=raw_w2v_src_job.out_counts_txt,
+            trg_counts_file=raw_w2v_trg_job.out_counts_txt,
+            d_remove=effective_abtt_d,
+            src_label="EN+Blank Codes",
+            trg_label=f"{target_lang.upper()} Phonemes",
+            title_prefix=f"Word2Vec All-but-the-Top (arXiv:1702.01417) Isotropy & PCA ({prefix_name})",
+            is_postprocessed_active=w2v_all_but_the_top,
+        )
+        w2v_isotropy_job.add_alias(f"{prefix_name}/word2vec/isotropy_pca_analysis")
+        for iso_sub in ("word2vec/isotropy_pca_analysis", "alignment/w2v_isotropy_analysis"):
+            tk.register_output(
+                f"{prefix_name}/{iso_sub}/isotropy_report.json",
+                w2v_isotropy_job.out_isotropy_report_json,
+            )
+            tk.register_output(
+                f"{prefix_name}/{iso_sub}/isotropy_report.txt",
+                w2v_isotropy_job.out_isotropy_report_txt,
+            )
+            tk.register_output(
+                f"{prefix_name}/{iso_sub}/source_en_blank_pca_before_abtt.png",
+                w2v_isotropy_job.out_src_before_pca_plot,
+            )
+            tk.register_output(
+                f"{prefix_name}/{iso_sub}/source_en_blank_pca_after_abtt.png",
+                w2v_isotropy_job.out_src_after_pca_plot,
+            )
+            tk.register_output(
+                f"{prefix_name}/{iso_sub}/target_{target_lang}_pca_before_abtt.png",
+                w2v_isotropy_job.out_trg_before_pca_plot,
+            )
+            tk.register_output(
+                f"{prefix_name}/{iso_sub}/target_{target_lang}_pca_after_abtt.png",
+                w2v_isotropy_job.out_trg_after_pca_plot,
+            )
+            tk.register_output(
+                f"{prefix_name}/{iso_sub}/pca_before_vs_after_abtt_panel.png",
+                w2v_isotropy_job.out_before_after_comparison_panel_plot,
+            )
+            tk.register_output(
+                f"{prefix_name}/{iso_sub}/w2v_pca_before_vs_after_abtt_panel.png",
+                w2v_isotropy_job.out_before_after_comparison_panel_plot,
+            )
+            tk.register_output(
+                f"{prefix_name}/{iso_sub}/isotropy_and_spectrum_panel.png",
+                w2v_isotropy_job.out_isotropy_and_spectrum_plot,
+            )
+            tk.register_output(
+                f"{prefix_name}/{iso_sub}/w2v_isotropy_and_spectrum_panel.png",
+                w2v_isotropy_job.out_isotropy_and_spectrum_plot,
+            )
 
     # -------------------------------------------------------------------------
     # 5. Cross-Modal Code Nearest-Neighbor Baseline Evaluation (Stage 1 Eval)
@@ -864,7 +1026,13 @@ def run_en_blank_phoneme_unmt_pipeline(
             tk.register_output(f"{undreamt_train_name}/results_all_epochs.json", summary_epochs_job.out_summary_json)
 
         # Shared Encoder PCA State Visualization (EN+Blank vs EN / DE)
-        from .analysis import analyze_encoder_states
+        from .analysis import (
+            analyze_encoder_states,
+            analyze_encoder_states_contrastive,
+            analyze_cross_attention,
+        )
+
+        pca_checkpoints = sorted(set(list(eval_epochs) + [num_epochs]))
 
         pca_jobs = analyze_encoder_states(
             config={
@@ -878,7 +1046,7 @@ def run_en_blank_phoneme_unmt_pipeline(
             train_args=train_args,
             train_data=training_datasets,
             test_data_dict={eval_benchmark_name: test_s2t_dataset, f"{eval_benchmark_name}_dev": dev_dataset},
-            checkpoints=sorted(set(list(eval_epochs) + [num_epochs])),
+            checkpoints=pca_checkpoints,
             analysis_name=f"vis_encoder_pca_en_blank_vs_{target_lang}",
             cosine_similarity_summary=True,
             src_label="en_blank",
@@ -910,7 +1078,7 @@ def run_en_blank_phoneme_unmt_pipeline(
             train_args=train_args,
             train_data=training_datasets,
             test_data_dict={eval_benchmark_name: test_s2t_dataset, f"{eval_benchmark_name}_dev": dev_dataset},
-            checkpoints=sorted(set(list(eval_epochs) + [num_epochs])),
+            checkpoints=pca_checkpoints,
             analysis_name=f"vis_encoder_pca_en_blank_vs_hyp_{target_lang}",
             compare_to_hypothesis=True,
             cosine_similarity_summary=True,
@@ -931,14 +1099,95 @@ def run_en_blank_phoneme_unmt_pipeline(
             rqmt={"device": device, "gpu": 1 if device == "gpu" else 0, "cpu": 4, "mem": 16, "time": 2},
         )
 
+        # Contrastive BERTScore Shared-Encoder 2D PCA Visualization (as for ASR)
+        contrastive_pca_jobs = None
+        if run_contrastive_pca and target_lang == "en":
+            contrastive_pca_jobs = analyze_encoder_states_contrastive(
+                config={
+                    "default_data_key": "data",
+                    "default_target_key": "target",
+                    "batch_size": 3000,
+                    "max_seqs": 16,
+                },
+                training_name=undreamt_train_name,
+                train_job=train_job,
+                train_args=train_args,
+                train_data=training_datasets,
+                test_data_dict={eval_benchmark_name: test_s2t_dataset, f"{eval_benchmark_name}_dev": dev_dataset},
+                checkpoints=pca_checkpoints,
+                analysis_name="pca-contrastive",
+                cosine_similarity_summary=True,
+                transcript_text_files={
+                    eval_benchmark_name: test_raw_txt,
+                    f"{eval_benchmark_name}_dev": dev_raw_txt,
+                },
+                transcript_seq_tags_files={
+                    eval_benchmark_name: test_tags_file,
+                    f"{eval_benchmark_name}_dev": dev_tags_file,
+                },
+                valid_seq_tags_files={
+                    eval_benchmark_name: test_tags_file,
+                    f"{eval_benchmark_name}_dev": dev_tags_file,
+                },
+                extra_forward_config=ReturnnConfig(
+                    config={},
+                    python_prolog=[
+                        "import os, sys",
+                        'os.environ["PYTHONPATH"] = ":".join(sys.path)',
+                    ],
+                ),
+                rqmt={"device": device, "gpu": 1 if device == "gpu" else 0, "cpu": 4, "mem": 24, "time": 2},
+            )
+
+        # Cross-Attention alignment heatmaps and .npz array exports (as for ASR)
+        att_jobs = None
+        if run_cross_attention_analysis:
+            att_jobs = analyze_cross_attention(
+                config={
+                    "default_data_key": "data",
+                    "default_target_key": "target",
+                    "batch_size": 3000,
+                    "max_seqs": 16,
+                },
+                training_name=undreamt_train_name,
+                train_job=train_job,
+                train_args=train_args,
+                train_data=training_datasets,
+                test_data_dict={eval_benchmark_name: test_s2t_dataset, f"{eval_benchmark_name}_dev": dev_dataset},
+                checkpoints=pca_checkpoints,
+                analysis_name="cross_att",
+                input_modality="audio",
+                output_modality="text",
+                max_plotted_seqs=20,
+                plot_head_average=True,
+                extra_forward_config=ReturnnConfig(
+                    config={},
+                    python_prolog=[
+                        "import os, sys",
+                        'os.environ["PYTHONPATH"] = ":".join(sys.path)',
+                    ],
+                ),
+                rqmt={"device": device, "gpu": 1 if device == "gpu" else 0, "cpu": 4, "mem": 16, "time": 2},
+            )
+    else:
+        pca_hyp_jobs = None
+        contrastive_pca_jobs = None
+        att_jobs = None
+
     return {
         "extract_en_blank_job": extract_en_blank_job,
         "mono_tok_job": mono_tok_job,
         "mono_phn_job": mono_phn_job,
+        "raw_w2v_src_job": raw_w2v_src_job,
+        "raw_w2v_trg_job": raw_w2v_trg_job,
         "w2v_src_job": w2v_src_job,
         "w2v_trg_job": w2v_trg_job,
         "align_job": align_job,
+        "align_analysis_job": align_analysis_job,
+        "w2v_isotropy_job": w2v_isotropy_job,
         "train_job": train_job,
         "pca_jobs": pca_jobs,
         "pca_hyp_jobs": pca_hyp_jobs,
+        "contrastive_pca_jobs": contrastive_pca_jobs,
+        "att_jobs": att_jobs,
     }

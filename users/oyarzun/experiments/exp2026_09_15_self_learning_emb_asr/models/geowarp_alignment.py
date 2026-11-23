@@ -216,21 +216,38 @@ def compute_geowarp_initialization(
     candidates.append(("identity", np.eye(d, dtype=np.float32)))
 
     # Candidate family 1: Multi-scale coarse K-Means + Gromov-Wasserstein relational matching
+    max_km_samples = 15000
+    if K > max_km_samples:
+        km_s_idx = np.argsort(-w_X)[:max_km_samples]
+        X_km = X[km_s_idx]
+        w_X_km = w_X[km_s_idx] / np.sum(w_X[km_s_idx])
+    else:
+        X_km = X
+        w_X_km = w_X
+
+    if P > max_km_samples:
+        km_t_idx = np.argsort(-w_Z)[:max_km_samples]
+        Z_km = Z[km_t_idx]
+        w_Z_km = w_Z[km_t_idx] / np.sum(w_Z[km_t_idx])
+    else:
+        Z_km = Z
+        w_Z_km = w_Z
+
     for k_c in coarse_cluster_Grid:
         for s_offset in range(num_seeds_per_k):
             cur_seed = seed + 100 * k_c + s_offset
             km_x = KMeans(n_clusters=k_c, random_state=cur_seed, n_init=3, max_iter=100)
             km_z = KMeans(n_clusters=k_c, random_state=cur_seed + 17, n_init=3, max_iter=100)
 
-            km_x.fit(X, sample_weight=w_X)
-            km_z.fit(Z, sample_weight=w_Z)
+            km_x.fit(X_km, sample_weight=w_X_km)
+            km_z.fit(Z_km, sample_weight=w_Z_km)
 
             C_X = km_x.cluster_centers_.astype(np.float64)
             C_Z = km_z.cluster_centers_.astype(np.float64)
 
             # Compute cluster masses
-            p_X = np.bincount(km_x.labels_, weights=w_X, minlength=k_c).astype(np.float64)
-            p_Z = np.bincount(km_z.labels_, weights=w_Z, minlength=k_c).astype(np.float64)
+            p_X = np.bincount(km_x.labels_, weights=w_X_km, minlength=k_c).astype(np.float64)
+            p_Z = np.bincount(km_z.labels_, weights=w_Z_km, minlength=k_c).astype(np.float64)
             p_X = np.maximum(p_X, 1e-8) / np.sum(np.maximum(p_X, 1e-8))
             p_Z = np.maximum(p_Z, 1e-8) / np.sum(np.maximum(p_Z, 1e-8))
 
@@ -467,30 +484,65 @@ def run_geowarp_alignment(
         seed=seed,
     )
 
-    # Evaluate initial W_0
+    # Subsample top-frequency anchors for Stage 2 Wasserstein Procrustes Sinkhorn OT when vocabulary is very large
+    max_wp_src = 8192
+    max_wp_trg = 8192
+    if K > max_wp_src:
+        if source_freqs is not None and len(source_freqs) == K:
+            wp_s_idx = np.argsort(-source_freqs)[:max_wp_src]
+        else:
+            wp_s_idx = np.arange(max_wp_src)
+        X_wp = X[wp_s_idx]
+    else:
+        wp_s_idx = None
+        X_wp = X
+
+    if P > max_wp_trg:
+        if target_freqs is not None and len(target_freqs) == P:
+            wp_t_idx = np.argsort(-target_freqs)[:max_wp_trg]
+        else:
+            wp_t_idx = np.arange(max_wp_trg)
+        Z_wp = Z[wp_t_idx]
+    else:
+        wp_t_idx = None
+        Z_wp = Z
+
+    active_mask_wp = active_mask
+    if active_mask_wp is not None:
+        if wp_s_idx is not None:
+            active_mask_wp = active_mask_wp[wp_s_idx]
+        if wp_t_idx is not None:
+            active_mask_wp = active_mask_wp[:, wp_t_idx]
+
+    K_wp = X_wp.shape[0]
+    P_wp = Z_wp.shape[0]
+
+    # Evaluate initial W_0 on WP anchor set
     _, init_sims = induce_dictionary_nn(
-        X, W_0, Z,
+        X_wp, W_0, Z_wp,
         retrieval_metric=retrieval_metric,
         csls_k=csls_k,
-        compatibility_mask=active_mask,
+        compatibility_mask=active_mask_wp,
+        return_dense=False,
     )
     best_wp_csls = float(np.mean(init_sims))
     best_W_wp = W_0.copy()
     best_wp_iter = 0
 
-    # Prepare Optimal Transport marginals
+    # Prepare Optimal Transport marginals on WP subset
     if not uniform_marginals and source_freqs is not None and len(source_freqs) == K and np.sum(source_freqs) > 0:
-        # Smooth frequency power (alpha = 0.5) so rare n-grams still participate in transport
-        s_weights = np.power(np.maximum(source_freqs, 1.0), 0.5)
+        sf_sub = source_freqs[wp_s_idx] if wp_s_idx is not None else source_freqs
+        s_weights = np.power(np.maximum(sf_sub, 1.0), 0.5)
         mu_s_np = (s_weights / np.sum(s_weights)).astype(np.float32)
     else:
-        mu_s_np = np.full(K, 1.0 / K, dtype=np.float32)
+        mu_s_np = np.full(K_wp, 1.0 / K_wp, dtype=np.float32)
 
     if not uniform_marginals and target_freqs is not None and len(target_freqs) == P and np.sum(target_freqs) > 0:
-        t_weights = np.power(np.maximum(target_freqs, 1.0), 0.5)
+        tf_sub = target_freqs[wp_t_idx] if wp_t_idx is not None else target_freqs
+        t_weights = np.power(np.maximum(tf_sub, 1.0), 0.5)
         mu_t_np = (t_weights / np.sum(t_weights)).astype(np.float32)
     else:
-        mu_t_np = np.full(P, 1.0 / P, dtype=np.float32)
+        mu_t_np = np.full(P_wp, 1.0 / P_wp, dtype=np.float32)
 
     mu_s_t = torch.from_numpy(mu_s_np).to(device)
     mu_t_t = torch.from_numpy(mu_t_np).to(device)
@@ -500,8 +552,8 @@ def run_geowarp_alignment(
 
     W_curr = W_0.copy()
     logging.info(
-        f"Starting Wasserstein Procrustes Optimization on {device}: K={K}, P={P}, d={d}, "
-        f"wp_iters={wp_iters}, reg={reg_start}->{reg_end}, top_k_coupling={top_k_coupling}"
+        f"Starting Wasserstein Procrustes Optimization on {device}: K={K} (WP subset={K_wp}), "
+        f"P={P} (WP subset={P_wp}), d={d}, wp_iters={wp_iters}, reg={reg_start}->{reg_end}, top_k_coupling={top_k_coupling}"
     )
 
     # 3. Stage 2: Wasserstein Procrustes Alternating Optimization
@@ -510,18 +562,18 @@ def run_geowarp_alignment(
         frac = (it - 1) / max(1, wp_iters - 1)
         reg_curr = reg_start * ((reg_end / max(reg_start, 1e-5)) ** frac)
 
-        X_mapped = X @ W_curr
+        X_mapped = X_wp @ W_curr
         X_norm = X_mapped / np.maximum(np.linalg.norm(X_mapped, axis=1, keepdims=True), 1e-12)
-        Z_norm = Z / np.maximum(np.linalg.norm(Z, axis=1, keepdims=True), 1e-12)
+        Z_norm = Z_wp / np.maximum(np.linalg.norm(Z_wp, axis=1, keepdims=True), 1e-12)
 
-        # Compute similarity & transport cost matrix
+        # Compute similarity & transport cost matrix on WP subset
         if retrieval_metric == "csls":
             sim_matrix = compute_csls_similarity(X_norm, Z_norm, k=csls_k)
         else:
             sim_matrix = X_norm @ Z_norm.T
 
-        if active_mask is not None:
-            sim_matrix = np.where(active_mask, sim_matrix, -1e3)
+        if active_mask_wp is not None:
+            sim_matrix = np.where(active_mask_wp, sim_matrix, -1e3)
 
         # Cost is negative similarity
         cost_np = (-sim_matrix).astype(np.float32)
@@ -541,25 +593,25 @@ def run_geowarp_alignment(
         P_np = P_t.detach().cpu().numpy()
 
         # Optional sparse top-k coupling trimming per source row to suppress diffuse background noise
-        if top_k_coupling is not None and 0 < top_k_coupling < P:
+        if top_k_coupling is not None and 0 < top_k_coupling < P_wp:
             P_trimmed = np.zeros_like(P_np)
             top_indices = np.argpartition(-P_np, kth=top_k_coupling - 1, axis=1)[:, :top_k_coupling]
-            row_idx = np.arange(K)[:, None]
+            row_idx = np.arange(K_wp)[:, None]
             P_trimmed[row_idx, top_indices] = P_np[row_idx, top_indices]
             P_for_svd = P_trimmed
         else:
             P_for_svd = P_np
 
         # M-step: Orthogonal Procrustes SVD update W = U V^T
-        M_cross = X.T @ P_for_svd @ Z
+        M_cross = X_wp.T @ P_for_svd @ Z_wp
         W_curr = solve_orthogonal_procrustes_svd(M_cross)
 
         # Unsupervised validation criterion: Mean CSLS similarity of induced dictionary
         _, sims_curr = induce_dictionary_nn(
-            X, W_curr, Z,
+            X_wp, W_curr, Z_wp,
             retrieval_metric=retrieval_metric,
             csls_k=csls_k,
-            compatibility_mask=active_mask,
+            compatibility_mask=active_mask_wp,
             return_dense=False,
         )
         curr_csls = float(np.mean(sims_curr))
@@ -580,12 +632,28 @@ def run_geowarp_alignment(
             )
 
     # 4. Stage 3: Mutual Nearest-Neighbor (MNN) + CSLS Procrustes Polish
+    max_ref_src = 25000
+    if K > max_ref_src:
+        if source_freqs is not None and len(source_freqs) == K:
+            ref_s_idx = np.argsort(-source_freqs)[:max_ref_src]
+        else:
+            ref_s_idx = np.arange(max_ref_src)
+        X_ref = X[ref_s_idx]
+        sf_ref = source_freqs[ref_s_idx] if (source_freqs is not None and len(source_freqs) == K) else None
+        active_mask_ref = active_mask[ref_s_idx] if active_mask is not None else None
+    else:
+        X_ref = X
+        sf_ref = source_freqs
+        active_mask_ref = active_mask
+
+    K_ref = X_ref.shape[0]
     W = best_W_wp.copy()
     D, sims = induce_dictionary_nn(
-        X, W, Z,
+        X_ref, W, Z,
         retrieval_metric=retrieval_metric,
         csls_k=csls_k,
-        compatibility_mask=active_mask,
+        compatibility_mask=active_mask_ref,
+        return_dense=False,
     )
     prev_avg_sim = float(np.mean(sims))
     refinement_history = [prev_avg_sim]
@@ -596,24 +664,26 @@ def run_geowarp_alignment(
     for ref_iter in range(1, refinement_iters + 1):
         if use_mutual_nn_refinement:
             D_mnn, mnn_cnt = induce_mutual_nn_dictionary(
-                X, W, Z,
+                X_ref, W, Z,
                 retrieval_metric=retrieval_metric,
                 csls_k=csls_k,
-                source_freqs=source_freqs,
+                source_freqs=sf_ref,
                 target_freqs=target_freqs,
-                compatibility_mask=active_mask,
+                compatibility_mask=active_mask_ref,
+                return_dense=False,
             )
             mnn_counts_history.append(int(mnn_cnt))
-            D_procrustes = D_mnn if mnn_cnt >= min(25, min(K, P) // 4) else D
+            D_procrustes = D_mnn if mnn_cnt >= min(25, min(K_ref, P) // 4) else D
         else:
             D_procrustes = D
 
-        W_cand = compute_optimal_orthogonal_mapping(X, Z, D_procrustes)
+        W_cand = compute_optimal_orthogonal_mapping(X_ref, Z, D_procrustes)
         D_cand, sims_cand = induce_dictionary_nn(
-            X, W_cand, Z,
+            X_ref, W_cand, Z,
             retrieval_metric=retrieval_metric,
             csls_k=csls_k,
-            compatibility_mask=active_mask,
+            compatibility_mask=active_mask_ref,
+            return_dense=False,
         )
         curr_avg_sim = float(np.mean(sims_cand))
         delta = curr_avg_sim - prev_avg_sim
@@ -636,14 +706,28 @@ def run_geowarp_alignment(
             break
         prev_avg_sim = curr_avg_sim
 
-    best_targets = np.argmax(D, axis=1).tolist()
+    # Induce final full dictionary across all K source tokens
+    if K > max_ref_src:
+        D_full, sims_full = induce_dictionary_nn(
+            X, W, Z,
+            retrieval_metric=retrieval_metric,
+            csls_k=csls_k,
+            compatibility_mask=active_mask,
+            return_dense=False,
+        )
+        best_targets = D_full.tolist()
+        refinement_history[-1] = float(np.mean(sims_full))
+    else:
+        best_targets = D.tolist() if D.ndim == 1 else np.argmax(D, axis=1).tolist()
+        D_full = D
+
     mapped_X = X @ W
 
     return {
         "W_init": W_0,
         "W_wp": best_W_wp,
         "W": W,
-        "D": D,
+        "D": D_full,
         "mapped_X": mapped_X,
         "cluster_to_phoneme_map": best_targets,
         "init_info": init_info,
@@ -732,7 +816,7 @@ class GeoWarPEmbeddingAlignmentJob(Job):
         self.out_gan_loss_plot = self.out_geowarp_loss_plot
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", rqmt={"cpu": 4, "mem": 16, "time": 4})
+        yield Task("run", resume="run", rqmt={"cpu": 4, "mem": 16, "time": 4})
 
     def run(self):
         logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")

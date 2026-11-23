@@ -22,6 +22,7 @@ from .self_learning_alignment import (
     normalize_and_center,
     compute_optimal_orthogonal_mapping,
     compute_csls_similarity,
+    compute_nn_and_col_argmax,
     induce_dictionary_nn,
     load_vocab_dict,
 )
@@ -112,6 +113,7 @@ def induce_mutual_nn_dictionary(
     target_freqs: Optional[np.ndarray] = None,
     top_freq_ratio: float = 1.0,
     compatibility_mask: Optional[np.ndarray] = None,
+    return_dense: bool = True,
 ) -> Tuple[np.ndarray, int]:
     """
     Builds a synthetic parallel dictionary retaining mutual nearest neighbors (MNN)
@@ -123,21 +125,21 @@ def induce_mutual_nn_dictionary(
     :param W: Mapping matrix (d x d)
     :param Z: Target text embeddings (P x d), normalized
     :param compatibility_mask: Optional boolean mask (K x P)
-    :return: (D, num_mutual_pairs) where D is (K x P)
+    :param return_dense: If False, returns 1D array of shape (K,) with target index or -1 for non-MNN rows
+    :return: (D, num_mutual_pairs) where D is (K x P) or 1D array (K,)
     """
     K = X.shape[0]
     P = Z.shape[0]
     X_mapped = X @ W
-    X_norm = X_mapped / np.maximum(np.linalg.norm(X_mapped, axis=1, keepdims=True), 1e-12)
-    Z_norm = Z / np.maximum(np.linalg.norm(Z, axis=1, keepdims=True), 1e-12)
 
-    if retrieval_metric == "csls":
-        sim_matrix = compute_csls_similarity(X_norm, Z_norm, k=csls_k)
-    else:
-        sim_matrix = X_norm @ Z_norm.T
-
-    if compatibility_mask is not None:
-        sim_matrix = np.where(compatibility_mask, sim_matrix, -1e9)
+    best_t_for_s, _, best_s_for_t = compute_nn_and_col_argmax(
+        X_mapped,
+        Z,
+        retrieval_metric=retrieval_metric,
+        csls_k=csls_k,
+        compatibility_mask=compatibility_mask,
+        need_col_argmax=True,
+    )
 
     # Optional frequency filtering for candidate dictionary pairs
     valid_s = np.ones(K, dtype=bool)
@@ -154,9 +156,21 @@ def induce_mutual_nn_dictionary(
             valid_t[:] = False
             valid_t[top_t] = True
 
-    # Forward NN (source -> target) and Backward NN (target -> source)
-    best_t_for_s = np.argmax(sim_matrix, axis=1)  # (K,)
-    best_s_for_t = np.argmax(sim_matrix, axis=0)  # (P,)
+    if not return_dense:
+        D_mnn_1d = np.full(K, -1, dtype=np.int64)
+        mnn_count = 0
+        for s_idx in range(K):
+            if not valid_s[s_idx]:
+                continue
+            t_idx = int(best_t_for_s[s_idx])
+            if not valid_t[t_idx]:
+                continue
+            if compatibility_mask is not None and not compatibility_mask[s_idx, t_idx]:
+                continue
+            if int(best_s_for_t[t_idx]) == s_idx:
+                D_mnn_1d[s_idx] = t_idx
+                mnn_count += 1
+        return D_mnn_1d, mnn_count
 
     D_mnn = np.zeros((K, P), dtype=np.float32)
     mnn_count = 0
@@ -345,13 +359,31 @@ def run_gan_alignment(
         and structural_constraint in ("masked_csls", "reg_gan_and_masked_csls")
     )
 
+    # Subsample top-frequency anchors for per-epoch validation and iterative refinement when K is very large
+    max_eval_src = 25000
+    if K > max_eval_src:
+        if source_freqs is not None and len(source_freqs) == K:
+            eval_s_idx = np.argsort(-source_freqs)[:max_eval_src]
+        else:
+            eval_s_idx = np.arange(max_eval_src)
+        X_eval = X[eval_s_idx]
+        sf_eval = source_freqs[eval_s_idx] if (source_freqs is not None and len(source_freqs) == K) else None
+        mask_eval = compatibility_mask[eval_s_idx] if (compatibility_mask is not None and apply_mask) else None
+    else:
+        X_eval = X
+        sf_eval = source_freqs
+        mask_eval = compatibility_mask if apply_mask else None
+
+    K_eval = X_eval.shape[0]
+
     # Evaluate initial identity mapping
     W_init = _get_W_numpy()
     _, init_sims = induce_dictionary_nn(
-        X, W_init, Z,
+        X_eval, W_init, Z,
         retrieval_metric=retrieval_metric,
         csls_k=csls_k,
-        compatibility_mask=compatibility_mask if apply_mask else None,
+        compatibility_mask=mask_eval,
+        return_dense=False,
     )
     best_adv_csls = float(np.mean(init_sims))
     best_W_adv = W_init.copy()
@@ -363,7 +395,7 @@ def run_gan_alignment(
 
     steps_per_epoch = max(1, epoch_size // batch_size)
     logging.info(
-        f"Starting GAN Cross-Modal Alignment on {device}: K={K}, P={P}, d={d}, "
+        f"Starting GAN Cross-Modal Alignment on {device}: K={K} (eval subset={K_eval}), P={P}, d={d}, "
         f"epochs={n_epochs}, steps/epoch={steps_per_epoch}, dis_steps={dis_steps}, lr={lr}, "
         f"disc={disc_num_layers}x{disc_hidden_dim} ReLU, "
         f"structural_constraint={structural_constraint}"
@@ -449,10 +481,11 @@ def run_gan_alignment(
         # Unsupervised validation criterion: Mean CSLS similarity of induced dictionary
         W_curr = _get_W_numpy()
         _, sims_curr = induce_dictionary_nn(
-            X, W_curr, Z,
+            X_eval, W_curr, Z,
             retrieval_metric=retrieval_metric,
             csls_k=csls_k,
-            compatibility_mask=compatibility_mask if apply_mask else None,
+            compatibility_mask=mask_eval,
+            return_dense=False,
         )
         curr_csls = float(np.mean(sims_curr))
         adv_csls_history.append(curr_csls)
@@ -473,12 +506,12 @@ def run_gan_alignment(
     W = (U_0 @ Vt_0).astype(np.float32)
 
     # 4. Refinement Procedure (Chung et al. 2018 Sec 3.2: Mutual Nearest Neighbors + Procrustes SVD with CSLS)
-    mask_for_refinement = compatibility_mask if apply_mask else None
     D, sims = induce_dictionary_nn(
-        X, W, Z,
+        X_eval, W, Z,
         retrieval_metric=retrieval_metric,
         csls_k=csls_k,
-        compatibility_mask=mask_for_refinement,
+        compatibility_mask=mask_eval,
+        return_dense=False,
     )
     prev_avg_sim = float(np.mean(sims))
     refinement_history = [prev_avg_sim]
@@ -489,25 +522,27 @@ def run_gan_alignment(
     for ref_iter in range(1, refinement_iters + 1):
         if use_mutual_nn_refinement:
             D_mnn, mnn_cnt = induce_mutual_nn_dictionary(
-                X, W, Z,
+                X_eval, W, Z,
                 retrieval_metric=retrieval_metric,
                 csls_k=csls_k,
-                source_freqs=source_freqs,
+                source_freqs=sf_eval,
                 target_freqs=target_freqs,
-                compatibility_mask=mask_for_refinement,
+                compatibility_mask=mask_eval,
+                return_dense=False,
             )
             mnn_counts_history.append(int(mnn_cnt))
             # Use mutual nearest neighbors if enough anchor pairs are found; else directional CSLS NN
-            D_procrustes = D_mnn if mnn_cnt >= min(25, min(K, P) // 4) else D
+            D_procrustes = D_mnn if mnn_cnt >= min(25, min(K_eval, P) // 4) else D
         else:
             D_procrustes = D
 
-        W_cand = compute_optimal_orthogonal_mapping(X, Z, D_procrustes)
+        W_cand = compute_optimal_orthogonal_mapping(X_eval, Z, D_procrustes)
         D_cand, sims_cand = induce_dictionary_nn(
-            X, W_cand, Z,
+            X_eval, W_cand, Z,
             retrieval_metric=retrieval_metric,
             csls_k=csls_k,
-            compatibility_mask=mask_for_refinement,
+            compatibility_mask=mask_eval,
+            return_dense=False,
         )
         curr_avg_sim = float(np.mean(sims_cand))
         delta = curr_avg_sim - prev_avg_sim
@@ -526,7 +561,21 @@ def run_gan_alignment(
             break
         prev_avg_sim = curr_avg_sim
 
-    best_targets = np.argmax(D, axis=1).tolist()
+    # Induce final full dictionary across all K source tokens
+    if K > max_eval_src:
+        D_full, sims_full = induce_dictionary_nn(
+            X, W, Z,
+            retrieval_metric=retrieval_metric,
+            csls_k=csls_k,
+            compatibility_mask=compatibility_mask if apply_mask else None,
+            return_dense=False,
+        )
+        best_targets = D_full.tolist()
+        refinement_history[-1] = float(np.mean(sims_full))
+        D = D_full
+    else:
+        best_targets = D.tolist() if D.ndim == 1 else np.argmax(D, axis=1).tolist()
+
     mapped_X = X @ W
 
     return {
@@ -626,7 +675,7 @@ class GANEmbeddingAlignmentJob(Job):
         self.out_gan_loss_plot = self.output_path("gan_training_curves.png")
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", mini_task=True)
+        yield Task("run", resume="run", rqmt={"cpu": 4, "mem": 16, "time": 4})
 
     def run(self):
         logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")

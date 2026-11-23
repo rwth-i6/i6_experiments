@@ -365,6 +365,64 @@ class TrainStructuredSkipGramJob(Job):
             logging.warning(f"Could not save loss plot: {e}")
 
 
+def _fast_right_svd(X: np.ndarray, chunk_size: int = 131072) -> tuple:
+    """
+    Computes singular values s (descending) and right singular vectors V^T (shape (k, d), k=min(V, d))
+    of matrix X of shape (V, d).
+    When V > d, computes the d x d Gram matrix G = X^T X in row chunks and uses symmetric
+    eigendecomposition (`np.linalg.eigh(G)`), avoiding O(V d^2) full-matrix SVD and avoiding
+    allocating the large (V, d) left singular vector matrix U.
+    """
+    V_size, d = X.shape
+    if V_size <= d * 2:
+        X_f64 = np.asarray(X, dtype=np.float64)
+        _, s, vt = np.linalg.svd(X_f64, full_matrices=False)
+        return s, vt
+
+    G = np.zeros((d, d), dtype=np.float64)
+    for start in range(0, V_size, chunk_size):
+        chunk = np.asarray(X[start : start + chunk_size], dtype=np.float64)
+        G += chunk.T @ chunk
+
+    eigvals, eigvecs = np.linalg.eigh(G)
+    order = np.argsort(eigvals)[::-1]
+    eigvals = np.maximum(eigvals[order], 0.0)
+    s = np.sqrt(eigvals)
+    vt = eigvecs[:, order].T  # (d, d)
+    return s, vt
+
+
+def _chunked_logsumexp_projections(
+    X: np.ndarray,
+    vt: np.ndarray,
+    also_neg: bool = False,
+    chunk_size: int = 65536,
+) -> tuple:
+    """
+    Computes `logsumexp(X @ vt.T, axis=0)` (and optionally `logsumexp(-(X @ vt.T), axis=0)`)
+    in row chunks so that large vocabularies (e.g. V = 1.4M) use O(chunk_size * d) memory.
+    """
+    from scipy.special import logsumexp
+
+    V_size, _ = X.shape
+    vt_T = np.asarray(vt, dtype=np.float64).T  # (d, k)
+    chunk_lse_pos = []
+    chunk_lse_neg = []
+
+    for start in range(0, V_size, chunk_size):
+        chunk = np.asarray(X[start : start + chunk_size], dtype=np.float64)
+        proj = chunk @ vt_T
+        chunk_lse_pos.append(logsumexp(proj, axis=0))
+        if also_neg:
+            chunk_lse_neg.append(logsumexp(-proj, axis=0))
+
+    log_Z_pos = logsumexp(np.vstack(chunk_lse_pos), axis=0) if len(chunk_lse_pos) > 1 else chunk_lse_pos[0]
+    if also_neg:
+        log_Z_neg = logsumexp(np.vstack(chunk_lse_neg), axis=0) if len(chunk_lse_neg) > 1 else chunk_lse_neg[0]
+        return log_Z_pos, log_Z_neg
+    return log_Z_pos, None
+
+
 def compute_isotropy_measure(embeddings: np.ndarray) -> dict:
     """
     Computes the partition-function isotropy measure from Mu, Bhat, & Viswanath (2018),
@@ -375,40 +433,50 @@ def compute_isotropy_measure(embeddings: np.ndarray) -> dict:
       I({v(w)}) = (min_{c in C} Z(c)) / (max_{c in C} Z(c))
 
     where C = {u_1, ..., u_d} is the set of principal directions / unit eigenvectors of V^T V.
-    Computed via logsumexp in float64 for exact numerical stability:
+    Computed via chunked Gram-matrix eigendecomposition and chunked logsumexp in float64
+    for exact numerical stability and O(d^2) memory even at V > 10^6:
       I({v(w)}) = exp(min_{c in C} log Z(c) - max_{c in C} log Z(c))
     """
-    from scipy.special import logsumexp
-
-    X = np.asarray(embeddings, dtype=np.float64)
+    X = np.asarray(embeddings)
     V_size, d = X.shape
+    chunk_size = 65536
 
-    # Mean vector and norms
-    mu = np.mean(X, axis=0)
+    # Mean vector and norms (computed in chunks to avoid full float64 copy of X)
+    sum_x = np.zeros(d, dtype=np.float64)
+    norms_list = []
+    for start in range(0, V_size, chunk_size):
+        chunk = np.asarray(X[start : start + chunk_size], dtype=np.float64)
+        sum_x += np.sum(chunk, axis=0)
+        norms_list.append(np.linalg.norm(chunk, axis=1))
+
+    mu = sum_x / max(V_size, 1)
     mean_vec_norm = float(np.linalg.norm(mu))
-    vec_norms = np.linalg.norm(X, axis=1)
-    avg_vec_norm = float(np.mean(vec_norms))
-    std_vec_norm = float(np.std(vec_norms))
+    vec_norms = np.concatenate(norms_list) if norms_list else np.zeros(0, dtype=np.float64)
+    avg_vec_norm = float(np.mean(vec_norms)) if V_size > 0 else 0.0
+    std_vec_norm = float(np.std(vec_norms)) if V_size > 0 else 0.0
     mean_to_avg_norm_ratio = float(mean_vec_norm / max(avg_vec_norm, 1e-12))
 
     # 1. Eigenvectors C of uncentered second-moment matrix X^T X (right singular vectors of X)
-    _, s_uncentered, vt_uncentered = np.linalg.svd(X, full_matrices=False)
-    proj_uncentered = X @ vt_uncentered.T  # (V_size, d)
-    log_Z = logsumexp(proj_uncentered, axis=0)  # (d,)
+    s_uncentered, vt_uncentered = _fast_right_svd(X, chunk_size=chunk_size)
+    log_Z, log_Z_neg = _chunked_logsumexp_projections(X, vt_uncentered, also_neg=True, chunk_size=chunk_size)
     min_log_Z = float(np.min(log_Z))
     max_log_Z = float(np.max(log_Z))
     isotropy_eig = float(np.exp(min_log_Z - max_log_Z))
 
     # Symmetric +/- eigenvectors {+u_i, -u_i}
-    log_Z_neg = logsumexp(-proj_uncentered, axis=0)
     log_Z_sym = np.concatenate([log_Z, log_Z_neg])
     isotropy_sym = float(np.exp(np.min(log_Z_sym) - np.max(log_Z_sym)))
 
     # 2. Eigenvectors of centered covariance matrix (X - mu)^T (X - mu)
-    X_centered = X - mu[None, :]
-    _, s_centered, vt_centered = np.linalg.svd(X_centered, full_matrices=False)
-    proj_on_centered_pcs = X @ vt_centered.T
-    log_Z_centered_pcs = logsumexp(proj_on_centered_pcs, axis=0)
+    # Note: (X - mu)^T (X - mu) = X^T X - V_size * mu mu^T
+    G_uncentered = (vt_uncentered.T * (s_uncentered ** 2)) @ vt_uncentered
+    G_centered = G_uncentered - float(V_size) * np.outer(mu, mu)
+    eigvals_c, eigvecs_c = np.linalg.eigh(G_centered)
+    order_c = np.argsort(eigvals_c)[::-1]
+    s_centered = np.sqrt(np.maximum(eigvals_c[order_c], 0.0))
+    vt_centered = eigvecs_c[:, order_c].T
+
+    log_Z_centered_pcs, _ = _chunked_logsumexp_projections(X, vt_centered, also_neg=False, chunk_size=chunk_size)
     isotropy_centered_pcs = float(np.exp(np.min(log_Z_centered_pcs) - np.max(log_Z_centered_pcs)))
 
     total_var = float(np.sum(s_centered ** 2))
@@ -440,6 +508,7 @@ def compute_isotropy_measure(embeddings: np.ndarray) -> dict:
 def apply_all_but_the_top(
     embeddings: np.ndarray,
     d_remove: Optional[int] = None,
+    precomputed_pca: Optional[tuple] = None,
 ) -> tuple:
     """
     Applies Algorithm 1 ("All-but-the-Top" postprocessing for word representations) from
@@ -455,31 +524,48 @@ def apply_all_but_the_top(
 
     :param embeddings: Input array of shape (V, d)
     :param d_remove: Number of top principal components D to remove (default: max(1, d // 100))
+    :param precomputed_pca: Optional tuple (mu, s, vt) of centered embeddings to avoid recomputing SVD/eigh
     :return: Tuple of (postprocessed_embeddings_float32, metadata_dict)
     """
-    X = np.asarray(embeddings, dtype=np.float64)
+    X = np.asarray(embeddings)
     V_size, d = X.shape
     if d_remove is None:
         d_remove = max(1, d // 100)
     d_remove = int(d_remove)
+    chunk_size = 65536
 
-    # Step 1: Center by subtracting common mean vector mu
-    mu = np.mean(X, axis=0, keepdims=True)
-    X_tilde = X - mu
+    if precomputed_pca is not None:
+        mu, s, vt = precomputed_pca
+    else:
+        sum_x = np.zeros(d, dtype=np.float64)
+        G_uncentered = np.zeros((d, d), dtype=np.float64)
+        for start in range(0, V_size, chunk_size):
+            chunk = np.asarray(X[start : start + chunk_size], dtype=np.float64)
+            sum_x += np.sum(chunk, axis=0)
+            G_uncentered += chunk.T @ chunk
+        mu = (sum_x / max(V_size, 1)).reshape(1, d)
+        G_centered = G_uncentered - float(V_size) * (mu.T @ mu)
+        eigvals, eigvecs = np.linalg.eigh(G_centered)
+        order = np.argsort(eigvals)[::-1]
+        s = np.sqrt(np.maximum(eigvals[order], 0.0))
+        vt = eigvecs[:, order].T
 
-    # Step 2: Compute PCA components via SVD of centered representations
-    _, s, vt = np.linalg.svd(X_tilde, full_matrices=False)
     total_var = float(np.sum(s ** 2))
     evr = (s ** 2) / max(total_var, 1e-12)
 
-    # Step 3: Remove top D principal directions u_1, ..., u_D
-    if d_remove > 0:
-        u_top = vt[:d_remove]  # (D, d)
-        X_prime = X_tilde - (X_tilde @ u_top.T) @ u_top
-        removed_var_ratio = float(np.sum(evr[:d_remove]))
-    else:
-        X_prime = X_tilde
-        removed_var_ratio = 0.0
+    # Step 3: Remove top D principal directions u_1, ..., u_D in chunks to keep memory O(V * d) float32
+    X_prime = np.empty((V_size, d), dtype=np.float32)
+    u_top = vt[:d_remove] if d_remove > 0 else None
+    mu_1d = mu.reshape(1, d)
+
+    for start in range(0, V_size, chunk_size):
+        end = min(start + chunk_size, V_size)
+        chunk_tilde = np.asarray(X[start:end], dtype=np.float64) - mu_1d
+        if d_remove > 0 and u_top is not None:
+            chunk_tilde -= (chunk_tilde @ u_top.T) @ u_top
+        X_prime[start:end] = chunk_tilde.astype(np.float32)
+
+    removed_var_ratio = float(np.sum(evr[:d_remove])) if d_remove > 0 else 0.0
 
     metadata = {
         "d_remove": d_remove,
@@ -488,7 +574,7 @@ def apply_all_but_the_top(
         "top_d_singular_values_removed": [float(v) for v in s[:d_remove]],
         "top_d_explained_variance_ratios_removed": [float(v) for v in evr[:d_remove]],
     }
-    return X_prime.astype(np.float32), metadata
+    return X_prime, metadata
 
 
 class PostprocessWord2VecAllButTheTopJob(Job):
@@ -534,7 +620,7 @@ class PostprocessWord2VecAllButTheTopJob(Job):
         self.out_isotropy_report_txt = self.output_path("isotropy_report.txt")
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", mini_task=True)
+        yield Task("run", resume="run", mini_task=True)
 
     def run(self):
         import json
@@ -553,28 +639,69 @@ class PostprocessWord2VecAllButTheTopJob(Job):
         # Compute isotropy before transformation
         isotropy_before = compute_isotropy_measure(raw_embs)
 
-        # Compute isotropy after mean centering only (D=0)
+        # Precompute centered PCA once and reuse across D=0, target D, and the D-sweep
         embs_centered, _ = apply_all_but_the_top(raw_embs, d_remove=0)
-        isotropy_centered_only = compute_isotropy_measure(embs_centered)
+        s_cent, vt_cent = _fast_right_svd(embs_centered)
+        mu_raw = np.mean(np.asarray(raw_embs, dtype=np.float64), axis=0, keepdims=True)
+        precomp_pca = (mu_raw, s_cent, vt_cent)
+
+        # Compute isotropy after mean centering only (D=0)
+        log_Z_c, log_Z_c_neg = _chunked_logsumexp_projections(embs_centered, vt_cent, also_neg=True)
+        min_lzc = float(np.min(log_Z_c))
+        max_lzc = float(np.max(log_Z_c))
+        iso_c_eig = float(np.exp(min_lzc - max_lzc))
+        lzc_sym = np.concatenate([log_Z_c, log_Z_c_neg])
+        iso_c_sym = float(np.exp(np.min(lzc_sym) - np.max(lzc_sym)))
+        total_var_c = float(np.sum(s_cent ** 2))
+        evr_c = (s_cent ** 2) / max(total_var_c, 1e-12)
+        isotropy_centered_only = {
+            **isotropy_before,
+            "isotropy_measure": iso_c_eig,
+            "isotropy_measure_symmetric": iso_c_sym,
+            "isotropy_measure_centered_pca_dirs": iso_c_eig,
+            "min_log_Z": min_lzc,
+            "max_log_Z": max_lzc,
+            "mean_log_Z": float(np.mean(log_Z_c)),
+            "std_log_Z": float(np.std(log_Z_c)),
+            "mean_vector_norm": 0.0,
+            "mean_to_avg_norm_ratio": 0.0,
+            "top_10_singular_values_uncentered": [float(v) for v in s_cent[:10]],
+            "top_10_singular_values_centered": [float(v) for v in s_cent[:10]],
+            "top_10_explained_variance_ratios": [float(v) for v in evr_c[:10]],
+            "top_2d_explained_variance_ratio": float(np.sum(evr_c[:2])),
+            "log_Z_per_component": [float(v) for v in log_Z_c],
+        }
 
         # Apply All-but-the-Top transformation with target D
-        post_embs, abtt_meta = apply_all_but_the_top(raw_embs, d_remove=d_remove)
+        post_embs, abtt_meta = apply_all_but_the_top(raw_embs, d_remove=d_remove, precomputed_pca=precomp_pca)
         isotropy_after = compute_isotropy_measure(post_embs)
 
-        # Also sweep D in [1, 2, 3, 5, 7, 10] for reference
+        # Also sweep D in [1, 2, 3, 5, 7, 10] for reference using the precomputed eigenprojections
+        # Note: after removing top D centered eigenvectors u_1..u_D, the remaining d - D eigenvectors
+        # of X_prime^T X_prime are exactly u_{D+1}..u_d (with log Z = log_Z_c[D:]) plus D zero-eigenvalue
+        # directions in span(u_1..u_D) where X_prime @ c = 0 => log Z(c) = log(V).
+        log_V = float(np.log(max(V, 1)))
         sweep_results = {}
         for d_val in (1, 2, 3, 5, 7, 10):
             if d_val < dim:
-                embs_d, meta_d = apply_all_but_the_top(raw_embs, d_remove=d_val)
-                iso_d = compute_isotropy_measure(embs_d)
+                rem_lzc = np.concatenate([log_Z_c[d_val:], np.full(d_val, log_V)])
+                rem_lzc_neg = np.concatenate([log_Z_c_neg[d_val:], np.full(d_val, log_V)])
+                min_lz_d = float(np.min(rem_lzc))
+                max_lz_d = float(np.max(rem_lzc))
+                iso_d_val = float(np.exp(min_lz_d - max_lz_d))
+                sym_d = np.concatenate([rem_lzc, rem_lzc_neg])
+                iso_d_sym = float(np.exp(np.min(sym_d) - np.max(sym_d)))
+                rem_s_sq = s_cent[d_val:] ** 2
+                rem_tot_var = float(np.sum(rem_s_sq))
+                top_2d_evr_d = float(np.sum(rem_s_sq[:2]) / max(rem_tot_var, 1e-12))
                 sweep_results[f"D={d_val}"] = {
                     "d_remove": d_val,
-                    "isotropy_measure": iso_d["isotropy_measure"],
-                    "isotropy_measure_symmetric": iso_d["isotropy_measure_symmetric"],
-                    "min_log_Z": iso_d["min_log_Z"],
-                    "max_log_Z": iso_d["max_log_Z"],
-                    "removed_variance_ratio": meta_d["removed_variance_ratio"],
-                    "top_2d_explained_variance_ratio_after": iso_d["top_2d_explained_variance_ratio"],
+                    "isotropy_measure": iso_d_val,
+                    "isotropy_measure_symmetric": iso_d_sym,
+                    "min_log_Z": min_lz_d,
+                    "max_log_Z": max_lz_d,
+                    "removed_variance_ratio": float(np.sum(evr_c[:d_val])),
+                    "top_2d_explained_variance_ratio_after": top_2d_evr_d,
                 }
 
         # Save postprocessed embeddings (.npy and .vec)

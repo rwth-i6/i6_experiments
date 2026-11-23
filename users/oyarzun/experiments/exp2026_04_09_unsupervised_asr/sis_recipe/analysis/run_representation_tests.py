@@ -731,7 +731,7 @@ def run_test4_cluster_phone_composition(
         min_hm_val_for_label = 2.0
         single_line_bar_label = True
         save_dpi = 160
-    else:
+    elif num_clusters <= 600:
         fig_height = min(65.0, max(45.0, num_clusters * 0.115))
         ytick_fs = 3.6
         bar_text_fs = 3.5
@@ -742,8 +742,19 @@ def run_test4_cluster_phone_composition(
         min_hm_val_for_label = 4.0
         single_line_bar_label = True
         save_dpi = 150
+    else:
+        fig_height = min(85.0, max(60.0, num_clusters * 0.045))
+        ytick_fs = 2.0
+        bar_text_fs = 2.0
+        rem_text_fs = 2.0
+        right_text_fs = 2.5
+        hm_text_fs = 2.0
+        min_bar_val_for_label = 3.0
+        min_hm_val_for_label = 10.0
+        single_line_bar_label = True
+        save_dpi = 120
 
-    cid_digits = 3 if num_clusters >= 100 else 2
+    cid_digits = 4 if num_clusters >= 1000 else (3 if num_clusters >= 100 else 2)
 
     fig, (ax1, ax2) = plt.subplots(
         1, 2,

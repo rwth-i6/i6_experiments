@@ -51,6 +51,8 @@ from .config import get_forward_config
 from .default_tools import RETURNN_EXE, RETURNN_ROOT
 from .cluster_adapter import get_wmt14_dir
 from ..models.self_learning_alignment import SelfLearningEmbeddingAlignmentJob
+from ..models.gan_alignment import GANEmbeddingAlignmentJob
+from ..models.geowarp_alignment import GeoWarPEmbeddingAlignmentJob
 from ..models.analysis import EmbeddingAlignmentAnalysisJob, Word2VecIsotropyAndPcaAnalysisJob
 
 
@@ -112,6 +114,9 @@ def run_wmt14_de_en_unmt_pipeline(
     run_undreamt_training: bool = True,
     enable_comet: bool = False,
     align_init_method: Optional[str] = None,
+    alignment_method: str = "artetxe",
+    alignment_retrieval_metric: str = "cosine",
+    alignment_csls_k: int = 10,
     gpu_mem: Optional[int] = None,
     en_w2v_window: Optional[int] = None,
     retrieval_metrics: Optional[Sequence[str]] = None,
@@ -766,26 +771,57 @@ def run_wmt14_de_en_unmt_pipeline(
         tk.register_output(f"{prefix_name}/word2vec/en_isotropy_report.txt", w2v_en_job.out_isotropy_report_txt)
 
     # -------------------------------------------------------------------------
-    # 3. Cross-Lingual Embedding Alignment (Numerals for words/BPE, Frequency for phonemes)
+    # 3. Cross-Lingual Embedding Alignment (Artetxe / GAN / GeoWarP)
     # -------------------------------------------------------------------------
-    if align_init_method is None:
-        if is_cluster_en:
-            align_init_method = "frequency"
-        else:
-            align_init_method = "numerals" if (de_code_type in ("word", "bpe") and is_word_level_en) else "frequency"
-    align_job = SelfLearningEmbeddingAlignmentJob(
-        src_embeddings_npy=w2v_de_job.out_embeddings_npy,
-        trg_embeddings_npy=w2v_en_job.out_embeddings_npy,
-        src_vocab_file=w2v_de_job.out_vocab_txt,
-        trg_vocab_file=w2v_en_job.out_vocab_txt,
-        src_counts_file=w2v_de_job.out_counts_txt,
-        trg_counts_file=w2v_en_job.out_counts_txt,
-        init_method=align_init_method,
-        max_iters=100,
-        tol=1e-6,
-        retrieval_metric="cosine",
-    )
-    align_job.add_alias(f"{prefix_name}/alignment/de_en_{align_init_method}_init")
+    align_method_clean = alignment_method.strip().lower()
+    if align_method_clean in ("artetxe", "self_learning", "numerals", "frequency", "freq"):
+        if align_init_method is None:
+            if is_cluster_en:
+                align_init_method = "frequency"
+            else:
+                align_init_method = "numerals" if (de_code_type in ("word", "bpe") and is_word_level_en) else "frequency"
+        align_job = SelfLearningEmbeddingAlignmentJob(
+            src_embeddings_npy=w2v_de_job.out_embeddings_npy,
+            trg_embeddings_npy=w2v_en_job.out_embeddings_npy,
+            src_vocab_file=w2v_de_job.out_vocab_txt,
+            trg_vocab_file=w2v_en_job.out_vocab_txt,
+            src_counts_file=w2v_de_job.out_counts_txt,
+            trg_counts_file=w2v_en_job.out_counts_txt,
+            init_method=align_init_method,
+            max_iters=100,
+            tol=1e-6,
+            retrieval_metric=alignment_retrieval_metric,
+            csls_k=alignment_csls_k,
+        )
+        align_job.add_alias(f"{prefix_name}/alignment/de_en_{align_init_method}_init")
+    elif align_method_clean == "gan":
+        align_job = GANEmbeddingAlignmentJob(
+            src_embeddings_npy=w2v_de_job.out_embeddings_npy,
+            trg_embeddings_npy=w2v_en_job.out_embeddings_npy,
+            src_vocab_file=w2v_de_job.out_vocab_txt,
+            trg_vocab_file=w2v_en_job.out_vocab_txt,
+            src_counts_file=w2v_de_job.out_counts_txt,
+            trg_counts_file=w2v_en_job.out_counts_txt,
+            retrieval_metric=alignment_retrieval_metric,
+            csls_k=alignment_csls_k,
+        )
+        align_job.add_alias(f"{prefix_name}/alignment/de_en_gan_{alignment_retrieval_metric}")
+        tk.register_output(f"{prefix_name}/alignment/gan_training_curves.png", align_job.out_gan_loss_plot)
+    elif align_method_clean == "geowarp":
+        align_job = GeoWarPEmbeddingAlignmentJob(
+            src_embeddings_npy=w2v_de_job.out_embeddings_npy,
+            trg_embeddings_npy=w2v_en_job.out_embeddings_npy,
+            src_vocab_file=w2v_de_job.out_vocab_txt,
+            trg_vocab_file=w2v_en_job.out_vocab_txt,
+            src_counts_file=w2v_de_job.out_counts_txt,
+            trg_counts_file=w2v_en_job.out_counts_txt,
+            retrieval_metric=alignment_retrieval_metric,
+            csls_k=alignment_csls_k,
+        )
+        align_job.add_alias(f"{prefix_name}/alignment/de_en_geowarp_{alignment_retrieval_metric}")
+        tk.register_output(f"{prefix_name}/alignment/geowarp_training_curves.png", align_job.out_geowarp_loss_plot)
+    else:
+        raise ValueError(f"Unsupported alignment_method: {alignment_method!r}. Expected 'artetxe', 'gan', or 'geowarp'.")
     tk.register_output(f"{prefix_name}/alignment/mapped_de_embeddings.npy", align_job.out_mapped_src_emb_npy)
     tk.register_output(f"{prefix_name}/alignment/normalized_en_embeddings.npy", align_job.out_normalized_trg_emb_npy)
     tk.register_output(f"{prefix_name}/alignment/mapped_de_embeddings.vec", align_job.out_mapped_src_vec_txt)
@@ -1552,6 +1588,8 @@ def run_wmt14_de_en_unmt_pipeline(
         "test2014_job": test2014_job,
         "mono_de_job": mono_de_job,
         "mono_en_job": mono_en_job,
+        "raw_w2v_de_job": raw_w2v_de_job,
+        "raw_w2v_en_job": raw_w2v_en_job,
         "w2v_de_job": w2v_de_job,
         "w2v_en_job": w2v_en_job,
         "align_job": align_job,

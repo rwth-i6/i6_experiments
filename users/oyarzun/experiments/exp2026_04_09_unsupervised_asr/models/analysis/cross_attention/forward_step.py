@@ -3,7 +3,7 @@ __all__ = ["forward_step"]
 import contextlib
 import functools
 import math
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -12,10 +12,22 @@ import torch.nn.functional as F
 import returnn.frontend as rf
 from returnn.tensor import Dim, TensorDict, batch_dim
 
-from i6_models.parts.decoder.cross_att import CrossAttentionV1, CrossAttentionV1State
+try:
+    from i6_models.parts.decoder.cross_att import CrossAttentionV1, CrossAttentionV1State
+except ImportError:
+    CrossAttentionV1 = Any
+    CrossAttentionV1State = Any
 
-from ....models.definitions.conformer_aed_discrete_shared_v1 import Model
-from ....models.train_steps.util import get_random_mask, mask_sequence
+try:
+    from ....models.definitions.conformer_aed_discrete_shared_v1 import Model
+except ImportError:
+    Model = Any
+
+try:
+    from ....models.train_steps.util import get_random_mask, mask_sequence
+except ImportError:
+    get_random_mask = None
+    mask_sequence = None
 
 
 def expand_sequence(x: Tensor, lens: Tensor, min_dup: int, max_dup: int) -> Tuple[Tensor, Tensor]:

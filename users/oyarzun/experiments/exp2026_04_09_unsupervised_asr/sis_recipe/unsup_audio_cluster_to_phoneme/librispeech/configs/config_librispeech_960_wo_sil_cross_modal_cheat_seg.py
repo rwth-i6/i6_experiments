@@ -5997,6 +5997,278 @@ def eval_v5_9_1_geowarp(
     return alignment_results
 
 
+def eval_v5_9_1_geowarp_facto(
+    cluster: Optional[str] = None,
+    pca_dim: int = 512,
+    run_analysis: bool = True,
+    alignment_results_by_d: Optional[dict] = None,
+    norm_tag: str = "unit_sphere",
+    base_cluster_count: int = 40,
+    facto_variant: str = "12hz-8192",
+    audio_layer: int = 6,
+    d_values: Optional[List[int]] = None,
+    embedding_model: str = "word2vec",
+):
+    """
+    Evaluates v5.9.1_geowarp Facto ablation: Swapping Spin-HuBERT with Ubisoft La Forge Facto
+    (12.5 Hz, k=8192, WavLM-Large Layer 6) Compositional Audio N-Grams with All-but-the-Top Isotropy,
+    aligned via GeoWarP Coarse Geometric Initialization + Wasserstein Procrustes (Schnaus et al., 2026, arXiv:2610.09411).
+      - Acoustic Backbone: Facto 12.5 Hz (k=8192) on WavLM-Large Layer 6 (19-D quantized codebook vectors upsampled 4x to 50 Hz; PCA-512 skipped since dim=19 <= 512).
+      - Oracle segment averaging -> unit-sphere (L2) normalization -> K-Means at monophone scale (K_base = 40).
+      - Compositional Audio N-Grams: 2-grams (diphones) and 3-grams (triphones) with 80% coverage pruning.
+      - Embeddings: Skip-Gram Word2Vec (dim=128, win=2, epochs=20) + All-but-the-Top (default D=2).
+      - Alignment: GeoWarP Coarse Geometric Initialization + Wasserstein Procrustes + CSLS MNN refinement.
+      - Output prefixes:
+          output/.../cross_modal_cheat_seg_{cluster}/v5.9.1_geowarp_spin_audio_ngrams_base{k_base}_{norm_clean}_pca{pca_dim}/facto_{v_clean}/D{D}/...
+          output/.../cross_modal_cheat_seg_{cluster}/v5.9.1_geowarp_facto_audio_ngrams_base{k_base}_{norm_clean}_pca{pca_dim}/facto_{v_clean}/D{D}/...
+    """
+    if cluster is not None:
+        set_cluster(cluster)
+    active_cluster = get_cluster()
+    norm_clean = norm_tag.strip().lower()
+
+    k_base = int(base_cluster_count)
+    if d_values is None:
+        d_values = [2]
+    v_clean = facto_variant.replace("-", "_")
+    facto_tag = f"facto_{v_clean}"
+
+    prefix_bases = [
+        (
+            f"{__setup_base_name__}/librispeech/cross_modal_cheat_seg_{active_cluster}/"
+            f"v5.9.1_geowarp_spin_audio_ngrams_base{k_base}_{norm_clean}_pca{pca_dim}"
+        ),
+        (
+            f"{__setup_base_name__}/librispeech/cross_modal_cheat_seg_{active_cluster}/"
+            f"v5.9.1_geowarp_facto_audio_ngrams_base{k_base}_{norm_clean}_pca{pca_dim}"
+        ),
+    ]
+    primary_prefix_base = prefix_bases[0]
+
+    oracle_ref_hdfs = get_cheating_phoneme_ref_hdfs()
+    oracle_seq_tags = get_hubert_seq_tags_path()
+    oracle_idx_to_phoneme = get_oracle_idx_to_phoneme_path()
+    text_corpus_path = get_phoneme_text_corpus_path(cluster=active_cluster)
+
+    target_setups = [
+        ("diphone", f"clus_{k_base}_2gram"),
+        ("triphone", f"clus_{k_base}_3gram"),
+    ]
+    dim = 128
+    win = 2
+    metric = "csls"
+    dw_tag = f"dim{dim}_win{win}"
+
+    alignment_results = None
+    for d_rem in d_values:
+        d_rem_int = int(d_rem)
+        d_tag = f"D{d_rem_int}"
+        d_prefixes = [f"{pb}/{facto_tag}/{d_tag}" for pb in prefix_bases]
+        primary_d_prefix = f"{primary_prefix_base}/{facto_tag}/{d_tag}"
+
+        if alignment_results_by_d is not None and (facto_variant, d_rem_int) in alignment_results_by_d:
+            alignment_results = alignment_results_by_d[(facto_variant, d_rem_int)]
+        elif alignment_results_by_d is not None and d_rem_int in alignment_results_by_d:
+            alignment_results = alignment_results_by_d[d_rem_int]
+        else:
+            alignment_results = build_self_learning_asr_alignment_pipeline(
+                librispeech_key="train-clean-100",
+                audio_layer=audio_layer,
+                word2vec_dims=[dim],
+                word2vec_windows=[win],
+                word2vec_epochs=20,
+                cluster_counts=[k_base],
+                coverage_threshold=0.80,
+                code_types=["diphone", "triphone"],
+                code_cluster_map={
+                    "diphone": [(k_base, f"clus_{k_base}_2gram")],
+                    "triphone": [(k_base, f"clus_{k_base}_3gram")],
+                },
+                segmentation_type="cheating",
+                pca_dim=None,
+                version=f"v5.9.1_geowarp_{facto_tag}_base{k_base}_{norm_clean}_isotropic_{d_tag}",
+                text_version="v5.5",
+                text_model_tag="hubert_l6",
+                normalize_segments=norm_clean,
+                retrieval_metrics=[metric],
+                csls_k=10,
+                alignment_method="geowarp",
+                embedding_model=embedding_model,
+                word2vec_postprocessing="all_but_the_top",
+                all_but_the_top_D=d_rem_int,
+                run_isotropy_analysis=True,
+                facto_variant=facto_variant,
+                use_audio_ngrams=True,
+            )
+
+        for code_type, clus_str in target_setups:
+            exp_key = f"{code_type}/{clus_str}/{dw_tag}_{metric}"
+            res_entry = (
+                alignment_results.get((code_type, clus_str, dim, win, f"geowarp_{metric}"))
+                or alignment_results.get((code_type, clus_str, dim, win, f"gan_{metric}"))
+                if alignment_results is not None
+                else None
+            )
+            if res_entry is None:
+                continue
+
+            a_clus = res_entry["cluster_job"]
+            a_w2v = res_entry["audio_w2v_job"]
+            t_w2v = res_entry["text_w2v_job"]
+            raw_a_w2v = res_entry.get("raw_audio_w2v_job", a_w2v)
+            raw_t_w2v = res_entry.get("raw_text_w2v_job", t_w2v)
+            align_gw = res_entry.get("align_geowarp_job") or res_entry["align_gan_job"]
+
+            cheat_seg_tokens_file = a_clus.out_collapsed_tokens_txt
+            audio_emb_path = align_gw.out_mapped_audio_emb_npy
+            text_emb_path = t_w2v.out_embeddings_npy
+            vocab_path = t_w2v.out_vocab_txt
+
+            # 1. Cheating Segmentation Nearest-Neighbor CSLS Evaluation
+            eval_train_job = CheatingSegmentationNearestNeighborEvalJob(
+                audio_embeddings_npy=audio_emb_path,
+                text_embeddings_npy=text_emb_path,
+                phoneme_vocab_file=vocab_path,
+                cheating_segmentation_path=cheat_seg_tokens_file,
+                audio_cluster_hdfs=None,
+                reference_phonemes=oracle_ref_hdfs,
+                reference_phoneme_vocab_file=oracle_idx_to_phoneme,
+                seq_tags_file=oracle_seq_tags,
+                code_type=code_type,
+                max_seqs=3000,
+                ignore_silence=True,
+                retrieval_metric=metric,
+                csls_k=10,
+                center_text_embeddings=True,
+                name_prefix=f"eval_train3k_{code_type}_{clus_str}_{dw_tag}_{metric}_v5.9.1_geowarp_{facto_tag}_{norm_clean}_{d_tag}_pca{pca_dim}",
+            )
+            eval_train_job.add_alias(f"{primary_d_prefix}/{exp_key}/eval_train3k")
+
+            # 2. 4-Gram Language Model Rescoring Job
+            rescore_train_job = PhonemeNgramRescoreJob(
+                hypotheses_file=eval_train_job.out_hypotheses_txt,
+                reference_file=eval_train_job.out_reference_txt,
+                text_corpus_file=text_corpus_path,
+                lm_order=4,
+                backoff_alpha=0.4,
+                lm_weight=0.5,
+                match_bonus=2.0,
+                beam_width=10,
+                collapse_before=True,
+                name_prefix=f"rescore_train3k_{code_type}_{clus_str}_{dw_tag}_{metric}_v5.9.1_geowarp_{facto_tag}_{norm_clean}_{d_tag}_pca{pca_dim}",
+            )
+            rescore_train_job.add_alias(f"{primary_d_prefix}/{exp_key}/rescore_4gram_train3k")
+
+            # 3. Joined Score Results
+            join_asr_scores = JoinCheatingSegScoresJob(
+                scores={
+                    "nearest_neighbor_csls_per": eval_train_job.out_per_summary_json,
+                    "lm_rescore_4gram_per": rescore_train_job.out_per_summary_json,
+                },
+                title=f"Cheating Segmentation Evaluation (v5.9.1_geowarp Facto {facto_variant} WavLM-L{audio_layer} Audio N-Grams {d_tag}, {code_type}, {clus_str})",
+            )
+            join_asr_scores.add_alias(f"{primary_d_prefix}/{exp_key}/score_results")
+
+            # 4. Cross-Modal 2D PCA & Representation Analysis
+            analysis_gw = res_entry.get("analysis_geowarp_job") or res_entry.get("analysis_gan_job")
+            if analysis_gw is None:
+                analysis_gw = EmbeddingAlignmentAnalysisJob(
+                    mapped_audio_embeddings_npy=align_gw.out_mapped_audio_emb_npy,
+                    text_embeddings_npy=t_w2v.out_embeddings_npy,
+                    dictionary_json=align_gw.out_dictionary_json,
+                    raw_audio_embeddings_npy=a_w2v.out_embeddings_npy,
+                    raw_text_embeddings_npy=t_w2v.out_embeddings_npy,
+                    audio_vocab_file=a_clus.out_cluster_vocab_txt,
+                    text_vocab_file=t_w2v.out_vocab_txt,
+                    audio_counts_file=a_clus.out_cluster_counts_txt,
+                    text_counts_file=t_w2v.out_counts_txt,
+                    alignment_report_json=align_gw.out_alignment_report,
+                    title_prefix=f"v5.9.1_geowarp (Facto {facto_variant} WavLM-L{audio_layer} N-Grams {d_tag}) Cross-Modal 2D PCA ({code_type}, {clus_str}, {dw_tag}, {metric})",
+                    src_label=f"Audio {code_type.capitalize()}s (Facto {facto_variant})",
+                    trg_label=f"Text {code_type.capitalize()}s",
+                    _version=4,
+                )
+            analysis_gw.add_alias(f"{primary_d_prefix}/{exp_key}/pca_analysis")
+
+            # 5. Word2Vec Isotropy & PCA Analysis
+            w2v_isotropy_job = res_entry.get("w2v_isotropy_job")
+            if w2v_isotropy_job is None:
+                w2v_isotropy_job = Word2VecIsotropyAndPcaAnalysisJob(
+                    src_raw_embeddings_npy=raw_a_w2v.out_embeddings_npy,
+                    trg_raw_embeddings_npy=raw_t_w2v.out_embeddings_npy,
+                    src_post_embeddings_npy=a_w2v.out_embeddings_npy,
+                    trg_post_embeddings_npy=t_w2v.out_embeddings_npy,
+                    src_vocab_file=a_clus.out_cluster_vocab_txt,
+                    trg_vocab_file=t_w2v.out_vocab_txt,
+                    src_counts_file=a_clus.out_cluster_counts_txt,
+                    trg_counts_file=t_w2v.out_counts_txt,
+                    d_remove=d_rem_int,
+                    title_prefix=f"v5.9.1_geowarp (Facto {facto_variant} WavLM-L{audio_layer} N-Grams {d_tag}) Embedding Isotropy & PCA ({code_type}, {clus_str}, {dw_tag})",
+                    src_label=f"Audio {code_type.capitalize()}s (Facto {facto_variant})",
+                    trg_label=f"Text {code_type.capitalize()}s",
+                    is_postprocessed_active=True,
+                )
+            w2v_isotropy_job.add_alias(f"{primary_d_prefix}/{exp_key}/w2v_isotropy_analysis")
+
+            for d_prefix in d_prefixes:
+                tk.register_output(f"{d_prefix}/{exp_key}/embeddings/audio_embeddings_abtt.npy", a_w2v.out_embeddings_npy)
+                tk.register_output(f"{d_prefix}/{exp_key}/embeddings/text_embeddings_abtt.npy", t_w2v.out_embeddings_npy)
+                tk.register_output(f"{d_prefix}/{exp_key}/embeddings/audio_ngram_vocab.txt", a_clus.out_cluster_vocab_txt)
+                tk.register_output(f"{d_prefix}/{exp_key}/embeddings/audio_ngram_counts.txt", a_clus.out_ngram_counts_txt)
+                if hasattr(a_w2v, "out_isotropy_json"):
+                    tk.register_output(f"{d_prefix}/{exp_key}/embeddings/audio_isotropy_stats.json", a_w2v.out_isotropy_json)
+                if hasattr(t_w2v, "out_isotropy_json"):
+                    tk.register_output(f"{d_prefix}/{exp_key}/embeddings/text_isotropy_stats.json", t_w2v.out_isotropy_json)
+
+                tk.register_output(f"{d_prefix}/{exp_key}/geowarp_alignment/dict.json", align_gw.out_dictionary_json)
+                tk.register_output(f"{d_prefix}/{exp_key}/geowarp_alignment/report.json", align_gw.out_alignment_report)
+                tk.register_output(f"{d_prefix}/{exp_key}/geowarp_alignment/W_star.npy", align_gw.out_mapping_matrix_npy)
+                if hasattr(align_gw, "out_init_mapping_matrix_npy"):
+                    tk.register_output(f"{d_prefix}/{exp_key}/geowarp_alignment/W_init.npy", align_gw.out_init_mapping_matrix_npy)
+                if hasattr(align_gw, "out_wp_mapping_matrix_npy"):
+                    tk.register_output(f"{d_prefix}/{exp_key}/geowarp_alignment/W_wp.npy", align_gw.out_wp_mapping_matrix_npy)
+                tk.register_output(f"{d_prefix}/{exp_key}/geowarp_alignment/mapped_audio_embeddings.npy", align_gw.out_mapped_audio_emb_npy)
+                geowarp_plot = getattr(align_gw, "out_geowarp_loss_plot", None) or getattr(align_gw, "out_gan_loss_plot", None)
+                if geowarp_plot is not None:
+                    tk.register_output(f"{d_prefix}/{exp_key}/geowarp_alignment/geowarp_training_curves.png", geowarp_plot)
+
+                tk.register_output(f"{d_prefix}/{exp_key}/train3k_per_summary.json", eval_train_job.out_per_summary_json)
+                tk.register_output(f"{d_prefix}/{exp_key}/train3k_per_report.txt", eval_train_job.out_per_report_txt)
+                tk.register_output(f"{d_prefix}/{exp_key}/train3k_hypotheses.txt", eval_train_job.out_hypotheses_txt)
+                tk.register_output(f"{d_prefix}/{exp_key}/train3k_reference.txt", eval_train_job.out_reference_txt)
+                tk.register_output(f"{d_prefix}/{exp_key}/train3k_sclite.pra", eval_train_job.out_pra_report_txt)
+
+                tk.register_output(f"{d_prefix}/{exp_key}/train3k_4gram_hypotheses.txt", rescore_train_job.out_hypotheses_txt)
+                tk.register_output(f"{d_prefix}/{exp_key}/train3k_4gram_per_summary.json", rescore_train_job.out_per_summary_json)
+                tk.register_output(f"{d_prefix}/{exp_key}/train3k_4gram_per_report.txt", rescore_train_job.out_per_report_txt)
+                tk.register_output(f"{d_prefix}/{exp_key}/train3k_4gram_sclite.pra", rescore_train_job.out_pra_report_txt)
+
+                tk.register_output(f"{d_prefix}/{exp_key}/score_results.txt", join_asr_scores.out_summary_txt)
+                tk.register_output(f"{d_prefix}/{exp_key}/score_results.json", join_asr_scores.out_summary_json)
+
+                tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/cross_modal_pca.png", analysis_gw.out_cross_modal_pca_plot)
+                tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/cross_modal_pca.json", analysis_gw.out_cross_modal_pca_json)
+                tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/source_audio_pca.png", analysis_gw.out_source_pca_plot)
+                tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/target_text_pca.png", analysis_gw.out_target_pca_plot)
+                tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/cross_modal_pca_panel.png", analysis_gw.out_cross_modal_panel_plot)
+                tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/source_raw_pca.png", analysis_gw.out_source_raw_pca_plot)
+                tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/target_raw_pca.png", analysis_gw.out_target_raw_pca_plot)
+                tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/unaligned_cross_modal_pca.png", analysis_gw.out_unaligned_joint_pca_plot)
+                tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/alignment_comparison_panel.png", analysis_gw.out_alignment_comparison_panel_plot)
+                tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/analysis_report.json", analysis_gw.out_analysis_report_json)
+
+                tk.register_output(f"{d_prefix}/{exp_key}/w2v_isotropy_analysis/isotropy_report.json", w2v_isotropy_job.out_isotropy_report_json)
+                tk.register_output(f"{d_prefix}/{exp_key}/w2v_isotropy_analysis/isotropy_report.txt", w2v_isotropy_job.out_isotropy_report_txt)
+                tk.register_output(f"{d_prefix}/{exp_key}/w2v_isotropy_analysis/source_audio_pca_before_abtt.png", w2v_isotropy_job.out_src_before_pca_plot)
+                tk.register_output(f"{d_prefix}/{exp_key}/w2v_isotropy_analysis/source_audio_pca_after_abtt.png", w2v_isotropy_job.out_src_after_pca_plot)
+                tk.register_output(f"{d_prefix}/{exp_key}/w2v_isotropy_analysis/target_text_pca_before_abtt.png", w2v_isotropy_job.out_trg_before_pca_plot)
+                tk.register_output(f"{d_prefix}/{exp_key}/w2v_isotropy_analysis/target_text_pca_after_abtt.png", w2v_isotropy_job.out_trg_after_pca_plot)
+                tk.register_output(f"{d_prefix}/{exp_key}/w2v_isotropy_analysis/pca_before_vs_after_abtt_panel.png", w2v_isotropy_job.out_before_after_panel_plot)
+                tk.register_output(f"{d_prefix}/{exp_key}/w2v_isotropy_analysis/isotropy_and_spectrum_panel.png", w2v_isotropy_job.out_isotropy_spectrum_plot)
+
+    return alignment_results
+
+
 def eval_v5_9_1_geowarp_spectral(
     cluster: Optional[str] = None,
     pca_dim: int = 512,
@@ -6543,24 +6815,27 @@ def eval_v5_10_geowarp_spin_audio_ngrams(
     run_analysis: bool = True,
     alignment_results_by_pool_d: Optional[dict] = None,
     norm_tag: str = "unit_sphere",
-    base_cluster_count: int = 512,
+    base_cluster_count: int = 120,
     spin_codebook_sizes: Optional[List[int]] = None,
     spin_codebook_size: Optional[int] = None,
     audio_layer: int = 12,
     d_values: Optional[List[int]] = None,
     pooling_methods: Optional[List[str]] = None,
     embedding_model: str = "word2vec",
+    alignment_method: str = "geowarp",
+    audio_ngram_order: Optional[int] = None,
 ):
     """
-    Evaluates v5.10_geowarp (K_base = 512 with mean and center_weighted segment pooling ablations),
-    copying the best v5.9.1_geowarp configuration:
+    Evaluates v5.10 (with silence in text, Spin-HuBERT 2048 Layer 12, mean & center_weighted pooling):
       - Acoustic Backbone: Spin-HuBERT Layer 12 (codebook size 2048).
       - Frame-level PCA projection (768 -> 512) -> oracle segment pooling (mean vs center_weighted) ->
-        unit-sphere (L2) normalization -> K-Means at fine scale (K_base = 512).
-      - Compositional Audio N-Grams: 2-grams (diphones) and 3-grams (triphones) with 80% coverage pruning.
+        unit-sphere (L2) normalization -> K-Means (K_base = 120 or 512 ablation).
+      - Compositional Audio N-Grams: 2-grams (diphones) and 3-grams (triphones) by default, or fixed
+        `audio_ngram_order` (e.g. 4-grams aligned against text diphones and triphones) with 80% coverage pruning.
       - Embeddings: Skip-Gram Word2Vec (dim=128, win=2, epochs=20) + All-but-the-Top (default D=2).
-      - Alignment: GeoWarP Coarse Geometric Initialization + Wasserstein Procrustes + CSLS MNN refinement.
-      - Output prefix: output/.../cross_modal_cheat_seg_{cluster}/v5.10_geowarp_spin_audio_ngrams_base{k_base}_{norm_clean}_pca{pca_dim}/{pooling_method}/spin_{spin_k}/D{D}/...
+      - Alignment: GeoWarP (or GAN optimizer ablation) + Wasserstein Procrustes + CSLS MNN refinement.
+      - Text: text_version="v5.5" (with silence: sil_prob=0.25, surround_w_sil=True).
+      - Output prefix: output/.../cross_modal_cheat_seg_{cluster}/v5.10_{align_tag}{ngram_tag}_spin_audio_ngrams_base{k_base}_{norm_clean}_pca{pca_dim}/{pooling_method}/spin_{spin_k}/D{D}/...
     """
     if cluster is not None:
         set_cluster(cluster)
@@ -6576,9 +6851,13 @@ def eval_v5_10_geowarp_spin_audio_ngrams(
     if pooling_methods is None:
         pooling_methods = ["mean", "center_weighted"]
 
+    align_tag = "gan" if alignment_method == "gan" else "geowarp"
+    align_title = "GAN" if alignment_method == "gan" else "GeoWarP"
+    ngram_tag = f"_{int(audio_ngram_order)}gram" if audio_ngram_order is not None else ""
+
     prefix_base = (
         f"{__setup_base_name__}/librispeech/cross_modal_cheat_seg_{active_cluster}/"
-        f"v5.10_geowarp_spin_audio_ngrams_base{k_base}_{norm_clean}_pca{pca_dim}"
+        f"v5.10_{align_tag}{ngram_tag}_spin_audio_ngrams_base{k_base}_{norm_clean}_pca{pca_dim}"
     )
 
     oracle_ref_hdfs = get_cheating_phoneme_ref_hdfs()
@@ -6586,10 +6865,17 @@ def eval_v5_10_geowarp_spin_audio_ngrams(
     oracle_idx_to_phoneme = get_oracle_idx_to_phoneme_path()
     text_corpus_path = get_phoneme_text_corpus_path(cluster=active_cluster)
 
-    target_setups = [
-        ("diphone", f"clus_{k_base}_2gram"),
-        ("triphone", f"clus_{k_base}_3gram"),
-    ]
+    if audio_ngram_order is not None:
+        n_ord = int(audio_ngram_order)
+        target_setups = [
+            ("diphone", f"clus_{k_base}_{n_ord}gram"),
+            ("triphone", f"clus_{k_base}_{n_ord}gram"),
+        ]
+    else:
+        target_setups = [
+            ("diphone", f"clus_{k_base}_2gram"),
+            ("triphone", f"clus_{k_base}_3gram"),
+        ]
     dim = 128
     win = 2
     metric = "csls"
@@ -6626,18 +6912,17 @@ def eval_v5_10_geowarp_spin_audio_ngrams(
                         coverage_threshold=0.80,
                         code_types=["diphone", "triphone"],
                         code_cluster_map={
-                            "diphone": [(k_base, f"clus_{k_base}_2gram")],
-                            "triphone": [(k_base, f"clus_{k_base}_3gram")],
+                            code_t: [(k_base, clus_s)] for code_t, clus_s in target_setups
                         },
                         segmentation_type="cheating",
                         pca_dim=pca_dim,
-                        version=f"v5.10_geowarp_{spin_tag}_base{k_base}_{p_clean}_{norm_clean}_isotropic_{d_tag}",
+                        version=f"v5.10_{align_tag}{ngram_tag}_{spin_tag}_base{k_base}_{p_clean}_{norm_clean}_isotropic_{d_tag}",
                         text_version="v5.5",
                         text_model_tag="hubert_l6",
                         normalize_segments=norm_clean,
                         retrieval_metrics=[metric],
                         csls_k=10,
-                        alignment_method="geowarp",
+                        alignment_method=alignment_method,
                         embedding_model=embedding_model,
                         word2vec_postprocessing="all_but_the_top",
                         all_but_the_top_D=d_rem_int,
@@ -6653,7 +6938,8 @@ def eval_v5_10_geowarp_spin_audio_ngrams(
                 for code_type, clus_str in target_setups:
                     exp_key = f"{code_type}/{clus_str}/{dw_tag}_{metric}"
                     res_entry = (
-                        alignment_results.get((code_type, clus_str, dim, win, f"geowarp_{metric}"))
+                        alignment_results.get((code_type, clus_str, dim, win, f"{align_tag}_{metric}"))
+                        or alignment_results.get((code_type, clus_str, dim, win, f"geowarp_{metric}"))
                         or alignment_results.get((code_type, clus_str, dim, win, f"gan_{metric}"))
                         if alignment_results is not None
                         else None
@@ -6666,7 +6952,7 @@ def eval_v5_10_geowarp_spin_audio_ngrams(
                     t_w2v = res_entry["text_w2v_job"]
                     raw_a_w2v = res_entry.get("raw_audio_w2v_job", a_w2v)
                     raw_t_w2v = res_entry.get("raw_text_w2v_job", t_w2v)
-                    align_gw = res_entry.get("align_geowarp_job") or res_entry["align_gan_job"]
+                    align_gw = res_entry.get("align_geowarp_job") or res_entry.get("align_gan_job")
 
                     cheat_seg_tokens_file = a_clus.out_collapsed_tokens_txt
                     audio_emb_path = align_gw.out_mapped_audio_emb_npy
@@ -6674,7 +6960,7 @@ def eval_v5_10_geowarp_spin_audio_ngrams(
                     vocab_path = t_w2v.out_vocab_txt
                     cluster_jobs_by_name[clus_str] = a_clus
 
-                    # Register postprocessed embeddings & GeoWarP alignment outputs
+                    # Register postprocessed embeddings & alignment outputs
                     tk.register_output(f"{d_prefix}/{exp_key}/embeddings/audio_embeddings_abtt.npy", a_w2v.out_embeddings_npy)
                     tk.register_output(f"{d_prefix}/{exp_key}/embeddings/text_embeddings_abtt.npy", t_w2v.out_embeddings_npy)
                     tk.register_output(f"{d_prefix}/{exp_key}/embeddings/audio_ngram_vocab.txt", a_clus.out_cluster_vocab_txt)
@@ -6684,15 +6970,16 @@ def eval_v5_10_geowarp_spin_audio_ngrams(
                     if hasattr(t_w2v, "out_isotropy_json"):
                         tk.register_output(f"{d_prefix}/{exp_key}/embeddings/text_isotropy_stats.json", t_w2v.out_isotropy_json)
 
-                    tk.register_output(f"{d_prefix}/{exp_key}/geowarp_alignment/dict.json", align_gw.out_dictionary_json)
-                    tk.register_output(f"{d_prefix}/{exp_key}/geowarp_alignment/report.json", align_gw.out_alignment_report)
-                    tk.register_output(f"{d_prefix}/{exp_key}/geowarp_alignment/W_star.npy", align_gw.out_mapping_matrix_npy)
+                    align_folder = f"{align_tag}_alignment"
+                    tk.register_output(f"{d_prefix}/{exp_key}/{align_folder}/dict.json", align_gw.out_dictionary_json)
+                    tk.register_output(f"{d_prefix}/{exp_key}/{align_folder}/report.json", align_gw.out_alignment_report)
+                    tk.register_output(f"{d_prefix}/{exp_key}/{align_folder}/W_star.npy", align_gw.out_mapping_matrix_npy)
                     if hasattr(align_gw, "out_init_mapping_matrix_npy"):
-                        tk.register_output(f"{d_prefix}/{exp_key}/geowarp_alignment/W_init.npy", align_gw.out_init_mapping_matrix_npy)
+                        tk.register_output(f"{d_prefix}/{exp_key}/{align_folder}/W_init.npy", align_gw.out_init_mapping_matrix_npy)
                     if hasattr(align_gw, "out_wp_mapping_matrix_npy"):
-                        tk.register_output(f"{d_prefix}/{exp_key}/geowarp_alignment/W_wp.npy", align_gw.out_wp_mapping_matrix_npy)
-                    tk.register_output(f"{d_prefix}/{exp_key}/geowarp_alignment/mapped_audio_embeddings.npy", align_gw.out_mapped_audio_emb_npy)
-                    tk.register_output(f"{d_prefix}/{exp_key}/geowarp_alignment/geowarp_training_curves.png", align_gw.out_gan_loss_plot)
+                        tk.register_output(f"{d_prefix}/{exp_key}/{align_folder}/W_wp.npy", align_gw.out_wp_mapping_matrix_npy)
+                    tk.register_output(f"{d_prefix}/{exp_key}/{align_folder}/mapped_audio_embeddings.npy", align_gw.out_mapped_audio_emb_npy)
+                    tk.register_output(f"{d_prefix}/{exp_key}/{align_folder}/{align_tag}_training_curves.png", align_gw.out_gan_loss_plot)
 
                     # 1. Cheating Segmentation Nearest-Neighbor CSLS Evaluation
                     eval_train_job = CheatingSegmentationNearestNeighborEvalJob(
@@ -6710,7 +6997,7 @@ def eval_v5_10_geowarp_spin_audio_ngrams(
                         retrieval_metric=metric,
                         csls_k=10,
                         center_text_embeddings=True,
-                        name_prefix=f"eval_train3k_{code_type}_{clus_str}_{dw_tag}_{metric}_v5.10_geowarp_spin_{spin_k_int}_base{k_base}_{p_clean}_{norm_clean}_{d_tag}_pca{pca_dim}",
+                        name_prefix=f"eval_train3k_{code_type}_{clus_str}_{dw_tag}_{metric}_v5.10_{align_tag}_spin_{spin_k_int}_base{k_base}_{p_clean}_{norm_clean}_{d_tag}_pca{pca_dim}",
                     )
                     eval_train_job.add_alias(f"{d_prefix}/{exp_key}/eval_train3k")
                     tk.register_output(f"{d_prefix}/{exp_key}/train3k_per_summary.json", eval_train_job.out_per_summary_json)
@@ -6730,7 +7017,7 @@ def eval_v5_10_geowarp_spin_audio_ngrams(
                         match_bonus=2.0,
                         beam_width=10,
                         collapse_before=True,
-                        name_prefix=f"rescore_train3k_{code_type}_{clus_str}_{dw_tag}_{metric}_v5.10_geowarp_spin_{spin_k_int}_base{k_base}_{p_clean}_{norm_clean}_{d_tag}_pca{pca_dim}",
+                        name_prefix=f"rescore_train3k_{code_type}_{clus_str}_{dw_tag}_{metric}_v5.10_{align_tag}_spin_{spin_k_int}_base{k_base}_{p_clean}_{norm_clean}_{d_tag}_pca{pca_dim}",
                     )
                     rescore_train_job.add_alias(f"{d_prefix}/{exp_key}/rescore_4gram_train3k")
                     tk.register_output(f"{d_prefix}/{exp_key}/train3k_4gram_hypotheses.txt", rescore_train_job.out_hypotheses_txt)
@@ -6744,7 +7031,7 @@ def eval_v5_10_geowarp_spin_audio_ngrams(
                             "nearest_neighbor_csls_per": eval_train_job.out_per_summary_json,
                             "lm_rescore_4gram_per": rescore_train_job.out_per_summary_json,
                         },
-                        title=f"Cheating Segmentation Evaluation (v5.10_geowarp Spin-{spin_k_int} L{audio_layer} Base-{k_base} [{p_clean}] Audio N-Grams {d_tag}, {code_type}, {clus_str})",
+                        title=f"Cheating Segmentation Evaluation (v5.10_{align_tag} Spin-{spin_k_int} L{audio_layer} Base-{k_base} [{p_clean}] Audio N-Grams {d_tag}, {code_type}, {clus_str})",
                     )
                     join_asr_scores.add_alias(f"{d_prefix}/{exp_key}/score_results")
                     tk.register_output(f"{d_prefix}/{exp_key}/score_results.txt", join_asr_scores.out_summary_txt)
@@ -6764,7 +7051,7 @@ def eval_v5_10_geowarp_spin_audio_ngrams(
                             audio_counts_file=a_clus.out_cluster_counts_txt,
                             text_counts_file=t_w2v.out_counts_txt,
                             alignment_report_json=align_gw.out_alignment_report,
-                            title_prefix=f"v5.10_geowarp (Spin-{spin_k_int} L{audio_layer} Base-{k_base} [{p_clean}] N-Grams {d_tag}) Cross-Modal 2D PCA ({code_type}, {clus_str}, {dw_tag}, {metric})",
+                            title_prefix=f"v5.10_{align_tag} (Spin-{spin_k_int} L{audio_layer} Base-{k_base} [{p_clean}] N-Grams {d_tag}) Cross-Modal 2D PCA ({code_type}, {clus_str}, {dw_tag}, {metric})",
                             src_label=f"Audio {code_type.capitalize()}s (Spin-{spin_k_int} K={k_base} {p_clean})",
                             trg_label=f"Text {code_type.capitalize()}s",
                             _version=4,
@@ -6795,7 +7082,7 @@ def eval_v5_10_geowarp_spin_audio_ngrams(
                             src_counts_file=a_clus.out_cluster_counts_txt,
                             trg_counts_file=t_w2v.out_counts_txt,
                             d_remove=d_rem_int,
-                            title_prefix=f"v5.10_geowarp (Spin-{spin_k_int} L{audio_layer} Base-{k_base} [{p_clean}] N-Grams {d_tag}) Embedding Isotropy & PCA ({code_type}, {clus_str}, {dw_tag})",
+                            title_prefix=f"v5.10_{align_tag} (Spin-{spin_k_int} L{audio_layer} Base-{k_base} [{p_clean}] N-Grams {d_tag}) Embedding Isotropy & PCA ({code_type}, {clus_str}, {dw_tag})",
                             src_label=f"Audio {code_type.capitalize()}s (Spin-{spin_k_int} K={k_base} {p_clean})",
                             trg_label=f"Text {code_type.capitalize()}s",
                             is_postprocessed_active=True,
@@ -6820,8 +7107,8 @@ def eval_v5_10_geowarp_spin_audio_ngrams(
                         text_embeddings_npy=t_w2v.out_embeddings_npy,
                         text_vocab_file=vocab_path,
                         top_k=100,
-                        title_prefix=f"v5.10_geowarp ({spin_tag}, Base-{k_base}, {p_clean}, D={d_rem_int}, {code_type}, {clus_str}, {norm_title})",
-                        name_prefix=f"top_cluster_ngrams_v5.10_geowarp_{spin_tag}_base{k_base}_{p_clean}_{d_tag}_{code_type}_{clus_str}",
+                        title_prefix=f"v5.10_{align_tag} ({spin_tag}, Base-{k_base}, {p_clean}, D={d_rem_int}, {code_type}, {clus_str}, {norm_title})",
+                        name_prefix=f"top_cluster_ngrams_v5.10_{align_tag}_{spin_tag}_base{k_base}_{p_clean}_{d_tag}_{code_type}_{clus_str}",
                     )
                     top_ngrams_job.add_alias(f"{d_prefix}/{exp_key}/top_100_ngrams")
                     tk.register_output(f"{d_prefix}/{exp_key}/top_100_cluster_ngrams.txt", top_ngrams_job.out_top_ngrams_txt)
@@ -6841,8 +7128,8 @@ def eval_v5_10_geowarp_spin_audio_ngrams(
                             cluster_hdfs=None,
                             k_clusters=None,
                             top_k=50,
-                            title_prefix=f"v5.10_geowarp Compositional Audio {code_type.capitalize()}s ({spin_tag}, Base-{k_base}, {p_clean}, D={d_rem_int}, {clus_str}, {norm_title})",
-                            name_prefix=f"speech_cluster_dist_v5.10_geowarp_{spin_tag}_base{k_base}_{p_clean}_{d_tag}_{norm_clean}_pca{pca_dim}_{clus_str}",
+                            title_prefix=f"v5.10_{align_tag} Compositional Audio {code_type.capitalize()}s ({spin_tag}, Base-{k_base}, {p_clean}, D={d_rem_int}, {clus_str}, {norm_title})",
+                            name_prefix=f"speech_cluster_dist_v5.10_{align_tag}_{spin_tag}_base{k_base}_{p_clean}_{d_tag}_{norm_clean}_pca{pca_dim}_{clus_str}",
                         )
                         cluster_analysis_job.add_alias(f"{analysis_prefix}/speech_clusters/{clus_str}")
                         tk.register_output(f"{analysis_prefix}/speech_clusters/{clus_str}/cluster_distribution.png", cluster_analysis_job.out_distribution_plot)
@@ -6852,6 +7139,114 @@ def eval_v5_10_geowarp_spin_audio_ngrams(
                         tk.register_output(f"{analysis_prefix}/speech_clusters/{clus_str}/cluster_report.txt", cluster_analysis_job.out_report_txt)
 
     return all_results
+
+
+def eval_v5_10_gan_spin_audio_ngrams(
+    cluster: Optional[str] = None,
+    pca_dim: int = 512,
+    run_analysis: bool = True,
+    alignment_results_by_pool_d: Optional[dict] = None,
+    norm_tag: str = "unit_sphere",
+    base_cluster_count: int = 512,
+    spin_codebook_sizes: Optional[List[int]] = None,
+    spin_codebook_size: Optional[int] = None,
+    audio_layer: int = 12,
+    d_values: Optional[List[int]] = None,
+    pooling_methods: Optional[List[str]] = None,
+    embedding_model: str = "word2vec",
+    audio_ngram_order: Optional[int] = None,
+):
+    """
+    Evaluates v5.10 ablation: K_base = 512 clusters with GAN optimizer instead of GeoWarp (with silence in text).
+    """
+    return eval_v5_10_geowarp_spin_audio_ngrams(
+        cluster=cluster,
+        pca_dim=pca_dim,
+        run_analysis=run_analysis,
+        alignment_results_by_pool_d=alignment_results_by_pool_d,
+        norm_tag=norm_tag,
+        base_cluster_count=base_cluster_count,
+        spin_codebook_sizes=spin_codebook_sizes,
+        spin_codebook_size=spin_codebook_size,
+        audio_layer=audio_layer,
+        d_values=d_values,
+        pooling_methods=pooling_methods,
+        embedding_model=embedding_model,
+        alignment_method="gan",
+        audio_ngram_order=audio_ngram_order,
+    )
+
+
+def eval_v5_10_4gram_geowarp_spin_audio_ngrams(
+    cluster: Optional[str] = None,
+    pca_dim: int = 512,
+    run_analysis: bool = True,
+    alignment_results_by_pool_d: Optional[dict] = None,
+    norm_tag: str = "unit_sphere",
+    base_cluster_count: int = 512,
+    spin_codebook_sizes: Optional[List[int]] = None,
+    spin_codebook_size: Optional[int] = None,
+    audio_layer: int = 12,
+    d_values: Optional[List[int]] = None,
+    pooling_methods: Optional[List[str]] = None,
+    embedding_model: str = "word2vec",
+):
+    """
+    Evaluates v5.10 4-gram ablation with GeoWarP: audio 4-grams (`clus_{k_base}_4gram`) aligned against
+    text diphones and text triphones (preserving text diphones & triphones, no 4-phones).
+    """
+    return eval_v5_10_geowarp_spin_audio_ngrams(
+        cluster=cluster,
+        pca_dim=pca_dim,
+        run_analysis=run_analysis,
+        alignment_results_by_pool_d=alignment_results_by_pool_d,
+        norm_tag=norm_tag,
+        base_cluster_count=base_cluster_count,
+        spin_codebook_sizes=spin_codebook_sizes,
+        spin_codebook_size=spin_codebook_size,
+        audio_layer=audio_layer,
+        d_values=d_values,
+        pooling_methods=pooling_methods,
+        embedding_model=embedding_model,
+        alignment_method="geowarp",
+        audio_ngram_order=4,
+    )
+
+
+def eval_v5_10_4gram_gan_spin_audio_ngrams(
+    cluster: Optional[str] = None,
+    pca_dim: int = 512,
+    run_analysis: bool = True,
+    alignment_results_by_pool_d: Optional[dict] = None,
+    norm_tag: str = "unit_sphere",
+    base_cluster_count: int = 512,
+    spin_codebook_sizes: Optional[List[int]] = None,
+    spin_codebook_size: Optional[int] = None,
+    audio_layer: int = 12,
+    d_values: Optional[List[int]] = None,
+    pooling_methods: Optional[List[str]] = None,
+    embedding_model: str = "word2vec",
+):
+    """
+    Evaluates v5.10 4-gram ablation with GAN: audio 4-grams (`clus_{k_base}_4gram`) aligned against
+    text diphones and text triphones (preserving text diphones & triphones, no 4-phones).
+    """
+    return eval_v5_10_geowarp_spin_audio_ngrams(
+        cluster=cluster,
+        pca_dim=pca_dim,
+        run_analysis=run_analysis,
+        alignment_results_by_pool_d=alignment_results_by_pool_d,
+        norm_tag=norm_tag,
+        base_cluster_count=base_cluster_count,
+        spin_codebook_sizes=spin_codebook_sizes,
+        spin_codebook_size=spin_codebook_size,
+        audio_layer=audio_layer,
+        d_values=d_values,
+        pooling_methods=pooling_methods,
+        embedding_model=embedding_model,
+        alignment_method="gan",
+        audio_ngram_order=4,
+    )
 
 def run_distribution_analysis(cluster: Optional[str] = None):
     """
@@ -6994,6 +7389,10 @@ def py(cluster: Optional[str] = None, version: str = all, run_analysis: bool = T
         return
     elif v_norm in ("v5.9.1_geowarp", "v5_9_1_geowarp", "5.9.1_geowarp", "geowarp"):
         eval_v5_9_1_geowarp(cluster=cluster, pca_dim=512, run_analysis=run_analysis, norm_tag="unit_sphere")
+        eval_v5_9_1_geowarp_facto(cluster=cluster, pca_dim=512, run_analysis=run_analysis, norm_tag="unit_sphere")
+        return
+    elif v_norm in ("v5.9.1_geowarp_facto", "v5_9_1_geowarp_facto", "5.9.1_geowarp_facto", "geowarp_facto", "v5.9.1_facto", "v5_9_1_facto", "facto_geowarp"):
+        eval_v5_9_1_geowarp_facto(cluster=cluster, pca_dim=512, run_analysis=run_analysis, norm_tag="unit_sphere")
         return
     elif v_norm in ("v5.9.1_geowarp_spectral", "v5_9_1_geowarp_spectral", "5.9.1_geowarp_spectral", "v5.9.1_spectral", "v5_9_1_spectral", "spectral", "geowarp_spectral"):
         eval_v5_9_1_geowarp_spectral(cluster=cluster, pca_dim=512, run_analysis=run_analysis, norm_tag="unit_sphere")
@@ -7037,8 +7436,30 @@ def py(cluster: Optional[str] = None, version: str = all, run_analysis: bool = T
     elif v_norm in ("v5.10.2", "v5_10_2", "v5.10_2", "v5.10.2_struct_reg", "v5_10_2_struct_reg_gan", "v5.10.2_reg_gan"):
         eval_v5_10_2_wo_sil_audio_ngrams_struct_reg_gan(cluster=cluster, pca_dim=512, run_analysis=run_analysis, norm_tag="unit_sphere")
         return
-    elif v_norm in ("v5.10_geowarp", "v5_10_geowarp", "v5.10_base512", "v5_10_base512", "v5.10_k512", "v5_10_k512"):
+    elif v_norm in ("v5.10_geowarp_base120", "v5_10_geowarp_base120", "v5.10_geowarp_120", "v5_10_geowarp_120"):
+        eval_v5_10_geowarp_spin_audio_ngrams(cluster=cluster, pca_dim=512, run_analysis=run_analysis, norm_tag="unit_sphere", base_cluster_count=120)
+        return
+    elif v_norm in ("v5.10_geowarp", "v5_10_geowarp", "v5.10_base512", "v5_10_base512", "v5.10_k512", "v5_10_k512", "v5.10_geowarp_base512", "v5_10_geowarp_base512"):
         eval_v5_10_geowarp_spin_audio_ngrams(cluster=cluster, pca_dim=512, run_analysis=run_analysis, norm_tag="unit_sphere", base_cluster_count=512)
+        return
+    elif v_norm in ("v5.10_gan_base512", "v5_10_gan_base512", "v5.10_gan_512", "v5_10_gan_512", "v5.10_gan_k512", "v5_10_gan_k512", "v5.10_gan", "v5_10_gan"):
+        eval_v5_10_gan_spin_audio_ngrams(cluster=cluster, pca_dim=512, run_analysis=run_analysis, norm_tag="unit_sphere", base_cluster_count=512)
+        return
+    elif v_norm in ("v5.10_4gram_base120", "v5_10_4gram_base120", "v5.10_geowarp_4gram_base120", "v5_10_geowarp_4gram_base120"):
+        eval_v5_10_4gram_geowarp_spin_audio_ngrams(cluster=cluster, pca_dim=512, run_analysis=run_analysis, norm_tag="unit_sphere", base_cluster_count=120)
+        return
+    elif v_norm in ("v5.10_4gram", "v5_10_4gram", "v5.10_4gram_base512", "v5_10_4gram_base512", "v5.10_geowarp_4gram_base512", "v5_10_geowarp_4gram_base512"):
+        eval_v5_10_4gram_geowarp_spin_audio_ngrams(cluster=cluster, pca_dim=512, run_analysis=run_analysis, norm_tag="unit_sphere", base_cluster_count=512)
+        return
+    elif v_norm in ("v5.10_gan_4gram", "v5_10_gan_4gram", "v5.10_gan_4gram_base512", "v5_10_gan_4gram_base512"):
+        eval_v5_10_4gram_gan_spin_audio_ngrams(cluster=cluster, pca_dim=512, run_analysis=run_analysis, norm_tag="unit_sphere", base_cluster_count=512)
+        return
+    elif v_norm in ("v5.10_ablations", "v5_10_ablations", "v5.10_geowarp_ablations"):
+        eval_v5_10_geowarp_spin_audio_ngrams(cluster=cluster, pca_dim=512, run_analysis=run_analysis, norm_tag="unit_sphere", base_cluster_count=120)
+        eval_v5_10_geowarp_spin_audio_ngrams(cluster=cluster, pca_dim=512, run_analysis=run_analysis, norm_tag="unit_sphere", base_cluster_count=512)
+        eval_v5_10_gan_spin_audio_ngrams(cluster=cluster, pca_dim=512, run_analysis=run_analysis, norm_tag="unit_sphere", base_cluster_count=512)
+        eval_v5_10_4gram_geowarp_spin_audio_ngrams(cluster=cluster, pca_dim=512, run_analysis=run_analysis, norm_tag="unit_sphere", base_cluster_count=512)
+        eval_v5_10_4gram_gan_spin_audio_ngrams(cluster=cluster, pca_dim=512, run_analysis=run_analysis, norm_tag="unit_sphere", base_cluster_count=512)
         return
     elif v_norm in ("v5.9.5", "v5_9_5", "v5.9.5_viterbi", "viterbi_regularized"):
         eval_v5_9_5_wo_sil_spin_audio_ngrams_viterbi_regularized(cluster=cluster, pca_dim=512, run_analysis=run_analysis, norm_tag="unit_sphere")

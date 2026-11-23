@@ -50,6 +50,9 @@ def analyze_encoder_states(
     max_points_per_modality: int = 50_000,
     plot_seq_tags: Optional[List[str]] = None,
     max_plotted_seqs: int = 20,
+    plot_all_sequences: bool = False,
+    join_lines: bool = False,
+    mark_sequence_ends: bool = True,
     cosine_similarity_summary: bool = False,
     extra_callback_opts: Optional[Dict[str, Any]] = None,
     out_dir_name: str = "encoder_pca",
@@ -87,6 +90,12 @@ def analyze_encoder_states(
         "plot_seq_tags": plot_seq_tags,
         "max_plotted_seqs": max_plotted_seqs,
     }
+    if plot_all_sequences:
+        callback_opts["plot_all_sequences"] = plot_all_sequences
+        if not join_lines:
+            callback_opts["join_lines"] = join_lines
+        if not mark_sequence_ends:
+            callback_opts["mark_sequence_ends"] = mark_sequence_ends
     if cosine_similarity_summary:
         callback_opts["cosine_similarity_summary"] = cosine_similarity_summary
     if extra_callback_opts:

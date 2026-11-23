@@ -30,6 +30,7 @@ def _ensure_container_libs_on_path() -> None:
     candidate_dirs = [
         "/rwthfs/rz/cluster/home/p0023999/experiments/2026_05_07_first_experiments/container_libs",
         "/u/benjamin.oyarzun/experiments/2026_05_07_first_experiments/container_libs",
+        "/work/smt4/benjamin.oyarzun/container_libs",
     ]
     for d in candidate_dirs:
         if os.path.isdir(d) and d not in sys.path:

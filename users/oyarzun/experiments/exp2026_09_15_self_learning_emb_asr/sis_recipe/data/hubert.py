@@ -20,6 +20,693 @@ SPIN_HUBERT_CKPT_URLS = {
     2048: "https://huggingface.co/datasets/vectominist/spin_ckpt/resolve/main/spin_hubert_2048.ckpt",
 }
 
+FACTO_RELEASE_URL = "https://github.com/ubisoft/ubisoft-laforge-facto/releases/download/v0.1.0"
+
+FACTO_CHECKPOINTS = {
+    "encoder": "encoder-2bc62958.ckpt",
+    "content-proj": "content-proj-23e55fa2.ckpt",
+    "patch-proj-12hz": "patch-proj-12hz-3fbaab5b.ckpt",
+    "patch-proj-25hz": "patch-proj-25hz-8c90f35d.ckpt",
+    "kmeans-12hz-8192": "kmeans-12hz-8192-716b5e75.ckpt",
+    "kmeans-12hz-16384": "kmeans-12hz-16384-e6936ddf.ckpt",
+    "kmeans-25hz-8192": "kmeans-25hz-8192-72d20d5a.ckpt",
+    "kmeans-25hz-16384": "kmeans-25hz-16384-fdb2a98e.ckpt",
+}
+
+FACTO_CESTIMATOR_CONFIGS = {
+    "12hz": {"patch_size": 4, "output_size": 19},
+    "25hz": {"patch_size": 2, "output_size": 12},
+}
+
+
+class DownloadFactoCheckpointsJob(Job):
+    """
+    Downloads pre-trained Facto checkpoints (WavLM-Large Layer 6 encoder, content projection,
+    patch PCA projection, and K-Means codebook) from ubisoft/ubisoft-laforge-facto releases
+    (van Niekerk et al., 2026).
+    Default variant: '12hz-8192' (12.5 Hz frame rate, k=8192 codebook size).
+    Runs as a mini_task on the local engine so internet access is available.
+    """
+
+    def __init__(
+        self,
+        variant: str = "12hz-8192",
+        release_url: Optional[str] = None,
+    ):
+        super().__init__()
+        if variant not in ("12hz-8192", "12hz-16384", "25hz-8192", "25hz-16384"):
+            raise ValueError(f"Unsupported Facto variant: {variant}")
+        self.variant = variant
+        self.frame_rate, self.num_clusters_str = variant.split("-")
+        self.release_url = (release_url or FACTO_RELEASE_URL).rstrip("/")
+
+        v_tag = variant.replace("-", "_")
+        self.out_encoder_ckpt = self.output_path("encoder.ckpt")
+        self.out_content_proj_ckpt = self.output_path("content_proj.ckpt")
+        self.out_patch_proj_ckpt = self.output_path(f"patch_proj_{self.frame_rate}.ckpt")
+        self.out_kmeans_ckpt = self.output_path(f"kmeans_{v_tag}.ckpt")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    @staticmethod
+    def _download_file(url: str, target_path: str, min_bytes: int = 100) -> None:
+        import shutil
+        import subprocess
+        import urllib.request
+
+        tmp_path = target_path + ".tmp"
+        logging.info(f"Downloading Facto checkpoint from {url} to {target_path}...")
+        try:
+            subprocess.run(["wget", "-q", "-O", tmp_path, url], check=True)
+        except Exception as e_wget:
+            logging.warning(f"wget failed ({e_wget}), falling back to urllib.request...")
+            urllib.request.urlretrieve(url, tmp_path)
+
+        if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) < min_bytes:
+            raise RuntimeError(f"Downloaded checkpoint {tmp_path} from {url} is missing or unexpectedly small!")
+        shutil.move(tmp_path, target_path)
+
+    def run(self):
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+        downloads = [
+            (f"{self.release_url}/{FACTO_CHECKPOINTS['encoder']}", self.out_encoder_ckpt.get_path(), 100_000_000),
+            (f"{self.release_url}/{FACTO_CHECKPOINTS['content-proj']}", self.out_content_proj_ckpt.get_path(), 1_000),
+            (
+                f"{self.release_url}/{FACTO_CHECKPOINTS[f'patch-proj-{self.frame_rate}']}",
+                self.out_patch_proj_ckpt.get_path(),
+                500,
+            ),
+            (
+                f"{self.release_url}/{FACTO_CHECKPOINTS[f'kmeans-{self.variant}']}",
+                self.out_kmeans_ckpt.get_path(),
+                10_000,
+            ),
+        ]
+        for url, out_path, min_sz in downloads:
+            self._download_file(url, out_path, min_bytes=min_sz)
+        logging.info(f"Successfully downloaded all Facto ({self.variant}) checkpoints.")
+
+
+class ExtractFactoFeaturesJob(Job):
+    """
+    Extracts representations from Ubisoft La Forge Facto (Factorized Self-Supervised Speech Tokenization,
+    https://github.com/ubisoft/ubisoft-laforge-facto).
+    Recommended setup:
+      1. WavLM-Large truncated to Layer 6 (1024-D at 50 Hz).
+      2. Linear content factorization projection (1024-D -> 12-D at 50 Hz).
+      3. Patch stacking (patch_size=4 for 12.5 Hz, 48-D) + PCA patch projection (48-D -> 19-D at 12.5 Hz).
+      4. K-Means quantization with k=8192 codebook vectors (19-D at 12.5 Hz).
+      5. Upsampling 4x (repeat-interleaved along time) to 50 Hz so representations align frame-for-frame
+         with the 50 Hz (20 ms) GMM oracle phoneme segmentation boundaries.
+    """
+
+    __sis_hash_exclude__ = {
+        "batch_size": 1,
+        "quantize": True,
+    }
+
+    def __init__(
+        self,
+        encoder_ckpt: tk.Path,
+        content_proj_ckpt: tk.Path,
+        patch_proj_ckpt: tk.Path,
+        kmeans_ckpt: Optional[tk.Path] = None,
+        audio_dir: Optional[tk.Path] = None,
+        audio_tsv_manifest: Optional[tk.Path] = None,
+        variant: str = "12hz-8192",
+        quantize: bool = True,
+        batch_size: int = 1,
+    ):
+        super().__init__()
+        assert audio_dir is not None or audio_tsv_manifest is not None, "Either audio_dir or audio_tsv_manifest must be given"
+        self.encoder_ckpt = encoder_ckpt
+        self.content_proj_ckpt = content_proj_ckpt
+        self.patch_proj_ckpt = patch_proj_ckpt
+        self.kmeans_ckpt = kmeans_ckpt
+        self.audio_dir = audio_dir
+        self.audio_tsv_manifest = audio_tsv_manifest
+        self.variant = variant
+        self.quantize = quantize
+        self.batch_size = batch_size
+
+        self.out_features_npy = self.output_path("features.npy")
+        self.out_lengths_txt = self.output_path("lengths.txt")
+        self.out_seq_tags_txt = self.output_path("seq_tags.txt")
+        self.out_tokens_txt = self.output_path("facto_tokens_12hz.txt")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", rqmt={"gpu": 1, "cpu": 4, "mem": 32, "time": 12})
+
+    @staticmethod
+    def _build_facto_modules(
+        encoder_ckpt_path: str,
+        content_proj_ckpt_path: str,
+        patch_proj_ckpt_path: str,
+        kmeans_ckpt_path: Optional[str],
+        variant: str,
+        device,
+    ):
+        import math
+        import torch
+        import torch.nn as nn
+        import torch.nn.functional as F
+        try:
+            from torch.nn.utils.parametrizations import weight_norm
+        except ImportError:
+            from torch.nn.utils import weight_norm
+
+        class _LayerNormConv(nn.Module):
+            def __init__(self, in_dim: int, out_dim: int, kernel_size: int, stride: int, bias: bool = False):
+                super().__init__()
+                self.conv = nn.Conv1d(in_dim, out_dim, kernel_size=kernel_size, stride=stride, bias=bias)
+                self.layer_norm = nn.LayerNorm(out_dim, elementwise_affine=True)
+
+            def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+                hidden_states = self.conv(hidden_states)
+                hidden_states = hidden_states.transpose(-2, -1)
+                hidden_states = self.layer_norm(hidden_states)
+                hidden_states = hidden_states.transpose(-2, -1)
+                return F.gelu(hidden_states)
+
+        class _FeatureEncoder(nn.Module):
+            def __init__(self, dims, kernel_sizes, strides):
+                super().__init__()
+                self.conv_layers = nn.Sequential(
+                    *[
+                        _LayerNormConv(d_in, d_out, k_sz, st)
+                        for (d_in, d_out), k_sz, st in zip(zip(dims[:-1], dims[1:]), kernel_sizes, strides)
+                    ]
+                )
+
+            def forward(self, input_values: torch.Tensor) -> torch.Tensor:
+                return self.conv_layers(input_values)
+
+        class _FeatureProjection(nn.Module):
+            def __init__(self, conv_dim: int, hidden_size: int, layer_norm_eps: float, feat_proj_dropout: float):
+                super().__init__()
+                self.layer_norm = nn.LayerNorm(conv_dim, eps=layer_norm_eps)
+                self.projection = nn.Linear(conv_dim, hidden_size)
+                self.dropout = nn.Dropout(feat_proj_dropout)
+
+            def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+                hidden_states = self.layer_norm(hidden_states)
+                hidden_states = self.projection(hidden_states)
+                return self.dropout(hidden_states)
+
+        class _PositionalConvEmbedding(nn.Module):
+            def __init__(self, hidden_size: int, num_conv_pos_embeddings: int, num_conv_pos_embedding_groups: int):
+                super().__init__()
+                self.num_pad_remove = 1 if num_conv_pos_embeddings % 2 == 0 else 0
+                conv = nn.Conv1d(
+                    hidden_size,
+                    hidden_size,
+                    kernel_size=num_conv_pos_embeddings,
+                    padding=num_conv_pos_embeddings // 2,
+                    groups=num_conv_pos_embedding_groups,
+                )
+                self.conv = weight_norm(conv, name="weight", dim=2)
+
+            def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+                hidden_states = hidden_states.transpose(1, 2)
+                hidden_states = self.conv(hidden_states)
+                if self.num_pad_remove > 0:
+                    hidden_states = hidden_states[:, :, : -self.num_pad_remove]
+                hidden_states = F.gelu(hidden_states)
+                return hidden_states.transpose(1, 2)
+
+        class _FeedForward(nn.Module):
+            def __init__(self, hidden_size: int, intermediate_size: int, activation_dropout: float, hidden_dropout: float):
+                super().__init__()
+                self.intermediate_dropout = nn.Dropout(activation_dropout)
+                self.intermediate_dense = nn.Linear(hidden_size, intermediate_size)
+                self.output_dense = nn.Linear(intermediate_size, hidden_size)
+                self.output_dropout = nn.Dropout(hidden_dropout)
+
+            def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+                hidden_states = self.intermediate_dense(hidden_states)
+                hidden_states = F.gelu(hidden_states)
+                hidden_states = self.intermediate_dropout(hidden_states)
+                hidden_states = self.output_dense(hidden_states)
+                return self.output_dropout(hidden_states)
+
+        class _SelfAttention(nn.Module):
+            def __init__(
+                self,
+                embed_dim: int,
+                num_heads: int,
+                dropout: float = 0.0,
+                num_buckets: int = 320,
+                max_distance: int = 800,
+                has_relative_position_bias: bool = True,
+            ):
+                super().__init__()
+                self.embed_dim = embed_dim
+                self.num_heads = num_heads
+                self.dropout = dropout
+                self.head_dim = embed_dim // num_heads
+                self.scaling = self.head_dim ** -0.5
+
+                self.in_proj = nn.Linear(embed_dim, 3 * embed_dim)
+                self.out_proj = nn.Linear(embed_dim, embed_dim)
+
+                self.num_buckets = num_buckets
+                self.max_distance = max_distance
+                self.gru_rel_pos_const = nn.Parameter(torch.ones(1, self.num_heads, 1, 1))
+                self.gru_rel_pos_linear = nn.Linear(self.head_dim, 8)
+                if has_relative_position_bias:
+                    self.rel_attn_embed = nn.Embedding(self.num_buckets, self.num_heads)
+
+            def forward(self, hidden_states: torch.Tensor, attention_mask=None, position_bias=None):
+                bsz, tgt_len, _ = hidden_states.size()
+                if position_bias is None:
+                    position_bias = self.compute_bias(tgt_len, tgt_len)
+                    position_bias = position_bias.unsqueeze(0).repeat(bsz, 1, 1, 1)
+                    position_bias = position_bias.view(bsz * self.num_heads, tgt_len, tgt_len)
+                gated_position_bias = self.compute_gated_bias(hidden_states, position_bias)
+                attn_output = self.multi_head_self_attention(hidden_states, attention_mask, gated_position_bias)
+                return attn_output, position_bias
+
+            def multi_head_self_attention(self, hidden_states: torch.Tensor, attention_mask, gated_position_bias: torch.Tensor):
+                bsz, tgt_len, _ = hidden_states.shape
+                head_dim = self.embed_dim // self.num_heads
+                qkv = self.in_proj(hidden_states).view(bsz, tgt_len, 3, self.num_heads, head_dim).permute(2, 0, 3, 1, 4)
+                q, k, v = qkv[0], qkv[1], qkv[2]
+                if attention_mask is not None:
+                    key_padding_mask = attention_mask.ne(1)[:, None, None, :]
+                    gated_position_bias = gated_position_bias.masked_fill(key_padding_mask, float("-inf"))
+                attn_output = F.scaled_dot_product_attention(
+                    q, k, v, attn_mask=gated_position_bias, dropout_p=0.0, is_causal=False
+                )
+                attn_output = attn_output.transpose(1, 2).contiguous().view(bsz, tgt_len, self.embed_dim)
+                return self.out_proj(attn_output)
+
+            def compute_gated_bias(self, hidden_states: torch.Tensor, position_bias: torch.Tensor) -> torch.Tensor:
+                bsz, tgt_len, _ = hidden_states.shape
+                gated_hidden_states = hidden_states.view(bsz, tgt_len, self.num_heads, -1).permute(0, 2, 1, 3)
+                relative_position_proj = self.gru_rel_pos_linear(gated_hidden_states).view(
+                    bsz, self.num_heads, tgt_len, 2, 4
+                ).sum(-1)
+                gate_a, gate_b = torch.sigmoid(relative_position_proj).chunk(2, dim=-1)
+                gate_output = gate_a * (gate_b * self.gru_rel_pos_const - 1.0) + 2.0
+                gated_position_bias = (gate_output.view(bsz * self.num_heads, -1, 1) * position_bias).view(
+                    bsz, self.num_heads, tgt_len, tgt_len
+                )
+                return gated_position_bias
+
+            def compute_bias(self, query_length: int, key_length: int) -> torch.Tensor:
+                context_position = torch.arange(query_length, dtype=torch.long, device=self.rel_attn_embed.weight.device)
+                memory_position = torch.arange(key_length, dtype=torch.long, device=self.rel_attn_embed.weight.device)
+                relative_position = memory_position[None, :] - context_position[:, None]
+                relative_position_bucket = self._relative_positions_bucket(relative_position)
+                return self.rel_attn_embed(relative_position_bucket).permute(2, 0, 1)
+
+            def _relative_positions_bucket(self, relative_positions: torch.Tensor) -> torch.Tensor:
+                num_buckets = self.num_buckets // 2
+                relative_buckets = (relative_positions > 0).to(torch.long) * num_buckets
+                relative_positions = torch.abs(relative_positions)
+                max_exact = num_buckets // 2
+                is_small = relative_positions < max_exact
+                relative_positions_if_large = torch.log(relative_positions.float() / max_exact)
+                relative_positions_if_large = relative_positions_if_large / math.log(self.max_distance / max_exact)
+                relative_positions_if_large = relative_positions_if_large * (num_buckets - max_exact)
+                relative_position_if_large = (max_exact + relative_positions_if_large).to(torch.long)
+                relative_position_if_large = torch.min(
+                    relative_position_if_large,
+                    torch.full_like(relative_position_if_large, num_buckets - 1),
+                )
+                relative_buckets += torch.where(is_small, relative_positions, relative_position_if_large)
+                return relative_buckets
+
+        class _TransformerLayer(nn.Module):
+            def __init__(
+                self,
+                hidden_size: int,
+                intermediate_size: int,
+                num_attention_heads: int,
+                attention_dropout: float,
+                num_buckets: int,
+                max_bucket_distance: int,
+                hidden_dropout: float,
+                activation_dropout: float,
+                layer_norm_eps: float,
+                has_relative_position_bias: bool = True,
+            ):
+                super().__init__()
+                self.attention = _SelfAttention(
+                    embed_dim=hidden_size,
+                    num_heads=num_attention_heads,
+                    dropout=attention_dropout,
+                    num_buckets=num_buckets,
+                    max_distance=max_bucket_distance,
+                    has_relative_position_bias=has_relative_position_bias,
+                )
+                self.dropout = nn.Dropout(hidden_dropout)
+                self.layer_norm = nn.LayerNorm(hidden_size, eps=layer_norm_eps)
+                self.feed_forward = _FeedForward(hidden_size, intermediate_size, activation_dropout, hidden_dropout)
+                self.final_layer_norm = nn.LayerNorm(hidden_size, eps=layer_norm_eps)
+
+            def forward(self, hidden_states: torch.Tensor, attention_mask=None, position_bias=None):
+                attn_residual = hidden_states
+                hidden_states = self.layer_norm(hidden_states)
+                hidden_states, position_bias = self.attention(
+                    hidden_states, attention_mask=attention_mask, position_bias=position_bias
+                )
+                hidden_states = attn_residual + self.dropout(hidden_states)
+                hidden_states = hidden_states + self.feed_forward(self.final_layer_norm(hidden_states))
+                return hidden_states, position_bias
+
+        class _TransformerEncoder(nn.Module):
+            def __init__(
+                self,
+                num_hidden_layers: int,
+                hidden_size: int,
+                intermediate_size: int,
+                num_attention_heads: int,
+                attention_dropout: float,
+                num_buckets: int,
+                max_bucket_distance: int,
+                num_conv_pos_embeddings: int,
+                num_conv_pos_embedding_groups: int,
+                layer_norm_eps: float,
+                hidden_dropout: float,
+                activation_dropout: float,
+            ):
+                super().__init__()
+                self.pos_conv_embed = _PositionalConvEmbedding(
+                    hidden_size, num_conv_pos_embeddings, num_conv_pos_embedding_groups
+                )
+                self.dropout = nn.Dropout(hidden_dropout)
+                self.layers = nn.ModuleList(
+                    [
+                        _TransformerLayer(
+                            hidden_size,
+                            intermediate_size,
+                            num_attention_heads,
+                            attention_dropout,
+                            num_buckets,
+                            max_bucket_distance,
+                            hidden_dropout,
+                            activation_dropout,
+                            layer_norm_eps,
+                            has_relative_position_bias=(i == 0),
+                        )
+                        for i in range(num_hidden_layers)
+                    ]
+                )
+
+            def forward(self, hidden_states: torch.Tensor, attention_mask=None) -> torch.Tensor:
+                if attention_mask is not None:
+                    expand_attention_mask = attention_mask.unsqueeze(-1).repeat(1, 1, hidden_states.shape[2])
+                    hidden_states[~expand_attention_mask] = 0
+                hidden_states = hidden_states + self.pos_conv_embed(hidden_states)
+                hidden_states = self.dropout(hidden_states)
+                position_bias = None
+                for layer in self.layers:
+                    hidden_states, position_bias = layer(
+                        hidden_states, attention_mask=attention_mask, position_bias=position_bias
+                    )
+                return hidden_states
+
+        class _FactoEncoder(nn.Module):
+            """WavLM-Large truncated to layer six (50 Hz, 1024-D)."""
+            def __init__(
+                self,
+                conv_dims=(1, 512, 512, 512, 512, 512, 512, 512),
+                conv_kernel_sizes=(10, 3, 3, 3, 3, 2, 2),
+                conv_strides=(5, 2, 2, 2, 2, 2, 2),
+                hidden_size: int = 1024,
+                layer_norm_eps: float = 1e-5,
+                feat_proj_dropout: float = 0.0,
+                num_hidden_layers: int = 6,
+                intermediate_size: int = 4096,
+                num_attention_heads: int = 16,
+                attention_dropout: float = 0.0,
+                num_buckets: int = 320,
+                max_bucket_distance: int = 800,
+                num_conv_pos_embeddings: int = 128,
+                num_conv_pos_embedding_groups: int = 16,
+                hidden_dropout: float = 0.0,
+                activation_dropout: float = 0.0,
+            ):
+                super().__init__()
+                self.feature_extractor = _FeatureEncoder(conv_dims, conv_kernel_sizes, conv_strides)
+                self.feature_projection = _FeatureProjection(
+                    conv_dims[-1], hidden_size, layer_norm_eps, feat_proj_dropout
+                )
+                self.encoder = _TransformerEncoder(
+                    num_hidden_layers,
+                    hidden_size,
+                    intermediate_size,
+                    num_attention_heads,
+                    attention_dropout,
+                    num_buckets,
+                    max_bucket_distance,
+                    num_conv_pos_embeddings,
+                    num_conv_pos_embedding_groups,
+                    layer_norm_eps,
+                    hidden_dropout,
+                    activation_dropout,
+                )
+
+            def forward(self, input_values: torch.Tensor, attention_mask=None) -> torch.Tensor:
+                hidden_states = self.feature_extractor(input_values).transpose(1, 2)
+                hidden_states = self.feature_projection(hidden_states)
+                return self.encoder(hidden_states, attention_mask)
+
+        class _ContentProjection(nn.Module):
+            def __init__(self, hidden_size: int = 1024, content_size: int = 12):
+                super().__init__()
+                self.W = nn.Parameter(torch.zeros(content_size, hidden_size), requires_grad=False)
+                self.b = nn.Parameter(torch.zeros(content_size), requires_grad=False)
+                self.M = nn.Parameter(torch.zeros(content_size, hidden_size), requires_grad=False)
+
+            def forward(self, hidden_states: torch.Tensor):
+                content = F.linear(hidden_states, self.W, self.b)
+                residual = hidden_states - content @ self.M
+                return content, residual
+
+        class _PatchProjection(nn.Module):
+            def __init__(self, content_size: int = 12, patch_size: int = 4, output_size: int = 19):
+                super().__init__()
+                self.patch_size = patch_size
+                self.content_size = content_size
+                self.output_size = output_size
+                self.A = nn.Parameter(torch.zeros(output_size, content_size * patch_size), requires_grad=False)
+                self.b = nn.Parameter(torch.zeros(output_size), requires_grad=False)
+
+            def forward(self, content: torch.Tensor) -> torch.Tensor:
+                B, T, D = content.shape
+                T_trim = (T // self.patch_size) * self.patch_size
+                patched = content[:, :T_trim].reshape(B, T_trim // self.patch_size, self.patch_size * D)
+                return F.linear(patched, self.A, self.b)
+
+        class _FactoKMeans(nn.Module):
+            def __init__(self, n_clusters: int, content_size: int):
+                super().__init__()
+                self.codebook = nn.Embedding(n_clusters, content_size)
+                self.codebook.weight.requires_grad_(False)
+
+            def forward(self, content: torch.Tensor):
+                B, T, D = content.shape
+                codebook = self.codebook.weight
+                K, _ = codebook.shape
+                flat = content.reshape(-1, D)
+                c_norm = torch.sum(flat ** 2, dim=1, keepdim=True)
+                k_norm = torch.sum(codebook ** 2, dim=1).view(1, K)
+                dists = torch.addmm(k_norm + c_norm, flat, codebook.t(), alpha=-2.0, beta=1.0)
+                indices = torch.argmin(dists, dim=1).view(B, T)
+                return indices, self.codebook(indices)
+
+        frame_rate, n_clusters_str = variant.split("-")
+        c_cfg = FACTO_CESTIMATOR_CONFIGS[frame_rate]
+        patch_size = int(c_cfg["patch_size"])
+        output_size = int(c_cfg["output_size"])
+        n_clusters = int(n_clusters_str)
+
+        encoder = _FactoEncoder()
+        encoder.load_state_dict(torch.load(encoder_ckpt_path, map_location="cpu"))
+        encoder.to(device).eval()
+
+        content_proj = _ContentProjection(hidden_size=1024, content_size=12)
+        content_proj.load_state_dict(torch.load(content_proj_ckpt_path, map_location="cpu"))
+        content_proj.to(device).eval()
+
+        patch_proj = _PatchProjection(content_size=12, patch_size=patch_size, output_size=output_size)
+        patch_proj.load_state_dict(torch.load(patch_proj_ckpt_path, map_location="cpu"))
+        patch_proj.to(device).eval()
+
+        kmeans = None
+        if kmeans_ckpt_path is not None:
+            kmeans = _FactoKMeans(n_clusters=n_clusters, content_size=output_size)
+            kmeans.load_state_dict(torch.load(kmeans_ckpt_path, map_location="cpu"))
+            kmeans.to(device).eval()
+
+        return encoder, content_proj, patch_proj, kmeans, patch_size, output_size
+
+    def run(self):
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+        import tempfile
+        import shutil
+        import torch
+        import torchaudio
+        from numpy.lib.format import open_memmap
+
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                f"CUDA is not available on {os.uname().nodename}! Failing fast instead of falling back to CPU."
+            )
+        device = torch.device("cuda")
+
+        enc_path = self.encoder_ckpt.get_path() if hasattr(self.encoder_ckpt, "get_path") else str(self.encoder_ckpt)
+        cproj_path = (
+            self.content_proj_ckpt.get_path()
+            if hasattr(self.content_proj_ckpt, "get_path")
+            else str(self.content_proj_ckpt)
+        )
+        pproj_path = (
+            self.patch_proj_ckpt.get_path()
+            if hasattr(self.patch_proj_ckpt, "get_path")
+            else str(self.patch_proj_ckpt)
+        )
+        km_path = (
+            (self.kmeans_ckpt.get_path() if hasattr(self.kmeans_ckpt, "get_path") else str(self.kmeans_ckpt))
+            if self.kmeans_ckpt is not None
+            else None
+        )
+
+        logging.info(f"Loading Facto ({self.variant}, WavLM Layer 6, quantize={self.quantize}) onto {device}...")
+        encoder, content_proj, patch_proj, kmeans, patch_size, feat_dim = self._build_facto_modules(
+            encoder_ckpt_path=enc_path,
+            content_proj_ckpt_path=cproj_path,
+            patch_proj_ckpt_path=pproj_path,
+            kmeans_ckpt_path=km_path,
+            variant=self.variant,
+            device=device,
+        )
+
+        audio_files = []
+        if self.audio_dir is not None:
+            root = self.audio_dir.get_path()
+            for r, dirs, files in os.walk(root):
+                for f in files:
+                    if f.endswith(".flac") or f.endswith(".wav"):
+                        audio_files.append(os.path.join(r, f))
+            audio_files.sort()
+        else:
+            with open(self.audio_tsv_manifest.get_path(), "r") as f:
+                lines = [line.strip() for line in f.readlines()]
+            root_dir = lines[0] if lines else ""
+            for entry in lines[1:]:
+                rel_path = entry.split("\t")[0]
+                full_path = os.path.join(root_dir, rel_path) if not os.path.isabs(rel_path) else rel_path
+                audio_files.append(full_path)
+
+        temp_dir = tempfile.mkdtemp(prefix="facto_feats_")
+        chunk_files = []
+        lengths = []
+        seq_tags = []
+        token_lines = []
+        total_frames = 0
+
+        batch_feats = []
+        batch_frames = 0
+        chunk_idx = 0
+
+        with torch.no_grad():
+            for i, full_path in enumerate(audio_files):
+                tag = os.path.splitext(os.path.basename(full_path))[0]
+                seq_tags.append(tag)
+
+                waveform, sample_rate = torchaudio.load(full_path)
+                if sample_rate != 16000:
+                    waveform = torchaudio.functional.resample(waveform, sample_rate, 16000)
+
+                if waveform.shape[0] > 1:
+                    waveform = torch.mean(waveform, dim=0, keepdim=True)
+
+                # Facto Encoder expects (B, 1, samples)
+                wav_input = waveform.unsqueeze(0).to(device)
+                hidden_states = encoder(wav_input)  # (1, T_50hz, 1024)
+                t_50hz = int(hidden_states.shape[1])
+
+                content_50hz, _ = content_proj(hidden_states)  # (1, T_50hz, 12)
+                rem = (patch_size - (t_50hz % patch_size)) % patch_size
+                if t_50hz < patch_size:
+                    pad_count = patch_size - t_50hz
+                    content_padded = torch.cat(
+                        [content_50hz, content_50hz[:, -1:, :].expand(-1, pad_count, -1)], dim=1
+                    )
+                elif rem > 0:
+                    content_padded = torch.cat(
+                        [content_50hz, content_50hz[:, -1:, :].expand(-1, rem, -1)], dim=1
+                    )
+                else:
+                    content_padded = content_50hz
+
+                content_patches = patch_proj(content_padded)  # (1, T_patches, feat_dim=19)
+                if self.quantize and kmeans is not None:
+                    indices, patch_vecs = kmeans(content_patches)  # (1, T_patches), (1, T_patches, 19)
+                    n_full_patches = max(1, t_50hz // patch_size)
+                    tok_seq = indices[0, :n_full_patches].cpu().tolist()
+                    token_lines.append(" ".join(str(t) for t in tok_seq))
+                else:
+                    patch_vecs = content_patches
+                    token_lines.append("")
+
+                # Upsample 12.5 Hz (or 25 Hz) patch vectors by patch_size (4x or 2x) to match 50 Hz frame rate
+                upsampled_50hz = torch.repeat_interleave(patch_vecs, patch_size, dim=1)[:, :t_50hz, :]
+                frame_feat = upsampled_50hz.squeeze(0).cpu().numpy().astype(np.float32)  # (T_50hz, 19)
+
+                feat_dim = frame_feat.shape[1]
+                lengths.append(t_50hz)
+                total_frames += t_50hz
+                batch_feats.append(frame_feat)
+                batch_frames += t_50hz
+
+                if batch_frames >= 100000 or i == len(audio_files) - 1:
+                    chunk_arr = np.concatenate(batch_feats, axis=0)
+                    chunk_path = os.path.join(temp_dir, f"chunk_{chunk_idx}.npy")
+                    np.save(chunk_path, chunk_arr)
+                    chunk_files.append(chunk_path)
+                    chunk_idx += 1
+                    batch_feats = []
+                    batch_frames = 0
+
+                if (i + 1) % 2000 == 0 or (i + 1) == len(audio_files):
+                    logging.info(f"Facto feature extraction progress: {i + 1:,}/{len(audio_files):,} utterances")
+
+        logging.info(
+            f"Writing {total_frames} frames (dim={feat_dim}) to {self.out_features_npy.get_path()} via memmap..."
+        )
+        out_npy = open_memmap(
+            self.out_features_npy.get_path(), mode="w+", dtype="float32", shape=(total_frames, feat_dim)
+        )
+        offset = 0
+        for chunk_path in chunk_files:
+            chunk_data = np.load(chunk_path)
+            c_len = len(chunk_data)
+            out_npy[offset : offset + c_len] = chunk_data
+            offset += c_len
+            os.remove(chunk_path)
+        out_npy.flush()
+        del out_npy
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+        with open(self.out_lengths_txt.get_path(), "w") as f:
+            for l in lengths:
+                f.write(f"{l}\n")
+
+        with open(self.out_seq_tags_txt.get_path(), "w") as f:
+            for tag in seq_tags:
+                f.write(f"{tag}\n")
+
+        with open(self.out_tokens_txt.get_path(), "w") as f:
+            for t_line in token_lines:
+                f.write(f"{t_line}\n")
+
+        logging.info(f"Facto feature extraction completed for {len(lengths)} sequences.")
+
 
 class DownloadSpinHuBERTCheckpointJob(Job):
     """
@@ -1600,10 +2287,21 @@ class GenerateAudioClusterNgramsJob(Job):
         best_by_center = {}
         best_by_left_pair = {}
         best_by_right_pair = {}
+        best_by_mid_pair = {}
+        best_by_left_triple = {}
+        best_by_right_triple = {}
 
         for idx, w in enumerate(vocab):
             parts = w.split(delim)
-            if n >= 3 and len(parts) >= 3:
+            if n == 4 and len(parts) >= 4:
+                mid = parts[1]
+                best_by_center.setdefault(mid, idx)
+                best_by_left_triple.setdefault((parts[0], parts[1], parts[2]), idx)
+                best_by_right_triple.setdefault((parts[1], parts[2], parts[3]), idx)
+                best_by_mid_pair.setdefault((parts[1], parts[2]), idx)
+                best_by_left_pair.setdefault((parts[0], parts[1]), idx)
+                best_by_right_pair.setdefault((parts[-2], parts[-1]), idx)
+            elif n >= 3 and len(parts) >= 3:
                 mid = parts[len(parts) // 2]
                 best_by_center.setdefault(mid, idx)
                 best_by_left_pair.setdefault((parts[0], parts[1]), idx)
@@ -1632,7 +2330,7 @@ class GenerateAudioClusterNgramsJob(Job):
                         else:
                             idx = best_by_center.get(tokens[i], 0)
                         seg_ids.append(idx)
-                elif n >= 3:
+                elif n == 3:
                     for i in range(L):
                         if 0 < i < L - 1:
                             cand = f"{tokens[i - 1]}{delim}{tokens[i]}{delim}{tokens[i + 1]}"
@@ -1656,6 +2354,66 @@ class GenerateAudioClusterNgramsJob(Job):
                         else:
                             if L > 1:
                                 idx = best_by_left_pair.get(
+                                    (tokens[L - 2], tokens[L - 1]),
+                                    best_by_center.get(tokens[L - 1], 0),
+                                )
+                            else:
+                                idx = best_by_center.get(tokens[L - 1], 0)
+                        seg_ids.append(idx)
+                elif n >= 4:
+                    for i in range(L):
+                        if 0 < i < L - 2:
+                            cand = f"{tokens[i - 1]}{delim}{tokens[i]}{delim}{tokens[i + 1]}{delim}{tokens[i + 2]}"
+                            idx = ngram_to_id.get(cand)
+                            if idx is None:
+                                idx = best_by_left_triple.get(
+                                    (tokens[i - 1], tokens[i], tokens[i + 1]),
+                                    best_by_right_triple.get(
+                                        (tokens[i], tokens[i + 1], tokens[i + 2]),
+                                        best_by_mid_pair.get(
+                                            (tokens[i], tokens[i + 1]),
+                                            best_by_left_pair.get(
+                                                (tokens[i - 1], tokens[i]),
+                                                best_by_center.get(tokens[i], 0),
+                                            ),
+                                        ),
+                                    ),
+                                )
+                        elif i == 0:
+                            if L >= 3:
+                                idx = best_by_right_triple.get(
+                                    (tokens[0], tokens[1], tokens[2]),
+                                    best_by_mid_pair.get(
+                                        (tokens[0], tokens[1]),
+                                        best_by_center.get(tokens[0], 0),
+                                    ),
+                                )
+                            elif L > 1:
+                                idx = best_by_mid_pair.get(
+                                    (tokens[0], tokens[1]),
+                                    best_by_center.get(tokens[0], 0),
+                                )
+                            else:
+                                idx = best_by_center.get(tokens[0], 0)
+                        elif i == L - 2 and L >= 3:
+                            idx = best_by_left_triple.get(
+                                (tokens[i - 1], tokens[i], tokens[i + 1]),
+                                best_by_mid_pair.get(
+                                    (tokens[i], tokens[i + 1]),
+                                    best_by_center.get(tokens[i], 0),
+                                ),
+                            )
+                        else:
+                            if L >= 3:
+                                idx = best_by_left_triple.get(
+                                    (tokens[L - 3], tokens[L - 2], tokens[L - 1]),
+                                    best_by_right_pair.get(
+                                        (tokens[L - 2], tokens[L - 1]),
+                                        best_by_center.get(tokens[L - 1], 0),
+                                    ),
+                                )
+                            elif L > 1:
+                                idx = best_by_right_pair.get(
                                     (tokens[L - 2], tokens[L - 1]),
                                     best_by_center.get(tokens[L - 1], 0),
                                 )

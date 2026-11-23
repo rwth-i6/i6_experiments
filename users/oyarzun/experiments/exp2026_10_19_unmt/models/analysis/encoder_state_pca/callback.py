@@ -101,6 +101,9 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
         max_points_per_modality: int = 50_000,
         plot_seq_tags: Optional[List[str]] = None,
         max_plotted_seqs: int = 20,
+        plot_all_sequences: bool = False,
+        join_lines: bool = False,
+        mark_sequence_ends: bool = True,
         cosine_similarity_summary: bool = False,
         src_label: str = "de",
         trg_label: str = "en",
@@ -119,6 +122,9 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
         self.max_points_per_modality = max_points_per_modality
         self.plot_seq_tags = set(plot_seq_tags) if plot_seq_tags is not None else None
         self.max_plotted_seqs = max_plotted_seqs
+        self.plot_all_sequences = plot_all_sequences
+        self.join_lines = join_lines
+        self.mark_sequence_ends = mark_sequence_ends
         self.cosine_similarity_summary = cosine_similarity_summary
         self.src_label = src_label
         self.trg_label = trg_label
@@ -191,11 +197,13 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
         self._tag_to_trg_text = self._load_text_by_tag(self.trg_text_file, self.seq_tags_file)
 
     def _should_plot(self, seq_tag: str) -> bool:
+        if self.plot_all_sequences:
+            return True
         if self.plot_seq_tags is not None:
             return seq_tag in self.plot_seq_tags
         if seq_tag in self._plot_selected:
             return True
-        if len(self._plot_selected) < self.max_plotted_seqs:
+        if self.max_plotted_seqs is not None and len(self._plot_selected) < self.max_plotted_seqs:
             self._plot_selected.add(seq_tag)
             return True
         return False
@@ -269,32 +277,108 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
         all_trg = np.concatenate(self._trg_pool, axis=0)
         mean, components = _fit_pca_2d(np.concatenate([all_src, all_trg], axis=0))
 
-        # Plot global cross-lingual PCA cloud (subsampled to at most 5000 points per language for clarity)
-        rng = np.random.RandomState(42)
-        src_sample = all_src[rng.choice(len(all_src), size=min(5000, len(all_src)), replace=False)]
-        trg_sample = all_trg[rng.choice(len(all_trg), size=min(5000, len(all_trg)), replace=False)]
-        src_global_coords = _project(src_sample, mean, components)
-        trg_global_coords = _project(trg_sample, mean, components)
+        paired_seq_tags = sorted(set(self._src_seqs) & set(self._trg_seqs))
 
-        plt.figure(figsize=(8, 8))
-        plt.scatter(
-            src_global_coords[:, 0], src_global_coords[:, 1],
-            s=10, alpha=0.4, label=f"lang: {self.src_label}", c="#1f77b4",
-        )
-        plt.scatter(
-            trg_global_coords[:, 0], trg_global_coords[:, 1],
-            s=10, alpha=0.4, label=f"lang: {self.trg_label}", c="#d62728",
-        )
+        # Plot global cross-lingual / cross-modal PCA over all sequences
+        # (without joining with lines, indicating sequence start with * and end with X)
+        plt.figure(figsize=(9, 9))
+        src_dot_labeled = False
+        trg_dot_labeled = False
+        src_start_labeled = False
+        src_end_labeled = False
+        trg_start_labeled = False
+        trg_end_labeled = False
+
+        if paired_seq_tags:
+            for seq_tag in paired_seq_tags:
+                s_st = self._src_seqs[seq_tag]
+                t_st = self._trg_seqs[seq_tag]
+                s_c = _project(s_st, mean, components)
+                t_c = _project(t_st, mean, components)
+
+                if len(s_c) > 0:
+                    plt.scatter(
+                        s_c[:, 0], s_c[:, 1],
+                        s=10, alpha=0.35, c="#1f77b4",
+                        edgecolors="none",
+                        label=f"lang: {self.src_label}" if not src_dot_labeled else None,
+                    )
+                    src_dot_labeled = True
+                    if self.mark_sequence_ends:
+                        plt.scatter(
+                            s_c[0, 0], s_c[0, 1],
+                            s=90, marker="*", c="#1f77b4",
+                            edgecolors="black", linewidths=0.7, zorder=6,
+                            label=f"{self.src_label} start (*)" if not src_start_labeled else None,
+                        )
+                        src_start_labeled = True
+                        if len(s_c) > 1:
+                            plt.scatter(
+                                s_c[-1, 0], s_c[-1, 1],
+                                s=70, marker="X", c="#1f77b4",
+                                edgecolors="black", linewidths=0.7, zorder=6,
+                                label=f"{self.src_label} end (X)" if not src_end_labeled else None,
+                            )
+                            src_end_labeled = True
+
+                if len(t_c) > 0:
+                    plt.scatter(
+                        t_c[:, 0], t_c[:, 1],
+                        s=10, alpha=0.35, c="#d62728",
+                        edgecolors="none",
+                        label=f"lang: {self.trg_label}" if not trg_dot_labeled else None,
+                    )
+                    trg_dot_labeled = True
+                    if self.mark_sequence_ends:
+                        plt.scatter(
+                            t_c[0, 0], t_c[0, 1],
+                            s=90, marker="*", c="#d62728",
+                            edgecolors="black", linewidths=0.7, zorder=6,
+                            label=f"{self.trg_label} start (*)" if not trg_start_labeled else None,
+                        )
+                        trg_start_labeled = True
+                        if len(t_c) > 1:
+                            plt.scatter(
+                                t_c[-1, 0], t_c[-1, 1],
+                                s=70, marker="X", c="#d62728",
+                                edgecolors="black", linewidths=0.7, zorder=6,
+                                label=f"{self.trg_label} end (X)" if not trg_end_labeled else None,
+                            )
+                            trg_end_labeled = True
+        else:
+            # Fallback to pooled random subsample if no paired per-sequence states
+            rng = np.random.RandomState(42)
+            src_sample = all_src[rng.choice(len(all_src), size=min(5000, len(all_src)), replace=False)]
+            trg_sample = all_trg[rng.choice(len(all_trg), size=min(5000, len(all_trg)), replace=False)]
+            src_global_coords = _project(src_sample, mean, components)
+            trg_global_coords = _project(trg_sample, mean, components)
+
+            plt.scatter(
+                src_global_coords[:, 0], src_global_coords[:, 1],
+                s=10, alpha=0.4, label=f"lang: {self.src_label}", c="#1f77b4",
+            )
+            plt.scatter(
+                trg_global_coords[:, 0], trg_global_coords[:, 1],
+                s=10, alpha=0.4, label=f"lang: {self.trg_label}", c="#d62728",
+            )
+
         plt.title(f"Global Shared Encoder PCA ({self.src_label} vs. {self.trg_label})")
         plt.xlabel("PC1")
         plt.ylabel("PC2")
-        plt.legend()
+        plt.legend(loc="best")
         plt.tight_layout()
         plt.savefig(os.path.join(self.out_dir, "global_language_pca.png"), dpi=200)
+        plt.savefig(os.path.join(self.out_dir, "all_sequences_pca.png"), dpi=200)
         plt.close()
 
-        paired_seq_tags = sorted(set(self._src_seqs) & set(self._trg_seqs))
         cosine_similarities: Dict[str, Dict[str, float]] = {}
+
+        if self.plot_seq_tags is not None:
+            individual_plot_tags = set(t for t in paired_seq_tags if t in self.plot_seq_tags)
+        elif self.max_plotted_seqs is not None and self.max_plotted_seqs >= 0:
+            individual_plot_tags = set(paired_seq_tags[: self.max_plotted_seqs])
+        else:
+            individual_plot_tags = set(paired_seq_tags)
 
         with open(os.path.join(self.out_dir, "summary.txt"), "w") as summary:
             summary.write(f"src_lang={self.src_label}\n")
@@ -347,70 +431,72 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
                 safe_seq_tag = seq_tag.replace("/", "_")
                 np.savez(os.path.join(self.out_dir, f"{safe_seq_tag}.npz"), **npz_data)
 
-                fig, ax = plt.subplots(figsize=(9, 9))
-                ax.scatter(src_coords[:, 0], src_coords[:, 1], s=18, alpha=0.7, label=self.src_label, c="#1f77b4")
-                ax.scatter(trg_coords[:, 0], trg_coords[:, 1], s=18, alpha=0.7, label=self.trg_label, c="#d62728")
-                if len(src_coords) > 1:
-                    ax.plot(src_coords[:, 0], src_coords[:, 1], alpha=0.35, c="#1f77b4")
-                if len(trg_coords) > 1:
-                    ax.plot(trg_coords[:, 0], trg_coords[:, 1], alpha=0.35, c="#d62728")
-                self._mark_start_end(ax, src_coords, label_prefix=self.src_label)
-                self._mark_start_end(ax, trg_coords, label_prefix=self.trg_label)
-                title = f"Shared encoder PCA ({self.src_label} vs. {self.trg_label})\nSequence ID: {seq_tag}"
-                if self.cosine_similarity_summary:
-                    cos = cosine_similarities[seq_tag]
-                    dist = {
-                        "src_src": _avg_pairwise_l2_distance(src_states),
-                        "trg_trg": _avg_pairwise_l2_distance(trg_states),
-                        "src_trg": _avg_pairwise_l2_distance(src_states, trg_states),
-                    }
-                    title += (
-                        f"\navg cos-sim: {self.src_label}-{self.src_label} {cos['src_src']:.3f} | "
-                        f"{self.trg_label}-{self.trg_label} {cos['trg_trg']:.3f} | "
-                        f"{self.src_label}-{self.trg_label} {cos['src_trg']:.3f}\n"
-                        f"avg L2-dist: {self.src_label}-{self.src_label} {dist['src_src']:.3f} | "
-                        f"{self.trg_label}-{self.trg_label} {dist['trg_trg']:.3f} | "
-                        f"{self.src_label}-{self.trg_label} {dist['src_trg']:.3f}"
-                    )
-                ax.set_title(title, fontsize=10)
-                ax.set_xlabel("PC1")
-                ax.set_ylabel("PC2")
-                ax.legend(loc="best")
-                ax.grid(True, linestyle=":", alpha=0.4)
+                if seq_tag in individual_plot_tags:
+                    fig, ax = plt.subplots(figsize=(9, 9))
+                    ax.scatter(src_coords[:, 0], src_coords[:, 1], s=18, alpha=0.7, label=self.src_label, c="#1f77b4")
+                    ax.scatter(trg_coords[:, 0], trg_coords[:, 1], s=18, alpha=0.7, label=self.trg_label, c="#d62728")
+                    if len(src_coords) > 1 and self.join_lines:
+                        ax.plot(src_coords[:, 0], src_coords[:, 1], alpha=0.35, c="#1f77b4")
+                    if len(trg_coords) > 1 and self.join_lines:
+                        ax.plot(trg_coords[:, 0], trg_coords[:, 1], alpha=0.35, c="#d62728")
+                    if self.mark_sequence_ends:
+                        self._mark_start_end(ax, src_coords, label_prefix=self.src_label)
+                        self._mark_start_end(ax, trg_coords, label_prefix=self.trg_label)
+                    title = f"Shared encoder PCA ({self.src_label} vs. {self.trg_label})\nSequence ID: {seq_tag}"
+                    if self.cosine_similarity_summary:
+                        cos = cosine_similarities[seq_tag]
+                        dist = {
+                            "src_src": _avg_pairwise_l2_distance(src_states),
+                            "trg_trg": _avg_pairwise_l2_distance(trg_states),
+                            "src_trg": _avg_pairwise_l2_distance(src_states, trg_states),
+                        }
+                        title += (
+                            f"\navg cos-sim: {self.src_label}-{self.src_label} {cos['src_src']:.3f} | "
+                            f"{self.trg_label}-{self.trg_label} {cos['trg_trg']:.3f} | "
+                            f"{self.src_label}-{self.trg_label} {cos['src_trg']:.3f}\n"
+                            f"avg L2-dist: {self.src_label}-{self.src_label} {dist['src_src']:.3f} | "
+                            f"{self.trg_label}-{self.trg_label} {dist['trg_trg']:.3f} | "
+                            f"{self.src_label}-{self.trg_label} {dist['src_trg']:.3f}"
+                        )
+                    ax.set_title(title, fontsize=10)
+                    ax.set_xlabel("PC1")
+                    ax.set_ylabel("PC2")
+                    ax.legend(loc="best")
+                    ax.grid(True, linestyle=":", alpha=0.4)
 
-                import textwrap
-                src_disp = (src_seq_str[:300] + "...") if len(src_seq_str) > 300 else src_seq_str
-                trg_disp = (trg_seq_str[:300] + "...") if len(trg_seq_str) > 300 else trg_seq_str
-                lines = []
-                if src_disp:
-                    lines.append(f"[{self.src_label}]: " + "\n  ".join(textwrap.wrap(src_disp, width=85)))
-                if trg_disp:
-                    lines.append(f"[{self.trg_label}]: " + "\n  ".join(textwrap.wrap(trg_disp, width=85)))
-                if self.use_hypothesis and seq_tag in self._tag_to_trg_text:
-                    ref_text = self._tag_to_trg_text[seq_tag]
-                    ref_disp = (ref_text[:300] + "...") if len(ref_text) > 300 else ref_text
-                    r_lbl = self.ref_label or (self.trg_label.replace(" (hyp)", "").replace("(hyp)", "").strip() + " (ref)")
-                    lines.append(f"[{r_lbl}]: " + "\n  ".join(textwrap.wrap(ref_disp, width=85)))
-                seq_box_text = "\n".join(lines)
+                    import textwrap
+                    src_disp = (src_seq_str[:300] + "...") if len(src_seq_str) > 300 else src_seq_str
+                    trg_disp = (trg_seq_str[:300] + "...") if len(trg_seq_str) > 300 else trg_seq_str
+                    lines = []
+                    if src_disp:
+                        lines.append(f"[{self.src_label}]: " + "\n  ".join(textwrap.wrap(src_disp, width=85)))
+                    if trg_disp:
+                        lines.append(f"[{self.trg_label}]: " + "\n  ".join(textwrap.wrap(trg_disp, width=85)))
+                    if self.use_hypothesis and seq_tag in self._tag_to_trg_text:
+                        ref_text = self._tag_to_trg_text[seq_tag]
+                        ref_disp = (ref_text[:300] + "...") if len(ref_text) > 300 else ref_text
+                        r_lbl = self.ref_label or (self.trg_label.replace(" (hyp)", "").replace("(hyp)", "").strip() + " (ref)")
+                        lines.append(f"[{r_lbl}]: " + "\n  ".join(textwrap.wrap(ref_disp, width=85)))
+                    seq_box_text = "\n".join(lines)
 
-                if seq_box_text:
-                    text_kwargs = dict(
-                        ha="center",
-                        va="bottom",
-                        fontsize=7.5,
-                        family="monospace",
-                        bbox=dict(boxstyle="round,pad=0.5", facecolor="#f8f9fa", edgecolor="#ced4da", alpha=0.9),
-                    )
-                    try:
-                        fig.text(0.5, 0.02, seq_box_text, parse_math=False, **text_kwargs)
-                    except TypeError:
-                        fig.text(0.5, 0.02, seq_box_text.replace("$", "\uff04"), **text_kwargs)
-                    fig.subplots_adjust(bottom=0.22 if (self.use_hypothesis and seq_tag in self._tag_to_trg_text) else 0.20)
-                else:
-                    fig.tight_layout()
+                    if seq_box_text:
+                        text_kwargs = dict(
+                            ha="center",
+                            va="bottom",
+                            fontsize=7.5,
+                            family="monospace",
+                            bbox=dict(boxstyle="round,pad=0.5", facecolor="#f8f9fa", edgecolor="#ced4da", alpha=0.9),
+                        )
+                        try:
+                            fig.text(0.5, 0.02, seq_box_text, parse_math=False, **text_kwargs)
+                        except TypeError:
+                            fig.text(0.5, 0.02, seq_box_text.replace("$", "\uff04"), **text_kwargs)
+                        fig.subplots_adjust(bottom=0.22 if (self.use_hypothesis and seq_tag in self._tag_to_trg_text) else 0.20)
+                    else:
+                        fig.tight_layout()
 
-                fig.savefig(os.path.join(self.out_dir, f"{safe_seq_tag}.png"), dpi=200)
-                plt.close(fig)
+                    fig.savefig(os.path.join(self.out_dir, f"{safe_seq_tag}.png"), dpi=200)
+                    plt.close(fig)
 
                 summary.write(
                     f"{seq_tag} {self.src_label}_points={src_coords.shape[0]} {self.trg_label}_points={trg_coords.shape[0]}\n"
