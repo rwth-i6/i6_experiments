@@ -964,8 +964,9 @@ def _render_haru_lib_config(job: "SpeechFinetune", batch_size: int, max_steps: i
     (``text_segment_gap`` / ``text_at`` / ``text_offset``: ``rl_spec.components.HARU_TEXT_LAYOUT``), ``lead_in_frames``,
     ``max_s``, ``save_every``; optional ``micro_batch``, ``lr_schedule``, ``weight_decay``, ``grad_clip``, ``lora_scaling``,
     ``word_overlap``, ``eval_every``, ``heldout_every``, ``heldout_max``, ``heldout_seed``, the user-stream augmentation
-    (``aug_{gain,noise,echo_reverb,telephone,codec}_prob``, ``aug_clip_peak``, ``aug_noise_dir`` a ``tk.Path``) and the
-    run-side ``gradient_checkpointing`` / ``log_every``."""
+    (``aug_{gain,noise,echo_reverb,telephone,codec}_prob``, ``aug_clip_peak``, ``aug_noise_dir`` a ``tk.Path``),
+    ``item_rng`` (``"stream"`` / ``"per_item"``: ``row_item_stream``; absent = ``"stream"``, written only when set, so
+    arms without it keep their hash) and the run-side ``gradient_checkpointing`` / ``log_every``."""
     hp = getattr(job, "hparams", None) or {}  # not a copy: unread_hparams tracks the reads on the job's dict
     need = ("voice_dir", "lr", "warmup_steps", "grad_accum", "audio_weight", "text_pad_weight", "text_segment_gap",
             "text_at", "text_offset", "lead_in_frames", "max_s", "save_every")  # fmt: skip
@@ -974,10 +975,11 @@ def _render_haru_lib_config(job: "SpeechFinetune", batch_size: int, max_steps: i
     known = set(need) | {"micro_batch", "lr_schedule", "weight_decay", "grad_clip", "lora_scaling", "word_overlap",
                          "eval_every", "heldout_every", "heldout_max", "heldout_seed", "aug_gain_prob", "aug_noise_prob",
                          "aug_echo_reverb_prob", "aug_telephone_prob", "aug_codec_prob", "aug_clip_peak",
-                         "aug_noise_dir", "gradient_checkpointing", "log_every"}  # fmt: skip
+                         "aug_noise_dir", "gradient_checkpointing", "log_every", "item_rng"}  # fmt: skip
     unknown = sorted(set(hp) - known)
     assert not unknown, f"Haru lib: unknown hparams {unknown}"
     assert (hp.get("aug_noise_prob") or 0) == 0 or hp.get("aug_noise_dir") is not None, "aug_noise_prob needs aug_noise_dir"
+    assert hp.get("item_rng", "stream") in ("stream", "per_item"), f"Haru lib: item_rng {hp.get('item_rng')!r}"
 
     def val(k):
         v = hp[k]
