@@ -3,7 +3,9 @@ from i6_core import cart
 
 from i6_experiments.common.setups.rasr import util
 from i6_experiments.common.datasets.tedlium2.cart import CartQuestions
-from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINARY_PATH
+from i6_experiments.common.baselines.tedlium2.default_tools import SCTK_BINARY_PATH
+
+USE_CORRECTED_APPLICATOR = True
 
 
 def get_init_args():
@@ -86,7 +88,7 @@ def get_monophone_args():
         "extra_merge_args": None,
         "extra_config": None,
         "extra_post_config": None,
-        "use_corrected_applicator": False,
+        "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
     }
 
     monophone_training_args = {
@@ -97,7 +99,7 @@ def get_monophone_args():
         "splits": 10,
         "accs_per_split": 2,
         "dump_alignment_score_report": True,
-        "use_corrected_applicator": False,
+        "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
     }
 
     monophone_recognition_args = {
@@ -184,7 +186,7 @@ def get_triphone_args():
         "align_extra_rqmt": {"mem": 8},
         "accumulate_extra_rqmt": {"mem": 8},
         "split_extra_rqmt": {"mem": 8},
-        "use_corrected_applicator": False,
+        "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
     }
 
     triphone_recognition_args = {
@@ -250,7 +252,7 @@ def get_vtln_args():
             "align_extra_rqmt": {"mem": 8},
             "accumulate_extra_rqmt": {"mem": 8},
             "split_extra_rqmt": {"mem": 8},
-            "use_corrected_applicator": False,
+            "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
         },
     }
 
@@ -306,7 +308,7 @@ def get_sat_args():
         "align_extra_rqmt": {"mem": 8},
         "accumulate_extra_rqmt": {"mem": 8},
         "split_extra_rqmt": {"mem": 8},
-        "use_corrected_applicator": False,
+        "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
     }
 
     sat_recognition_args = {
@@ -320,10 +322,10 @@ def get_sat_args():
         "feature_cache": "mfcc",
         "cache_regex": "^mfcc.*$",
         "cmllr_mixtures": "estimate_mixtures_sdm.tri",
-        "iters": [8, 10],
+        "iters": [8, 9, 10],
         "feature_flow": "uncached_mfcc+context+lda",
-        "pronunciation_scales": [1.0],
-        "lm_scales": [25],
+        "pronunciation_scales": [0.0],
+        "lm_scales": [8.0, 20.0, 25.0],
         "lm_lookahead": True,
         "lookahead_options": None,
         "create_lattice": True,
@@ -371,7 +373,7 @@ def get_vtln_sat_args():
         "align_extra_rqmt": {"mem": 8},
         "accumulate_extra_rqmt": {"mem": 8},
         "split_extra_rqmt": {"mem": 8},
-        "use_corrected_applicator": False,
+        "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
     }
 
     vtln_sat_recognition_args = {
@@ -385,10 +387,10 @@ def get_vtln_sat_args():
         "feature_cache": "mfcc",
         "cache_regex": "^mfcc.*$",
         "cmllr_mixtures": "estimate_mixtures_sdm.vtln",
-        "iters": [8, 10],
+        "iters": [8, 9, 10],
         "feature_flow": "uncached_mfcc+context+lda+vtln",
-        "pronunciation_scales": [1.0],
-        "lm_scales": [25],
+        "pronunciation_scales": [0.0],
+        "lm_scales": [25, 20, 8.0],
         "lm_lookahead": True,
         "lookahead_options": None,
         "create_lattice": True,

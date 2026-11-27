@@ -1,4 +1,4 @@
-__all__ = ["HybridSystem"]
+__all__ = ["HybridArgs", "HybridSystem"]
 
 import copy
 import itertools
@@ -24,7 +24,7 @@ from i6_core.util import MultiPath, MultiOutputPath
 from i6_core.mm import CreateDummyMixturesJob
 from i6_core.returnn import ReturnnComputePriorJobV2
 
-from .nn_system import NnSystem
+from .nn_system import NnSystem, returnn_training
 from .hybrid_decoder import HybridDecoder
 
 from .util import (
@@ -94,17 +94,13 @@ class HybridSystem(NnSystem):
         self.cv_corpora = []
         self.devtrain_corpora = []
 
-        self.train_input_data = (
-            None
-        )  # type:Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]]
-        self.cv_input_data = (
-            None
-        )  # type:Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]]
-        self.devtrain_input_data = (
-            None
-        )  # type:Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]]
-        self.dev_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
-        self.test_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
+        self.train_input_data: Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]] = None
+        self.cv_input_data: Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]] = None
+        self.devtrain_input_data: Optional[
+            Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]
+        ] = None
+        self.dev_input_data: Optional[Dict[str, ReturnnRasrDataInput]] = None
+        self.test_input_data: Optional[Dict[str, ReturnnRasrDataInput]] = None
 
         self.train_cv_pairing = None
 
@@ -228,16 +224,22 @@ class HybridSystem(NnSystem):
         cv_corpus_key,
         devtrain_corpus_key=None,
     ) -> returnn.ReturnnTrainingJob:
-        if nn_train_args.returnn_root is None:
-            nn_train_args.returnn_root = self.returnn_root
-        if nn_train_args.returnn_python_exe is None:
-            nn_train_args.returnn_python_exe = self.returnn_python_exe
+        if isinstance(nn_train_args, ReturnnTrainingJobArgs):
+            if nn_train_args.returnn_root is None:
+                nn_train_args.returnn_root = self.returnn_root
+            if nn_train_args.returnn_python_exe is None:
+                nn_train_args.returnn_python_exe = self.returnn_python_exe
 
-        train_job = returnn.ReturnnTrainingJob(
+        train_job = returnn_training(
+            name=name,
             returnn_config=returnn_config,
-            returnn_root=self.returnn_root,
-            returnn_python_exe=self.returnn_python_exe,
-            **nn_train_args,
+            training_args=nn_train_args,
+            train_data=self.train_input_data[train_corpus_key],
+            cv_data=self.cv_input_data[cv_corpus_key],
+            additional_data={"devtrain": self.devtrain_input_data[devtrain_corpus_key]}
+            if devtrain_corpus_key is not None
+            else None,
+            register_output=False,
         )
         self._add_output_alias_for_train_job(
             train_job=train_job,
@@ -468,7 +470,6 @@ class HybridSystem(NnSystem):
                     checkpoints=checkpoints,
                     train_job=train_job,
                     recognition_corpus_key=dev_c,
-                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
                     **recog_args,
                 )
 
@@ -484,7 +485,6 @@ class HybridSystem(NnSystem):
                     checkpoints=checkpoints,
                     train_job=train_job,
                     recognition_corpus_key=tst_c,
-                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
                     **r_args,
                 )
 
@@ -504,7 +504,7 @@ class HybridSystem(NnSystem):
         :return: the TF graph
         """
         graph_compile_job = returnn.CompileTFGraphJob(
-            returnn_config,
+            returnn_config=returnn_config,
             epoch=epoch,
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe,
